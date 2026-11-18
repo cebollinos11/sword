@@ -1,6 +1,6 @@
 import { clampSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, storedSize, STANDARD_SIZE, type Size, type TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
-import { cleanName, isBattle, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
 import { devMode } from '../devMode';
 import { button, h, thumb, thumbImage } from './dom';
 import { arenaLabel, lobbyBody } from './lobbyView';
@@ -154,6 +154,8 @@ export class Menu {
   private arenaInPlay: string | null = null;
   private unsubscribe: (() => void) | null = null;
   private invite: RoomInvite | null = null;
+  /** The Room link is shown to copy by hand (copying it failed); kept across redraws, until another Room. */
+  private linkShown = false;
   private connecting = { title: '', detail: '', code: '' };
   private inGame = false;
   private joinText = '';
@@ -262,6 +264,7 @@ export class Menu {
       this.unsubscribe = lobby?.onChange(() => this.onLobbyChange()) ?? null;
     }
     this.lobby = lobby;
+    if (invite?.link !== this.invite?.link) this.linkShown = false;
     this.invite = invite;
   }
 
@@ -558,17 +561,23 @@ export class Menu {
 
   // --- Character ---
 
-  private settingsScreen(): HTMLElement {
+  /**
+   * Your look (a grid of Bodies) and build (Height and Weight sliders), for the Character screen and the Lobby's portrait.
+   * A slider sends its value to the Lobby when let go (the Lobby redraws on every change, which would end a drag), and
+   * meanwhile only moves its own number and your stored pick.
+   */
+  private lookControls(): { grid: HTMLElement; sliders: HTMLElement } {
     const grid = h('div', 'body-grid');
     for (const b of BODY_MODELS) {
       const card = button('body-card', '', () => {
         this.body = b;
         store(BODY_STORAGE_KEY, b);
-        this.lobby?.setMine({ body: b });
         grid.querySelectorAll('.body-card').forEach((c) => c.setAttribute('aria-pressed', String(c === card)));
+        this.lobby?.setMine({ body: b });
       });
       card.append(h('span', 'body-picture', null, thumbImage('', 'bodies', b, BODY_LABELS[b])), h('span', 'body-name', BODY_LABELS[b]));
       card.setAttribute('aria-pressed', String(b === this.body));
+      card.title = BODY_LABELS[b];
       grid.append(card);
     }
     const sizeSlider = (label: string, part: keyof Size) => {
@@ -584,17 +593,22 @@ export class Menu {
         this.size = clampSize({ ...this.size, [part]: Number(input.value) });
         value.textContent = `×${this.size[part].toFixed(2)}`;
         store(SIZE_STORAGE_KEY, `${this.size.height},${this.size.thick}`);
-        this.lobby?.setMine({ size: storedSize(this.size) });
       });
+      input.addEventListener('change', () => this.lobby?.setMine({ size: storedSize(this.size) }));
       return h('label', 'lb-row', null, h('span', 'field-label', label), input, value);
     };
+    return { grid, sliders: h('div', '', null, sizeSlider('Height', 'height'), sizeSlider('Weight', 'thick')) };
+  }
+
+  private settingsScreen(): HTMLElement {
+    const { grid, sliders } = this.lookControls();
     const display = h('div', 'lb-row', null, h('span', 'field-label', 'Display'), this.fullscreenButton() ?? h('span', 'menu-help', 'Fullscreen is not available here.'));
     return this.card(
       'Character',
       this.nameField(),
       h('div', 'field', null, h('span', 'field-label', 'Look'), grid),
-      h('div', 'field', null, h('span', 'field-label', 'Build'), sizeSlider('Height', 'height'), sizeSlider('Thick', 'thick')),
-      h('p', 'menu-help', 'Height lengthens your body and your Weapon; thick widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
+      h('div', 'field', null, h('span', 'field-label', 'Build'), sliders),
+      h('p', 'menu-help', 'Height lengthens your body and your Weapon; weight widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
       h('p', 'menu-help', 'Only you see your look: everyone else is drawn in a random one, and it never changes how a Fighter fights.'),
       display,
     );
@@ -639,13 +653,18 @@ export class Menu {
   private inviteBlock(): HTMLElement | null {
     if (!this.invite) return null;
     const { code, link } = this.invite;
+    // Where the link cannot be copied for you (no clipboard here, as over plain http, or it was refused), it is shown to
+    // copy by hand, and stays shown across the Lobby's redraws.
+    const showLink = () => {
+      this.linkShown = true;
+      linkInput.classList.add('shown');
+      linkInput.select();
+    };
     const copy = button('ghost small', 'Copy link', () => {
-      void navigator.clipboard?.writeText(link).then(
-        () => (copy.textContent = 'Copied ✓'),
-        () => linkInput.select(),
-      );
+      if (!navigator.clipboard) return showLink();
+      void navigator.clipboard.writeText(link).then(() => (copy.textContent = 'Copied ✓'), showLink);
     });
-    const linkInput = h('input', 'text-input link-input');
+    const linkInput = h('input', this.linkShown ? 'text-input link-input shown' : 'text-input link-input');
     linkInput.type = 'text';
     linkInput.readOnly = true;
     linkInput.value = link;
@@ -675,7 +694,7 @@ export class Menu {
       } else status = 'Only the host restarts the Match; your Weapon and Seat apply then.';
     } else if (!lobby.online) {
       const problem = startProblem(state, false);
-      status = problem ?? (isBattle(state) ? 'Pick your Weapon, then fight.' : 'Pick your Weapon and fill the Seats, then fight.');
+      status = problem ?? '';
       const fight = button('cta', 'Fight', () => this.handlers.onStart());
       fight.disabled = Boolean(problem);
       actions.push(fight);
@@ -699,7 +718,7 @@ export class Menu {
       null,
       head,
       this.messageLine(),
-      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay })),
+      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, look: () => this.lookControls() })),
       foot,
     );
   }

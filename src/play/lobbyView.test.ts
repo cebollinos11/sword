@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
-import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
+import { moveMember, newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
+import { addToSide, arenaLabel, joinSeat, removeFromSide, sideCount, traitorSeat, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -121,5 +121,58 @@ describe("the Weapon cards' Speed bar (docs/plans/flail.md, Stage 6)", () => {
     const sword = tuning.weapons['Arming Sword']!;
     const slowed = { ...tuning, weapons: { ...tuning.weapons, 'Arming Sword': { ...sword, tempo: { ...sword.tempo, windUp: 2 } } } };
     expect(swingSpeedBars(slowed)['Arming Sword']).toBeLessThan(swingSpeedBars(tuning)['Arming Sword']!);
+  });
+});
+
+describe("the Lobby's sides: how many fight, set with − and +", () => {
+  const weapon = Object.keys(tuning.weapons)[0]!;
+  const host = { name: 'Host', weapon, body: 'monk' };
+  const skirmish = newLobby({ host, settings: { arena: 'library', bestOf: 3 }, online: false, ai: { difficulty: 'Expert', weapon } });
+  const room = newLobby({ host, settings: { arena: 'library', bestOf: 3 }, online: true, ai: { difficulty: 'Expert', weapon } });
+
+  it('offline, + adds an AI like the first one, − takes the last AI away but never a Player', () => {
+    expect([sideCount(skirmish, 0), sideCount(skirmish, 1)]).toEqual([1, 1]);
+    const more = addToSide(tuning, skirmish, 0, false);
+    expect(more.teams[0]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon });
+    expect(sideCount(more, 0)).toBe(2);
+    expect(removeFromSide(more, 0)).toEqual(skirmish);
+    expect(removeFromSide(skirmish, 0)).toBe(skirmish);
+    const full = [0, 1, 2].reduce((s) => addToSide(tuning, s, 1, false), skirmish);
+    expect(sideCount(full, 1)).toBe(MAX_TEAM_SIZE);
+    expect(addToSide(tuning, full, 1, false)).toBe(full);
+  });
+
+  it('online, + opens a Seat for a player, then adds AIs while that one waits; − closes the last first', () => {
+    expect(room.teams[1]!.map((s) => s.kind)).toEqual(['Open', 'Open', 'Closed', 'Closed']);
+    const more = addToSide(tuning, room, 1, true);
+    expect(more.teams[1]![2]!.kind).toBe('AI');
+    expect(removeFromSide(more, 1)).toEqual(room);
+  });
+
+  it('in a Battle, where an AI Seat fields nobody, an AI counts as Empty and + never adds one', () => {
+    const battle = setFormat(room, 'Battle', randomMap(tuning, 1));
+    const withAi: LobbyState = { ...battle, teams: [battle.teams[0]!, battle.teams[1]!.map((s, i) => (i === 3 ? { kind: 'AI' as const, difficulty: 'Expert', weapon } : s))] };
+    expect(sideCount(withAi, 1)).toBe(sideCount(battle, 1));
+    const offline = setFormat(skirmish, 'Battle', randomMap(tuning, 1));
+    expect(addToSide(tuning, offline, 0, false)).toBe(offline);
+  });
+});
+
+describe("Join: changing sides from the Lobby's sides", () => {
+  const weapon = Object.keys(tuning.weapons)[0]!;
+  const skirmish = newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena: 'library', bestOf: 3 }, online: false, ai: { difficulty: 'Expert', weapon } });
+
+  it('in Duels takes the AI\'s Seat, so the two swap sides', () => {
+    expect(joinSeat(skirmish, 1)).toBe(0);
+  });
+
+  it("in a Gauntlet, a traitor rejoins the party on an Empty Seat, leaving the party's AI where it is", () => {
+    const run = addToSide(tuning, setFormat(skirmish, 'Gauntlet', randomMap(tuning, 1)), 0, false);
+    const traitor = moveMember(run, 0, { team: 1, index: traitorSeat(run)! });
+    expect(traitor.teams[0]![0]!.kind).not.toBe('Player');
+    const back = moveMember(traitor, 0, { team: 0, index: joinSeat(traitor, 0) });
+    const ais = (s: LobbyState, team: number) => s.teams[team]!.filter((seat) => seat.kind === 'AI').length;
+    expect(back.teams[0]!.some((s) => s.kind === 'Player')).toBe(true);
+    expect([ais(back, 0), ais(back, 1)]).toEqual([ais(traitor, 0), ais(traitor, 1)]);
   });
 });

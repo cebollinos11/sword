@@ -32,7 +32,7 @@ const BATTLEFIELD_FAR = 600;
 const PAST_FOG = 2;
 
 /** PlayStation resolution, always on: the picture is drawn this many lines tall (as wide as the screen's aspect ratio makes it) and scaled up in hard-edged pixels. */
-const PS1_LINES = 240;
+export const PS1_LINES = 240;
 
 /** One lamp of a model, by name prefix: its brightness (candela), how far it reaches (m) and its colour. */
 interface Lamp {
