@@ -599,14 +599,21 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   // --- Matches ---
 
+  /** The Lineup the party's tags were last named from (a guest's arrives with the host's hello). */
+  let taggedLineup: Lineup | null | undefined;
+  /** Name the party's tags by Fighter slot from the driver's Lineup. (A traitor tags the party's AI allies too, as `AI`.) */
+  function tagNames(d: MatchDriver): void {
+    taggedLineup = d.lineup;
+    partyTags.setNames(playersBySlot(d.lineup ?? [], names ?? []).map((n, k) => n ?? (d.lineup?.[k]?.team === 0 ? 'AI' : undefined)));
+  }
+
   const game: Game = {
     play({ driver: d, names: n, bodies: b }) {
       if (driver !== d) driver?.close?.();
       driver = d;
       names = n ?? null;
       bodies = b ?? null;
-      // (A traitor tags the party's AI allies too, as `AI`.)
-      partyTags.setNames(playersBySlot(d.lineup ?? [], names ?? []).map((n, k) => n ?? (d.lineup?.[k]?.team === 0 ? 'AI' : undefined)));
+      tagNames(d);
       // Fresh random Bodies for the AIs.
       renderer.recast();
       local.releaseAll();
@@ -1128,6 +1135,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Online, the party's other Players carry name tags on a Floor (offline there is nobody else to name).
       const tagged = driver.ping !== undefined && curr.delver !== undefined;
       partyTags.root.hidden = !tagged || shot !== null;
+      // A guest's session learns the Lineup from the host's hello, after the Match began: name the tags once it does.
+      if (tagged && driver.lineup !== taggedLineup) tagNames(driver);
       if (tagged && !shot) partyTags.update(curr.duel, before, me, alpha, (p) => renderer.toScreen(p), partyMarkers(curr.config, curr.duel, me));
       // A watching traitor is told when it takes over its next Soldier (docs/plans/delver.md, Stage 8a).
       const watching = traitor && !shot ? traitorWatchLine(curr, me) : null;
