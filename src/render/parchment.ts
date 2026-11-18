@@ -123,14 +123,26 @@ export function paintPlan(g: CanvasRenderingContext2D, passages: readonly PixelR
   }
 }
 
-/** An unexplored doorway's stub: Passage floor dithered away into the paper from its edge `from` (the side against its Hall). */
+/**
+ * An unexplored doorway's stub, painted after `paintPlan`: an opening cut in its Hall's ink outline, then Passage floor between two ink walls,
+ * both dithering away into the paper from its edge `from` (the side against its Hall), so a doorway reads as a corridor running off into the
+ * unknown.
+ */
 export function paintStub(g: CanvasRenderingContext2D, r: PixelRect, from: 'top' | 'bottom' | 'left' | 'right'): void {
   const [x, y, w, h] = snap(r);
-  g.fillStyle = PASSAGE;
-  for (let j = 0; j < h; j++) {
-    for (let i = 0; i < w; i++) {
-      const t = from === 'top' ? j / h : from === 'bottom' ? 1 - (j + 1) / h : from === 'left' ? i / w : 1 - (i + 1) / w;
-      if (bayer(x + i, y + j) >= t) g.fillRect(x + i, y + j, 1, 1);
+  const across = from === 'top' || from === 'bottom' ? w : h;
+  const length = from === 'top' || from === 'bottom' ? h : w;
+  // Pixel `k` along the stub from its Hall and `i` across it (-1 and `across`: its walls).
+  const at = (k: number, i: number): [number, number] =>
+    from === 'top' ? [x + i, y + k] : from === 'bottom' ? [x + i, y + h - 1 - k] : from === 'left' ? [x + k, y + i] : [x + w - 1 - k, y + i];
+  for (let k = 0; k < length; k++) {
+    const t = k / length;
+    for (let i = -1; i <= across; i++) {
+      const [px, py] = at(k, i);
+      // The first row is the Hall's outline: always opened (floor) and walled, so the doorway shows however short the stub is drawn.
+      if (k > 0 && bayer(px, py) < t) continue;
+      g.fillStyle = i < 0 || i === across ? INK : PASSAGE;
+      g.fillRect(px, py, 1, 1);
     }
   }
 }

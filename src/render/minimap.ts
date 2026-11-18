@@ -165,13 +165,14 @@ export class Minimap {
     ctx.beginPath();
     ctx.rect(4, 4, n - 8, n - 8);
     ctx.clip();
-    // On the minimap +z is up and +x left, so a stub against its Hall on side n fades downward from its top, on e rightward from its left.
-    for (const d of delverDoorStubs(plan, revealed)) paintStub(ctx, box(d.rect), STUB_EDGE[d.toward]);
     paintPlan(
       ctx,
       plan.passages.flatMap((p, i) => (isRevealed(revealed, plan.halls.length + i) ? p.pieces.map((piece) => box(piece.rect)) : [])),
       plan.halls.flatMap((h, i) => (isRevealed(revealed, i) ? h.rects.map((rect) => ({ ...box(rect), kind: h.kind })) : [])),
     );
+    // Over the plan, so each opens its Hall's outline. On the minimap +z is up and +x left, so a stub against its Hall on side n fades downward
+    // from its top, on e rightward from its left.
+    for (const d of delverDoorStubs(plan, revealed)) paintStub(ctx, box(d.rect), STUB_EDGE[d.toward]);
     ctx.fillStyle = ENEMY;
     fighters.forEach((e, i) => {
       if (e.team === 0 || i === me || !inDuel(e)) return;
