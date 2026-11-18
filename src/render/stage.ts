@@ -25,6 +25,8 @@ const MIN_HORIZONTAL_FOV = 62;
 /** The camera's far plane (m): an Arena's, and a Battlefield's, where the camera looks out over the whole field into the haze. */
 const FAR = 200;
 const BATTLEFIELD_FAR = 600;
+/** How far (m) past its fog's far end the camera draws in a setting whose haze swallows everything (`Setting.far`): a little, so nothing pops at the edge. */
+const PAST_FOG = 2;
 
 /** PlayStation resolution, always on: the picture is drawn this many lines tall (as wide as the screen's aspect ratio makes it) and scaled up in hard-edged pixels. */
 const PS1_LINES = 240;
@@ -227,6 +229,9 @@ export class Stage {
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
   private animate: ((seconds: number, camera: THREE.Camera) => void) | undefined;
+  /** The camera's far plane (m): the setting's own if it has one (`Setting.far`), else `defaultFar`. */
+  private far: (() => number | undefined) | undefined;
+  private defaultFar = FAR;
   /** The collision geometry drawn over a see-through model (see setColliders). */
   private colliders = false;
   private overlay: THREE.Object3D | undefined;
@@ -324,6 +329,11 @@ export class Stage {
 
   draw(): void {
     this.animate?.(performance.now() / 1000, this.camera);
+    const far = this.far?.() ?? this.defaultFar;
+    if (this.camera.far !== far) {
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
     bakeSkies(this.renderer);
     this.renderer.render(this.scene, this.camera);
   }
@@ -334,7 +344,8 @@ export class Stage {
     const kitLook = layout && KIT_LOOKS[layout.kit];
     const kit = layout && kitLook ? this.tuning.kits[layout.kit] : undefined;
     const field = isBattleName(name) ? battlefieldOf(arenaTuning(this.tuning, name).battle, name) : null;
-    this.camera.far = field ? BATTLEFIELD_FAR : FAR;
+    this.defaultFar = field ? BATTLEFIELD_FAR : FAR;
+    this.camera.far = this.defaultFar;
     this.camera.updateProjectionMatrix();
     const setting: Setting = field
       ? battle(name, field, () => this.arena === name, floorModelOf(this.tuning, name))
@@ -347,6 +358,7 @@ export class Stage {
             : outdoors(geometry);
     this.loaded = setting.loaded ?? Promise.resolve();
     this.animate = setting.animate;
+    this.far = setting.far;
     this.scene.background = setting.background;
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
@@ -370,6 +382,11 @@ interface Setting {
   readonly animate?: (seconds: number, camera: THREE.Camera) => void;
   /** Draws the model see-through, or solid; applied to the model when it loads too (modelled Arenas only). */
   readonly seeThrough?: (on: boolean) => void;
+  /**
+   * The camera's far plane (m), when the setting sets one: once a skyless look is in, its haze (drawn in the background's colour) hides
+   * everything past the fog's far end, so nothing there is drawn. Follows the fog, so a look's haze changed later moves it too.
+   */
+  readonly far?: () => number | undefined;
 }
 
 /** An open-air Arena: sky, sun, a grass plain and the Walk Surfaces as sand-coloured ground. */
@@ -532,6 +549,8 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     return setting;
   }
   let torches: TorchLights | undefined;
+  /** Whether the map's look has no sky, so its haze hides all past the fog (see `Setting.far`). */
+  let skyless = false;
   const loaded = (draft ?? arenaModel(`battle_${map}`, BATTLE_LAMPS))
     .then((model) => {
       texturedModel(model);
@@ -546,6 +565,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
         setting.fog.near = look.fog.near;
         setting.fog.far = look.fog.far;
         setting.background.copy(look.background);
+        skyless = !battleLook(sky).sky;
       }
       setting.root.add(model);
       // A Delver Floor's flames: its fires' static lights give way to the few that follow the camera from flame to flame.
@@ -565,7 +585,12 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
       // A map shipped without its model (its .glb not moved into public/ beside its files) is still drawn: from its Walk Surfaces and Walls.
       if (current()) setting.root.add(battleGreybox(field.arena));
     });
-  return { ...setting, loaded, animate: (seconds, camera) => torches?.update(camera, seconds) };
+  return {
+    ...setting,
+    loaded,
+    animate: (seconds, camera) => torches?.update(camera, seconds),
+    far: () => (skyless ? setting.fog.far + PAST_FOG : undefined),
+  };
 }
 
 /** The last few Delver Floors' drawn models, by Arena name (most recently used last): a restart may rebuild a Floor, the model is the same. */
