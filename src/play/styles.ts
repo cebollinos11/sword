@@ -14,25 +14,28 @@ const CSS = `
 .hud-delver-map[hidden] { display: none; }
 @media (max-width: 640px) { .hud-delver-map canvas { width: 100px !important; height: 100px !important; } }
 .hud-stats { position: absolute; top: 0.3rem; right: 0.5rem; font-size: 0.85rem; opacity: 0.7; text-shadow: var(--px) var(--px) 0 #000; font-variant-numeric: tabular-nums; }
-.hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; }
-.hud-team { flex: 1; max-width: 22rem; display: flex; flex-direction: column; gap: 0.3rem; }
-.hud-fighter { transition: opacity 300ms steps(4, end); }
+.hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.5rem 0.6rem; }
+.hud-team { flex: 1; max-width: 15rem; display: flex; flex-direction: column; gap: calc(var(--px) * 3); }
+.hud-fighter { display: flex; flex-wrap: wrap; align-items: center; column-gap: 0.4rem; transition: opacity 300ms steps(4, end); }
+.hud-side-1 .hud-fighter { flex-direction: row-reverse; }
 .hud-fighter.fallen { opacity: 0.35; }
-.hud-fighter:not(.hud-you) .hud-bar { height: 0.7rem; }
-.hud-label { font-size: 1.4rem; opacity: 0.85; text-shadow: var(--px) var(--px) 0 #000; margin-bottom: 0.1rem; }
+.hud-label { flex: 0 0 4.6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; font-size: 1.1rem; line-height: 1; opacity: 0.85; text-shadow: var(--px) var(--px) 0 #000; }
 .hud-you .hud-label { font-weight: 700; opacity: 1; }
 .hud-side-1 { text-align: right; }
 .hud-bar { position: relative; height: 1.3rem; background: #0d0a14; border: calc(var(--px) * 2) solid #000; box-shadow: 0 0 0 var(--px) #f3e6c8; overflow: hidden; }
+.hud-fighter .hud-bar { flex: 1 1 0; min-width: 0; height: calc(var(--px) * 9); box-sizing: border-box; border-width: var(--px); }
+.hud-fighter:not(.hud-you) .hud-bar { height: calc(var(--px) * 5); box-shadow: 0 0 0 var(--px) #a79d8c; }
 .hud-side-1 .hud-bar { transform: scaleX(-1); }
 .hud-fill { height: 100%; width: 100%; transition: width 120ms steps(4, end);
   background-image: repeating-linear-gradient(90deg, transparent 0 calc(var(--px) * 5), #0006 calc(var(--px) * 5) calc(var(--px) * 6)); }
 .hud-hp { position: absolute; inset: 0; font-size: 1.1rem; line-height: 1.2rem; text-align: center; text-shadow: var(--px) var(--px) 0 #000; }
+.hud-fighter .hud-hp { font-size: 1rem; line-height: calc(var(--px) * 7); }
 .hud-fighter:not(.hud-you) .hud-hp { display: none; }
 .hud-side-1 .hud-hp { transform: scaleX(-1); }
-.hud-daggers { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.3rem; height: 1.1rem; }
-.hud-dagger { width: 0.4rem; height: 1rem; background: #e8ecf0; box-shadow: inset calc(var(--px) * -1) 0 0 #9aa4ae; clip-path: polygon(50% 0, 100% 70%, 100% 100%, 0 100%, 0 70%); }
+.hud-daggers { flex: 0 0 100%; display: flex; align-items: center; gap: 0.2rem; margin-top: calc(var(--px) * 2); padding-left: 5rem; box-sizing: border-box; height: 0.8rem; }
+.hud-dagger { width: 0.3rem; height: 0.75rem; background: #e8ecf0; box-shadow: inset calc(var(--px) * -1) 0 0 #9aa4ae; clip-path: polygon(50% 0, 100% 70%, 100% 100%, 0 100%, 0 70%); }
 .hud-dagger.spent { opacity: 0.2; }
-.hud-slow { margin-left: 0.5rem; font-size: 0.91rem; font-weight: 700; color: #ffb060; text-shadow: var(--px) var(--px) 0 #000; opacity: 0; transition: opacity 150ms steps(4, end); }
+.hud-slow { margin-left: 0.4rem; font-size: 0.91rem; line-height: 1; font-weight: 700; color: #ffb060; text-shadow: var(--px) var(--px) 0 #000; opacity: 0; transition: opacity 150ms steps(4, end); }
 .hud-slow.visible { opacity: 1; }
 .hud-centre { text-align: center; text-shadow: var(--px) var(--px) 0 #000; min-width: 7rem; }
 .hud-score { font-family: var(--font-display); font-size: clamp(0.9rem, 3.4vw, 1.4rem); white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
