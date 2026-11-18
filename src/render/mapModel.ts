@@ -22,8 +22,11 @@ import { placeProps } from './mapProps';
 
 /** How thick (m) each kind of Wall is drawn: a Wall Brush, a rail, and a face (a Platform's side, a skirt under a raised edge). */
 const THICKNESS = { wall: 0.6, rail: 0.22, face: 0.3 };
-/** How thick (m) a Deck's slab is drawn under its floor. */
-const DECK_SLAB = 0.45;
+/**
+ * How thick (m) a Deck's slab is drawn under its floor, and an Enclosure's roof's over its roof: the roof's underside is then the
+ * ceiling a head bumps (`ceilingAbove`) and the camera stops at (`CameraCollider`), so neither sinks into the slab.
+ */
+export const DECK_SLAB = 0.45;
 /** A Ramp's wedge, and a Block, reach this far (m) under the floor they stand on, as the compiler's faces do. */
 const BELOW = 1;
 /** How far (m) beyond the field's edge the ground runs on (into the haze). */
@@ -188,8 +191,20 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   map.walk.forEach((w, i) => {
     const owner = brushes.get(draft.surfaceBrush[i]!);
     const look = w.lava ? HAZARD_LOOKS.lava : w.water ? HAZARD_LOOKS.water : w.abyss ? HAZARD_LOOKS.abyss : lookOf(draft.surfaceBrush[i]!);
-    buckets.polygon(look, w.points);
-    if (!owner || !isSlab(owner, w.points[0]!.y)) return;
+    const slab = !!owner && isSlab(owner, w.points[0]!.y);
+    if (!(slab && w.roof)) buckets.polygon(look, w.points);
+    if (!slab) return;
+    if (w.roof) {
+      // A roof: its slab stands over it, its underside (the ceiling seen from inside) on the Walk Surface itself.
+      const over = w.points.map((p) => ({ x: p.x, y: p.y + DECK_SLAB, z: p.z }));
+      buckets.polygon(look, [...w.points].reverse());
+      buckets.polygon(look, over);
+      w.points.forEach((p, k) => {
+        const q = w.points[(k + 1) % w.points.length]!;
+        buckets.quad(look, over[k]!, over[(k + 1) % over.length]!, q, p);
+      });
+      return;
+    }
     const under = w.points.map((p) => ({ x: p.x, y: p.y - DECK_SLAB, z: p.z }));
     buckets.polygon(look, [...under].reverse());
     w.points.forEach((p, k) => {

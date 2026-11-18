@@ -4,7 +4,7 @@ import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
 import { flatHalls, flatRooms, fullFloors, plainHalls } from './flat.testdata';
-import { HALL_STOREY, hallBase } from './plan';
+import { HALL_STOREY, hallBase, PASSAGE_STOREY } from './plan';
 
 describe('isFloorName', () => {
   it('is true for the names floorName makes', () => {
@@ -47,7 +47,7 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
           const w = q.axis === 'x' ? q.rect.z1 - q.rect.z0 : q.rect.x1 - q.rect.x0;
           expect(e.rect).toEqual(q.rect);
           expect(e.y).toBe(Math.min(q.y0, q.y1));
-          expect(enclosureTop(e, levels)).toBe(Math.max(q.y0, q.y1) + HALL_STOREY);
+          expect(enclosureTop(e, levels)).toBe(Math.max(q.y0, q.y1) + PASSAGE_STOREY);
           expect(e.material).toBe('stone');
           expect(w).toBe(tuning.delver.floor.passage);
           if (q.y0 === q.y1) {
@@ -61,7 +61,7 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
             const r = brush(f, `${id}-ramp`);
             expect(r).toMatchObject({ kind: 'ramp', rect: q.rect, lo: Math.min(q.y0, q.y1), hi: Math.max(q.y0, q.y1), up: q.y1 > q.y0 ? q.to : q.from, rails: q.axis === 'x' ? ['n', 's'] : ['e', 'w'], material: 'stone' });
           }
-          for (const y of [e.y, Math.max(q.y0, q.y1) + HALL_STOREY]) expect(levels).toContain(y);
+          for (const y of [e.y, Math.max(q.y0, q.y1) + PASSAGE_STOREY]) expect(levels).toContain(y);
         });
       }
     }
@@ -186,7 +186,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       expect(e.y).toBe(hallBase(h));
       expect(e.y).toBe(h.y - 2);
       expect(enclosureTop(e, f.source.levels!)).toBe(h.top);
-      expect(h.top).toBe(h.y + 4);
+      expect(h.top).toBe(h.y + HALL_STOREY);
       expect(e.doors).toEqual(h.doors);
       for (const t of feat.tiers) expect(f.source.levels).toContain(t.y);
     }
@@ -204,7 +204,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       const e = brush(f, h.id);
       expect(e?.kind === 'enclosure' && e.y).toBe(h.y);
       expect(hallBase(h)).toBe(h.y);
-      expect(h.top).toBe(h.y + feat.depth + 4);
+      expect(h.top).toBe(h.y + feat.depth + HALL_STOREY);
       expect(f.source.levels).toContain(h.y + feat.depth);
       expect(Object.keys(h.doors)).toEqual([]);
     }

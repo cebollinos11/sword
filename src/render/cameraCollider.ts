@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ArenaGeometry } from '../tuning';
+import { DECK_SLAB } from './mapModel';
 
 /** Walls lower than this (balustrades) do not stop the camera: it looks over and through them. */
 const MIN_WALL_HEIGHT = 1.5;
@@ -14,7 +15,7 @@ const MIN_COS = 0.25;
 /**
  * Keeps the third-person camera inside the Arena: a ray from the pivot (over
  * the Fighter's shoulder) to where the camera wants to be, against a cheap
- * proxy of the Arena (its tall Walls and its Walk Surfaces, both sides). On a
+ * proxy of the Arena (its tall Walls and its Walk Surfaces, both sides, and a Deck's slab's underside). On a
  * hit, the camera is pulled in to just short of it. Render-only.
  */
 export class CameraCollider {
@@ -36,7 +37,14 @@ export class CameraCollider {
       tri(p[0]!, p[1]!, p[2]!);
       tri(p[0]!, p[2]!, p[3]!);
     }
-    for (const s of arena.walk) for (let k = 1; k + 1 < s.points.length; k++) tri(s.points[0]!, s.points[k]!, s.points[k + 1]!);
+    for (const s of arena.walk) {
+      for (let k = 1; k + 1 < s.points.length; k++) tri(s.points[0]!, s.points[k]!, s.points[k + 1]!);
+      // A floor may be drawn as a slab under it (a Deck's): its underside stops a camera under it too. A roof's slab stands over it,
+      // and deadly ground is never overhead.
+      if (s.roof || s.lava || s.water || s.abyss) continue;
+      const under = s.points.map((p) => ({ x: p.x, y: p.y - DECK_SLAB, z: p.z }));
+      for (let k = 1; k + 1 < under.length; k++) tri(under[0]!, under[k]!, under[k + 1]!);
+    }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.computeBoundingSphere();

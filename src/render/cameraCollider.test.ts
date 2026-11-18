@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { parseArena } from '../tuning';
 import { CameraCollider } from './cameraCollider';
+import { DECK_SLAB } from './mapModel';
 
 const arena = parseArena(
   {
@@ -37,5 +38,20 @@ describe('CameraCollider', () => {
     const eye = new THREE.Vector3(0, 5, 6);
     collider.pull(new THREE.Vector3(0, 1.6, 0), eye);
     expect(eye.y).toBeLessThan(3);
+  });
+
+  it("stops under a Deck's slab, drawn under its floor", () => {
+    const eye = new THREE.Vector3(0, 6, 6);
+    collider.pull(new THREE.Vector3(0, 1.6, 6), eye);
+    expect(eye.y).toBeLessThan(3 - DECK_SLAB);
+  });
+
+  it("stops under a roof's own Walk Surface: its slab is drawn over it", () => {
+    const roofed = new CameraCollider(
+      parseArena({ name: 'room', walk: [{ id: 'floor', points: [[-5, 0, -5], [5, 0, -5], [5, 0, 5], [-5, 0, 5]] }, { id: 'roof', points: [[-5, 4, -5], [5, 4, -5], [5, 4, 5], [-5, 4, 5]], roof: true }], walls: [] }, 'room'),
+    );
+    const eye = new THREE.Vector3(0, 6, 0);
+    roofed.pull(new THREE.Vector3(0, 1, 0), eye);
+    expect(eye.y).toBeCloseTo(4 - 0.45, 5);
   });
 });
