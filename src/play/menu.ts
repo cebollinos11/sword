@@ -1,6 +1,6 @@
 import { clampSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, storedSize, STANDARD_SIZE, type Size, type TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
-import { cleanName, isBattle, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
 import { devMode } from '../devMode';
 import { button, h, thumb, thumbImage } from './dom';
 import { arenaLabel, lobbyBody } from './lobbyView';
@@ -642,7 +642,10 @@ export class Menu {
     const copy = button('ghost small', 'Copy link', () => {
       void navigator.clipboard?.writeText(link).then(
         () => (copy.textContent = 'Copied ✓'),
-        () => linkInput.select(),
+        () => {
+          linkInput.classList.add('shown');
+          linkInput.select();
+        },
       );
     });
     const linkInput = h('input', 'text-input link-input');
@@ -675,7 +678,7 @@ export class Menu {
       } else status = 'Only the host restarts the Match; your Weapon and Seat apply then.';
     } else if (!lobby.online) {
       const problem = startProblem(state, false);
-      status = problem ?? (isBattle(state) ? 'Pick your Weapon, then fight.' : 'Pick your Weapon and fill the Seats, then fight.');
+      status = problem ?? '';
       const fight = button('cta', 'Fight', () => this.handlers.onStart());
       fight.disabled = Boolean(problem);
       actions.push(fight);
@@ -699,7 +702,7 @@ export class Menu {
       null,
       head,
       this.messageLine(),
-      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay })),
+      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, onCharacter: () => this.open('settings') })),
       foot,
     );
   }

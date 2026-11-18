@@ -1,14 +1,14 @@
 /**
- * The Lobby drawn: the two teams with their Seats, the Match settings (Format,
- * Map cards, Match length) and your Weapon cards. In a Gauntlet, Team 1's Seats
- * give way to the Floors, the hand-made Maps and the Match length are hidden,
- * and the Random card names the Run seed. In a Battle the Maps and Match length give way to the two armies, and offline the
- * Seats too (online they say which Team each Player fights in; an AI Seat fields nobody). Used by the Skirmish setup, the
- * online Room Lobby and the in-game Match setup alike; who may change what
- * follows the Lobby (the host edits Seats and settings, everyone their own
- * Weapon and Seat).
+ * The Lobby drawn, kept to what most Matches need: on the left you (your Body, which opens Character, and your Weapon
+ * as a grid of pictures); on the right the Match (the picked map's picture with the Format and Match length, or a
+ * Battle's army size, on it, and the map picker behind "Change map"), the two sides (who fights; the host sets how many
+ * with − and +), one AI level for every AI, and "More options" folding away the rest: each Seat's own settings (an AI's
+ * Style, Weapon and build; a Seat moved to), the Random Map's seed, a Battle's fighting speed and what each Format means.
+ * In a Gauntlet the other side is the Floors; in an offline Battle there are no sides (its armies are its own). Used by
+ * the Skirmish setup, the online Room Lobby and the in-game Match setup alike; who may change what follows the Lobby
+ * (the host edits Seats and settings, everyone their own Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
+import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName, type MatchFormat } from '../sim';
 import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
@@ -155,15 +155,21 @@ export interface LobbyViewContext {
   readonly inGame: boolean;
   /** The Arena of the Match being played or played last (a Random Map's next Match follows on from it), or null. */
   readonly played?: string | null;
+  /** Open Character (your name and look), from your portrait; absent, the portrait is only a picture. */
+  readonly onCharacter?: () => void;
 }
 
-/** The whole Lobby body: teams on the left, settings and your Weapon on the right. */
+/** The whole Lobby body: you (your look and Weapon) on the left; the Match, the teams and the rest under "More options" on the right. */
 export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
   const state = ctx.lobby.state!;
-  const left = h('div', 'lb-main', null, teamsBlock(ctx, state));
-  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
-  return h('div', 'lb-body', null, left, right);
+  const load = loadoutBlock(ctx, state);
+  const main = h('div', 'lb-main', null, matchHero(ctx, state), sidesBlock(ctx, state), aiLevelRow(ctx, state), moreBlock(ctx, state));
+  return h('div', load ? 'lb-body' : 'lb-body lb-body-solo', null, load, main);
 }
+
+/** Whether "More options" and the map picker are open: kept across the redraw every Lobby change brings. */
+let moreOpen = false;
+let mapsOpen = false;
 
 function section(title: string, ...children: (Node | null | false)[]): HTMLElement {
   return h('section', 'lb-section', null, h('h3', 'lb-heading', title), ...children);
@@ -181,7 +187,7 @@ function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const note = ctx.lobby.online
     ? h('p', 'lb-note', `${humans} of ${MAX_PLAYERS} players · Open seats wait for players to join; Empty ones field nobody.`)
     : null;
-  return section('Teams', grid, note, isBattle(state) ? armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle) : null);
+  return section('Seats', grid, note, isBattle(state) ? armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle) : null);
 }
 
 function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLElement {
@@ -194,6 +200,8 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
     const held = state.teams[team]![index]!;
     // A Battle's armies are its own: an AI Seat fields nobody, and shows as Empty.
     const seat: Seat = held.kind === 'AI' && isBattle(state) ? { kind: 'Closed' } : held;
+    // Empty Seats are filled with the side's + (or emptied with its −), so only the filled ones are listed here.
+    if (seat.kind === 'Closed') continue;
     const fights = seat.kind === 'Player' || seat.kind === 'AI';
     card.append(seatRow(ctx, state, { team, index }, seat, fights ? teamColour(team, k++) : null));
   }
@@ -394,93 +402,268 @@ function weaponSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { 
   return select('AI Weapon', weapons, seat.weapon, (w) => ctx.lobby.edit((s) => setSeat(s, at, { ...seat, weapon: w })));
 }
 
-// --- Settings ---
+// --- The Match: the map picture with the Format and length on it ---
 
-function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+/** The picked map's name, picture and (for the Random Map) its seed line. */
+function pickedMap(ctx: LobbyViewContext, state: LobbyState): { label: string; art: string; sub: string | null } {
+  if (isBattle(state)) {
+    const choice = battleMapChoice(ctx.tuning, state.settings.battle);
+    return { label: choice.label, art: `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`, sub: null };
+  }
+  const arena = state.settings.arena;
+  if (mapSeed(arena) !== null) return { label: 'Random', art: `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`, sub: randomBlurb(state, ctx.played, false) };
+  return { label: arenaLabel(arena), art: `url("${thumb('arenas', arena)}") center / cover no-repeat, ${ARENA_INFO[arena]?.art ?? PLAIN_ART}`, sub: null };
+}
+
+/** A setting on the map picture: a dropdown for the host, plain text for everyone else. */
+function token(editable: boolean, label: string, options: readonly (readonly [string, string])[], value: string, onPick: (v: string) => void, disabled: (v: string) => string | null = () => null): HTMLElement {
+  if (!editable) return h('span', 'lb-token', options.find(([v]) => v === value)?.[1] ?? value);
+  const s = select(label, options, value, onPick);
+  s.className = 'lb-token';
+  for (const o of s.options) {
+    const problem = disabled(o.value);
+    if (problem && o.value !== value) {
+      o.disabled = true;
+      o.title = problem;
+    }
+  }
+  return s;
+}
+
+function matchHero(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
-  const arenas = shownArenas(ctx.tuning, state);
-  const maps = h('div', 'map-grid');
-  if (isBattle(state)) for (const card of battleMapCards(ctx, state, editable)) maps.append(card);
-  for (const a of arenas) {
-    const info = ARENA_INFO[a];
-    const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', arenaLabel(a)), info ? h('span', 'map-blurb', info.blurb) : null);
-    // The Arena's picture, over its painted stand-in while it loads (or if it is missing).
-    (card.firstChild as HTMLElement).style.background = `url("${thumb('arenas', a)}") center / cover no-repeat, ${info?.art ?? 'linear-gradient(160deg, #3a4654, #1a222b)'}`;
-    card.setAttribute('aria-pressed', String(a === state.settings.arena));
-    card.disabled = !editable && a !== state.settings.arena;
-    if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { arena: a })));
-    maps.append(card);
-  }
-  if (Object.keys(ctx.tuning.kits).length > 0 && !isBattle(state)) maps.append(randomCard(ctx, state, editable));
-  const seed = mapSeed(nextMatchArena(state, ctx.played ?? undefined));
-  const length = h('div', 'segmented');
-  length.setAttribute('role', 'radiogroup');
-  length.setAttribute('aria-label', 'Match length');
-  for (const n of BEST_OF) {
-    const b = button('', `Best of ${n}`, () => ctx.lobby.edit((s) => updateSettings(s, { bestOf: n })));
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(n === state.settings.bestOf));
-    b.disabled = !editable;
-    length.append(b);
-  }
-  const hint = isBattle(state)
-    ? h('p', 'lb-note', battleMapChoice(ctx.tuning, state.settings.battle).id === OPEN_FIELD ? 'A Battlefield of gentle hills, a fresh one each Battle.' : 'A Battle map, the same each Battle: pick the open field for fresh hills.')
-    : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
-  const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
-  const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
-  return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
-}
-
-/** In a Battle, one picture card per map (`battleMaps`): the host picks, everyone sees the pick (offline, you are the host). */
-function battleMapCards(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement[] {
-  const picked = battleMapChoice(ctx.tuning, state.settings.battle).id;
-  return battleMaps(ctx.tuning).map((choice) => {
-    const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', choice.label), h('span', 'map-blurb', choice.blurb));
-    // The map's picture (public/thumbs/battlemaps/<id>.webp), over its painted stand-in while it loads (or if it is missing). A map file's
-    // `art` the browser cannot read would drop the whole declaration: then the picture alone.
-    const art = card.firstChild as HTMLElement;
-    art.style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`;
-    if (!art.style.background) art.style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${PLAIN_ART}`;
-    card.setAttribute('aria-pressed', String(choice.id === picked));
-    card.disabled = !editable && choice.id !== picked;
-    // Picking one sets the army size back to that map's standard.
-    if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })));
-    return card;
-  });
-}
-
-/** The Format toggle (Duels, Gauntlet, Battle: `lobbyFormats`), when the Lobby offers more than one. */
-function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
+  const { label, art, sub } = pickedMap(ctx, state);
+  const tokens: HTMLElement[] = [];
   const formats = lobbyFormats();
-  if (formats.length < 2) return null;
-  const current = state.settings.format ?? 'Duels';
+  if (formats.length > 1) {
+    const options = formats.map((f) => [f, f] as const);
+    tokens.push(token(editable, 'Format', options, state.settings.format ?? 'Duels', (f) => ctx.lobby.edit((s) => setFormat(s, f as MatchFormat, randomMap(ctx.tuning, pickSeed()))), (f) => formatProblem(state, f as MatchFormat)));
+  }
+  if (showsBestOf(state)) {
+    const options = BEST_OF.map((n) => [String(n), `Best of ${n}`] as const);
+    tokens.push(token(editable, 'Match length', options, String(state.settings.bestOf), (n) => ctx.lobby.edit((s) => updateSettings(s, { bestOf: Number(n) }))));
+  }
+  if (isBattle(state)) {
+    const row = battleKnobRows(ctx.tuning, state.settings.battle)[0]!;
+    const current = runTuning(ctx.tuning, state.settings).battle.armySize;
+    const options = row.choices.map(([n, text]) => [String(n), `${text} a side`] as const);
+    tokens.push(token(editable, row.label, options, String(current), (n) => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleKnob(s.settings.battle, row, Number(n)) }))));
+  }
+  const line = h('div', 'lb-hero-line');
+  tokens.forEach((t, i) => line.append(...(i > 0 ? [h('span', 'lb-dot', '·'), t] : [t])));
+  if (sub) line.append(h('span', 'lb-hero-sub', sub));
+
+  const hero = h('div', 'lb-hero', null, h('div', 'lb-hero-name', label), line);
+  hero.style.background = `linear-gradient(180deg, #0d0a1420, #0d0a14e6 85%), ${art}`;
+  if (!hero.style.background) hero.style.background = `linear-gradient(180deg, #0d0a1420, #0d0a14e6 85%), ${PLAIN_ART}`;
+
+  const picker = mapPicker(ctx, state);
+  if (editable && isGauntlet(state)) {
+    // A Run is always on the Random Map: the one choice is a fresh seed.
+    hero.append(button('ghost small lb-hero-change', 'New seed', () => ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, pickSeed()) }))));
+  } else if (editable && picker) {
+    picker.hidden = !mapsOpen;
+    const change = button('ghost small lb-hero-change', mapsOpen ? 'Close' : 'Change map', () => {
+      mapsOpen = !mapsOpen;
+      picker.hidden = !mapsOpen;
+      change.textContent = mapsOpen ? 'Close' : 'Change map';
+    });
+    change.setAttribute('aria-expanded', String(mapsOpen));
+    hero.append(change);
+  }
+  return h('div', 'lb-match', null, hero, editable ? picker : null);
+}
+
+/** The host's map picker, under the map picture: every map as a picture with its name. */
+function mapPicker(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
+  if (isGauntlet(state)) return null;
+  const grid = h('div', 'map-grid lb-map-picker');
+  const card = (name: string, art: string, picked: boolean, pick: () => void) => {
+    const c = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', name));
+    (c.firstChild as HTMLElement).style.background = art;
+    c.setAttribute('aria-pressed', String(picked));
+    c.addEventListener('click', () => {
+      mapsOpen = false;
+      pick();
+    });
+    return c;
+  };
+  if (isBattle(state)) {
+    const picked = battleMapChoice(ctx.tuning, state.settings.battle).id;
+    for (const choice of battleMaps(ctx.tuning)) {
+      grid.append(card(choice.label, `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`, choice.id === picked, () =>
+        ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })),
+      ));
+    }
+    return grid;
+  }
+  for (const a of shownArenas(ctx.tuning, state)) {
+    const art = `url("${thumb('arenas', a)}") center / cover no-repeat, ${ARENA_INFO[a]?.art ?? PLAIN_ART}`;
+    grid.append(card(arenaLabel(a), art, a === state.settings.arena, () => ctx.lobby.edit((s) => updateSettings(s, { arena: a }))));
+  }
+  // Picking Random (again) rolls a fresh seed.
+  if (Object.keys(ctx.tuning.kits).length > 0) {
+    grid.append(card('Random', `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`, mapSeed(state.settings.arena) !== null, () =>
+      ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, pickSeed()) })),
+    ));
+  }
+  return grid;
+}
+
+// --- The two sides: who fights, and how many, set with − and + ---
+
+/** The Seat a side shows: a Battle's AI Seat fields nobody, so it is Empty. */
+const shownSeat = (state: LobbyState, seat: Seat): Seat => (seat.kind === 'AI' && isBattle(state) ? { kind: 'Closed' } : seat);
+
+/** How many places a side has filled: its Players, AIs and (online) Open Seats. */
+export function sideCount(state: LobbyState, team: number): number {
+  return state.teams[team]!.filter((s) => shownSeat(state, s).kind !== 'Closed').length;
+}
+
+/** The difficulty and Weapon a newly added AI takes: the first AI's, else Skilled with the first Weapon. */
+function newAi(tuning: TuningData, state: LobbyState): Extract<Seat, { kind: 'AI' }> {
+  const first = state.teams.flat().find((s): s is Extract<Seat, { kind: 'AI' }> => s.kind === 'AI');
+  const difficulty = first?.difficulty ?? (SEAT_DIFFICULTIES.find((d) => d === 'Skilled' && tuning.ai.difficulties[d]) ?? SEAT_DIFFICULTIES.find((d) => tuning.ai.difficulties[d]) ?? Object.keys(tuning.ai.difficulties)[0]!);
+  return { kind: 'AI', difficulty, weapon: first?.weapon ?? Object.keys(tuning.weapons)[0]! };
+}
+
+/**
+ * The host's + on a side: fill its first Empty Seat. Offline with an AI; online with an Open Seat for a player (one at a
+ * time: a side that already has one gets an AI), and in a Battle, where AIs field nobody, only ever an Open Seat. Unchanged when it cannot.
+ */
+export function addToSide(tuning: TuningData, state: LobbyState, team: number, online: boolean): LobbyState {
+  const index = state.teams[team]!.findIndex((s) => shownSeat(state, s).kind === 'Closed');
+  if (index < 0) return state;
+  const at = { team, index };
+  const hasOpen = state.teams[team]!.some((s) => s.kind === 'Open');
+  const open = online && canSetSeat(state, at, 'Open') && (isBattle(state) || !hasOpen);
+  if (open) return setSeat(state, at, { kind: 'Open' });
+  return isBattle(state) ? state : setSeat(state, at, newAi(tuning, state));
+}
+
+/** The host's − on a side: empty its last AI or Open Seat (never a Player's). Unchanged when it has none. */
+export function removeFromSide(state: LobbyState, team: number): LobbyState {
+  const row = state.teams[team]!;
+  for (let index = row.length - 1; index >= 0; index--) {
+    const kind = shownSeat(state, row[index]!).kind;
+    if (kind === 'AI' || kind === 'Open') return setSeat(state, { team, index }, { kind: 'Closed' });
+  }
+  return state;
+}
+
+function sidesBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
+  const shown = shownTeams(state, ctx.lobby.online);
+  if (shown.length === 0) return null;
+  const me = ctx.lobby.me;
+  const mine = me === null ? null : seatOf(state, me);
+  const title = (team: number) => (mine ? (team === mine.team ? 'Your team' : 'Opponents') : `Team ${team + 1}`);
+  const sides = shown.map((team) => sideCard(ctx, state, team, isGauntlet(state) ? 'Your party' : title(team), mine));
+  if (isGauntlet(state)) sides.push(floorsSide(ctx, state));
+  return h('div', 'lb-sides', null, ...sides);
+}
+
+function sideCard(ctx: LobbyViewContext, state: LobbyState, team: number, title: string, mine: SeatRef | null): HTMLElement {
+  const { lobby } = ctx;
+  const card = h('div', 'lb-side');
+  card.style.setProperty('--team', hex(teamColour(team, 0)));
+  const count = sideCount(state, team);
+  let control: HTMLElement;
+  if (lobby.isHost) {
+    const less = button('', '−', () => lobby.edit((s) => removeFromSide(s, team)));
+    const more = button('', '+', () => lobby.edit((s) => addToSide(ctx.tuning, s, team, lobby.online)));
+    less.setAttribute('aria-label', `Fewer on ${title}`);
+    more.setAttribute('aria-label', `More on ${title}`);
+    less.disabled = removeFromSide(state, team) === state;
+    more.disabled = addToSide(ctx.tuning, state, team, lobby.online) === state;
+    control = h('div', 'lb-stepper', null, less, h('span', '', String(count)), more);
+  } else control = h('span', 'lb-side-count', String(count));
+  const head = h('div', 'lb-side-head', null, h('span', 'lb-side-name', title));
+  // Change sides: take this side's first place that is not another Player's.
+  const free = state.teams[team]!.findIndex((s) => s.kind !== 'Player');
+  if (mine && mine.team !== team && free >= 0 && !isGauntlet(state)) head.append(button('lb-join', 'Join', () => lobby.moveMe({ team, index: free })));
+  head.append(control);
+  const list = h('div', 'lb-who');
+  let k = 0;
+  state.teams[team]!.forEach((held) => {
+    const seat = shownSeat(state, held);
+    if (seat.kind === 'Closed') return;
+    const colour = seat.kind === 'Open' ? null : teamColour(team, k++);
+    list.append(whoRow(ctx, state, seat, colour));
+  });
+  if (count === 0) list.append(h('div', 'lb-who-row lb-who-none', 'Nobody'));
+  card.append(head, list);
+  return card;
+}
+
+/** One line of a side: a Player (with You, Host and Ready), an AI, or an Open Seat. */
+function whoRow(ctx: LobbyViewContext, state: LobbyState, seat: Exclude<Seat, { kind: 'Closed' }>, colour: number | null): HTMLElement {
+  const { lobby } = ctx;
+  if (seat.kind === 'Player') {
+    const m = member(state, seat.member);
+    const name = m?.name ?? '…';
+    const row = h('div', 'lb-who-row', null, avatar(name.slice(0, 1).toUpperCase(), colour), h('span', 'lb-who-name', name));
+    if (seat.member === lobby.me) row.append(h('span', 'tag tag-you', 'You'));
+    if (seat.member === 0 && lobby.online) row.append(h('span', 'tag tag-host', 'Host'));
+    if (lobby.online && !ctx.inGame && seat.member !== 0) row.append(h('span', `lb-ready ${m?.ready ? 'is-ready' : ''}`, m?.ready ? 'Ready' : 'Not ready'));
+    else if (state.playing && !state.inMatch.includes(seat.member)) row.append(h('span', 'lb-ready', waitingTag(state)));
+    return row;
+  }
+  if (seat.kind === 'AI') return h('div', 'lb-who-row', null, avatar('AI', colour), h('span', 'lb-who-name', `${seat.difficulty} AI`));
+  return h('div', 'lb-who-row lb-who-open', null, h('span', 'seat-avatar seat-avatar-empty', '+'), h('span', 'lb-who-name', 'Open for a player'));
+}
+
+/** In a Gauntlet, the other side: the Dungeon's Floors, and the way to play a traitor. */
+function floorsSide(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+  const card = h('div', 'lb-side');
+  card.style.setProperty('--team', hex(teamColour(1, 0)));
+  card.append(h('div', 'lb-side-head', null, h('span', 'lb-side-name', 'The Floors'), h('span', 'lb-side-count', dungeonCard(ctx.tuning).count)));
+  const list = h('div', 'lb-who');
+  state.teams[1]!.forEach((seat, index) => {
+    if (seat.kind === 'Player') list.append(whoRow(ctx, state, seat, teamColour(1, index)));
+  });
+  const me = ctx.lobby.me;
+  const at = me === null ? null : seatOf(state, me);
+  const free = traitorSeat(state);
+  if (at && at.team === 0 && free !== null) list.append(button('lb-join', 'Play as a traitor', () => ctx.lobby.moveMe({ team: 1, index: free })));
+  card.append(list);
+  return card;
+}
+
+/** The host's one AI level for every AI (each can still be set apart under More options). Shown while there is an AI. */
+function aiLevelRow(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
+  if (!ctx.lobby.isHost || isBattle(state)) return null;
+  const ais = state.teams.flatMap((row, team) => row.map((seat, index) => ({ seat, at: { team, index } }))).filter((x) => x.seat.kind === 'AI');
+  if (ais.length === 0) return null;
+  const levels = SEAT_DIFFICULTIES.filter((d) => ctx.tuning.ai.difficulties[d]);
   const group = h('div', 'segmented');
   group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', 'Format');
-  for (const f of formats) {
-    const b = button('', f, () => ctx.lobby.edit((s) => setFormat(s, f, randomMap(ctx.tuning, pickSeed()))));
+  group.setAttribute('aria-label', 'AI level');
+  for (const d of levels) {
+    const b = button('', d, () =>
+      ctx.lobby.edit((s) => ais.reduce((acc, { seat, at }) => setSeat(acc, at, { ...(seat as Extract<Seat, { kind: 'AI' }>), difficulty: d }), s)),
+    );
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(f === current));
-    const problem = formatProblem(state, f);
-    b.disabled = !editable || problem !== null;
-    if (problem) b.title = problem;
+    b.setAttribute('aria-checked', String(ais.every(({ seat }) => seat.kind === 'AI' && seat.difficulty === d)));
     group.append(b);
   }
-  const refusal = editable ? formatRefusal(state) : null;
-  const row = h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
-  return refusal ? h('div', '', null, row, h('p', 'lb-note', refusal)) : row;
+  return h('div', 'lb-row', null, h('span', 'lb-label', 'AI level'), group);
 }
 
-/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next), or the Run seed. */
-function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement {
-  const seed = mapSeed(state.settings.arena) === null ? null : mapSeed(nextMatchArena(state, ctx.played ?? undefined));
-  const blurb = randomBlurb(state, ctx.played, editable);
-  const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', 'Random'), h('span', 'map-blurb', blurb));
-  (card.firstChild as HTMLElement).style.background = `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`;
-  card.setAttribute('aria-pressed', String(seed !== null));
-  card.disabled = !editable && seed === null;
-  if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, pickSeed()) })));
-  return card;
+/** Everything else, folded away: each Seat's own settings, the seed, a Battle's options and what each Format means. */
+function moreBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+  const editable = ctx.lobby.isHost;
+  const seed = mapSeed(nextMatchArena(state, ctx.played ?? undefined));
+  const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
+  const refusal = editable ? formatRefusal(state) : null;
+  const details = h('details', 'lb-more');
+  details.open = moreOpen;
+  details.addEventListener('toggle', () => (moreOpen = details.open));
+  const hint = isBattle(state) ? (editable ? 'fighting speed · how a Battle goes' : 'how a Battle goes') : editable ? "each AI's style, Weapon and build · seed" : 'seats and details';
+  details.append(
+    h('summary', '', null, h('span', '', 'More options'), h('span', 'lb-more-hint', hint)),
+    h('div', 'lb-more-body', null, seedRow, refusal ? h('p', 'lb-note', refusal) : null, teamsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null),
+  );
+  return details;
 }
 
 /** Host: type a seed in to play a Random Map again (the next Match is on it). */
@@ -636,35 +819,31 @@ export function swingSpeedBars(tuning: TuningData): Readonly<Record<string, numb
 /** The bars for each Tuning Data seen: they depend on nothing else, and the Lobby redraws on every pick. */
 const swingBars = new WeakMap<TuningData, Readonly<Record<string, number>>>();
 
-function weaponBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
+// --- You: your look and your Weapon ---
+
+/** Your Body (opens Character, where you change it) and your Weapon as a grid of pictures, its name and grip under it. */
+function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
   const me = ctx.lobby.me;
   const mine = me === null ? undefined : member(state, me);
   if (!mine) return null;
-  const roster = Object.values(ctx.tuning.weapons);
-  const top = (k: 'length' | 'damage') => Math.max(...roster.map((w) => w[k]));
-  const swing = swingSpeedBars(ctx.tuning);
-  const grid = h('div', 'weapon-grid');
-  for (const w of roster) {
-    const stat = (label: string, value: number, max: number) => {
-      const bar = h('span', 'stat-fill');
-      bar.style.width = `${Math.round((100 * value) / max)}%`;
-      return h('span', 'stat', null, h('span', 'stat-label', label), h('span', 'stat-bar', null, bar));
-    };
-    const card = h(
-      'button',
-      'weapon-card',
-      null,
-      h('span', 'weapon-picture', null, thumbImage('', 'weapons', weaponThumb(w.name), w.name)),
-      h('span', 'weapon-name', w.name),
-      h('span', 'weapon-grip', w.grip === 'twoHanded' ? 'Two-handed' : 'One-handed'),
-      stat('Reach', w.length, top('length')),
-      stat('Damage', w.damage, top('damage')),
-      stat('Speed', swing[w.name]!, 1),
-    );
-    card.setAttribute('aria-pressed', String(w.name === mine.weapon));
-    card.addEventListener('click', () => ctx.lobby.setMine({ weapon: w.name }));
-    grid.append(card);
+  const portrait = h('button', 'lb-portrait', null, h('span', 'lb-portrait-name', mine.name));
+  portrait.style.backgroundImage = `url("${thumb('bodies', mine.body)}")`;
+  if (ctx.onCharacter) {
+    portrait.title = 'Change your name and look';
+    portrait.addEventListener('click', ctx.onCharacter);
+  } else portrait.disabled = true;
+  const grid = h('div', 'lb-weapons');
+  grid.setAttribute('aria-label', 'Your Weapon');
+  const weapons = Object.values(ctx.tuning.weapons);
+  for (const w of weapons) {
+    const b = h('button', 'lb-weapon', null, thumbImage('', 'weapons', weaponThumb(w.name), w.name));
+    b.title = w.name;
+    b.setAttribute('aria-label', w.name);
+    b.setAttribute('aria-pressed', String(w.name === mine.weapon));
+    b.addEventListener('click', () => ctx.lobby.setMine({ weapon: w.name }));
+    grid.append(b);
   }
-  const note = ctx.inGame ? h('p', 'lb-note', 'Changes apply when the Match restarts.') : null;
-  return section('Your Weapon', grid, note);
+  const picked = ctx.tuning.weapons[mine.weapon];
+  const line = h('div', 'lb-weapon-line', null, h('span', 'lb-weapon-name', mine.weapon), picked ? h('span', '', picked.grip === 'twoHanded' ? 'Two-handed' : 'One-handed') : null);
+  return h('div', 'lb-load', null, portrait, h('div', '', null, grid, line));
 }
