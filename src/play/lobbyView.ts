@@ -1,5 +1,5 @@
 /**
- * The Lobby drawn, kept to what most Matches need: on the left you (your Body, which opens Character, and your Weapon
+ * The Lobby drawn, kept to what most Matches need: on the left you (your Body, which opens your look and build in place, and your Weapon
  * as a grid of pictures); on the right the Match (the picked map's picture with the Format and Match length, or a
  * Battle's army size, on it, and the map picker behind "Change map"), the two sides (who fights; the host sets how many
  * with − and +), one AI level for every AI, and "More options" folding away the rest: each Seat's own settings (an AI's
@@ -155,8 +155,8 @@ export interface LobbyViewContext {
   readonly inGame: boolean;
   /** The Arena of the Match being played or played last (a Random Map's next Match follows on from it), or null. */
   readonly played?: string | null;
-  /** Open Character (your name and look), from your portrait; absent, the portrait is only a picture. */
-  readonly onCharacter?: () => void;
+  /** Your look and build controls (the Character screen's), opened from your portrait; absent, the portrait is only a picture. */
+  readonly look?: () => { readonly grid: HTMLElement; readonly sliders: HTMLElement };
 }
 
 /** The whole Lobby body: you (your look and Weapon) on the left; the Match, the teams and the rest under "More options" on the right. */
@@ -170,6 +170,7 @@ export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
 /** Whether "More options" and the map picker are open: kept across the redraw every Lobby change brings. */
 let moreOpen = false;
 let mapsOpen = false;
+let lookOpen = false;
 
 function section(title: string, ...children: (Node | null | false)[]): HTMLElement {
   return h('section', 'lb-section', null, h('h3', 'lb-heading', title), ...children);
@@ -467,6 +468,12 @@ function matchHero(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     });
     change.setAttribute('aria-expanded', String(mapsOpen));
     hero.append(change);
+    // The picture itself opens the picker too (not its dropdowns or button).
+    hero.classList.add('lb-hero-pickable');
+    hero.title = 'Change map';
+    hero.addEventListener('click', (e) => {
+      if (!(e.target as Element).closest('select, button')) change.click();
+    });
   }
   return h('div', 'lb-match', null, hero, editable ? picker : null);
 }
@@ -830,16 +837,26 @@ const swingBars = new WeakMap<TuningData, Readonly<Record<string, number>>>();
 
 // --- You: your look and your Weapon ---
 
-/** Your Body (opens Character, where you change it) and your Weapon as a grid of pictures, its name and grip under it. */
+/** Your Body (click it to change your look and build, right here) and your Weapon as a grid of pictures, its name and grip under it. */
 function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
   const me = ctx.lobby.me;
   const mine = me === null ? undefined : member(state, me);
   if (!mine) return null;
-  const portrait = h('button', 'lb-portrait', null, h('span', 'lb-portrait-name', mine.name));
+  const portrait = h('button', 'lb-portrait', null, h('span', 'lb-portrait-name', mine.name), ctx.look ? h('span', 'lb-portrait-edit', lookOpen ? 'Done' : 'Edit') : null);
   portrait.style.backgroundImage = `url("${thumb('bodies', mine.body)}")`;
-  if (ctx.onCharacter) {
-    portrait.title = 'Change your name and look';
-    portrait.addEventListener('click', ctx.onCharacter);
+  let panel: HTMLElement | null = null;
+  if (ctx.look) {
+    const { grid, sliders } = ctx.look();
+    panel = h('div', 'lb-look', null, grid, sliders);
+    panel.hidden = !lookOpen;
+    portrait.title = 'Change your look, height and weight';
+    portrait.setAttribute('aria-expanded', String(lookOpen));
+    portrait.addEventListener('click', () => {
+      lookOpen = !lookOpen;
+      panel!.hidden = !lookOpen;
+      portrait.setAttribute('aria-expanded', String(lookOpen));
+      portrait.querySelector('.lb-portrait-edit')!.textContent = lookOpen ? 'Done' : 'Edit';
+    });
   } else portrait.disabled = true;
   const grid = h('div', 'lb-weapons');
   grid.setAttribute('aria-label', 'Your Weapon');
@@ -854,5 +871,5 @@ function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | n
   }
   const picked = ctx.tuning.weapons[mine.weapon];
   const line = h('div', 'lb-weapon-line', null, h('span', 'lb-weapon-name', mine.weapon), picked ? h('span', '', picked.grip === 'twoHanded' ? 'Two-handed' : 'One-handed') : null);
-  return h('div', 'lb-load', null, portrait, h('div', '', null, grid, line));
+  return h('div', 'lb-load', null, portrait, panel, h('div', '', null, grid, line));
 }

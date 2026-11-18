@@ -558,17 +558,23 @@ export class Menu {
 
   // --- Character ---
 
-  private settingsScreen(): HTMLElement {
+  /**
+   * Your look (a grid of Bodies) and build (Height and Weight sliders), for the Character screen and the Lobby's portrait.
+   * A slider sends its value to the Lobby when let go (the Lobby redraws on every change, which would end a drag), and
+   * meanwhile only moves its own number and your stored pick.
+   */
+  private lookControls(): { grid: HTMLElement; sliders: HTMLElement } {
     const grid = h('div', 'body-grid');
     for (const b of BODY_MODELS) {
       const card = button('body-card', '', () => {
         this.body = b;
         store(BODY_STORAGE_KEY, b);
-        this.lobby?.setMine({ body: b });
         grid.querySelectorAll('.body-card').forEach((c) => c.setAttribute('aria-pressed', String(c === card)));
+        this.lobby?.setMine({ body: b });
       });
       card.append(h('span', 'body-picture', null, thumbImage('', 'bodies', b, BODY_LABELS[b])), h('span', 'body-name', BODY_LABELS[b]));
       card.setAttribute('aria-pressed', String(b === this.body));
+      card.title = BODY_LABELS[b];
       grid.append(card);
     }
     const sizeSlider = (label: string, part: keyof Size) => {
@@ -584,17 +590,22 @@ export class Menu {
         this.size = clampSize({ ...this.size, [part]: Number(input.value) });
         value.textContent = `×${this.size[part].toFixed(2)}`;
         store(SIZE_STORAGE_KEY, `${this.size.height},${this.size.thick}`);
-        this.lobby?.setMine({ size: storedSize(this.size) });
       });
+      input.addEventListener('change', () => this.lobby?.setMine({ size: storedSize(this.size) }));
       return h('label', 'lb-row', null, h('span', 'field-label', label), input, value);
     };
+    return { grid, sliders: h('div', '', null, sizeSlider('Height', 'height'), sizeSlider('Weight', 'thick')) };
+  }
+
+  private settingsScreen(): HTMLElement {
+    const { grid, sliders } = this.lookControls();
     const display = h('div', 'lb-row', null, h('span', 'field-label', 'Display'), this.fullscreenButton() ?? h('span', 'menu-help', 'Fullscreen is not available here.'));
     return this.card(
       'Character',
       this.nameField(),
       h('div', 'field', null, h('span', 'field-label', 'Look'), grid),
-      h('div', 'field', null, h('span', 'field-label', 'Build'), sizeSlider('Height', 'height'), sizeSlider('Thick', 'thick')),
-      h('p', 'menu-help', 'Height lengthens your body and your Weapon; thick widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
+      h('div', 'field', null, h('span', 'field-label', 'Build'), sliders),
+      h('p', 'menu-help', 'Height lengthens your body and your Weapon; weight widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
       h('p', 'menu-help', 'Only you see your look: everyone else is drawn in a random one, and it never changes how a Fighter fights.'),
       display,
     );
@@ -702,7 +713,7 @@ export class Menu {
       null,
       head,
       this.messageLine(),
-      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, onCharacter: () => this.open('settings') })),
+      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, look: () => this.lookControls() })),
       foot,
     );
   }

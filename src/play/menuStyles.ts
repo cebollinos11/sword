@@ -136,6 +136,16 @@ export const MENU_CSS = `
 .lb-portrait { position: relative; display: flex; align-items: flex-end; height: 15rem; padding: 0; border: var(--px) solid var(--line); background: #1a1424 center 20% / 150% no-repeat; text-align: left; overflow: hidden; }
 .lb-portrait:hover:not(:disabled) { border-color: var(--gold); }
 .lb-portrait-name { width: 100%; padding: 0.4rem 0.6rem; background: linear-gradient(transparent, #0d0a14ee); font-family: var(--font-display); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-portrait-edit { position: absolute; top: 0.4rem; right: 0.4rem; padding: 0 0.4rem; background: #0d0a14cc; border: var(--px) solid var(--line-2); font-size: 1rem; color: var(--muted); }
+.lb-portrait:hover .lb-portrait-edit, .lb-portrait[aria-expanded="true"] .lb-portrait-edit { color: var(--gold-2); border-color: var(--gold); }
+.lb-look { display: flex; flex-direction: column; gap: 0.4rem; }
+.lb-look .body-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; }
+.lb-look .body-card { padding: 0.15rem; }
+.lb-look .body-name { display: none; }
+.lb-look .lb-row { gap: 0.4rem; margin: 0.2rem 0; }
+.lb-look .lb-row .field-label { min-width: 3.4rem; }
+.lb-hero-pickable { cursor: pointer; }
+.lb-hero-pickable:hover { border-color: var(--line-2); }
 .lb-weapons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem; }
 .lb-weapon { height: 2.8rem; padding: 0.2rem; border: var(--px) solid var(--panel-2); background: var(--panel); }
 .lb-weapon:hover { background: var(--line); }
