@@ -155,6 +155,7 @@ export const MENU_CSS = `
 .lb-weapon img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .lb-weapon-line { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.5rem; font-size: 1.1rem; color: var(--muted); }
 .lb-weapon-name { color: var(--text); }
+.lb-weapon-stats { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.4rem; }
 /* The Match: map picture with its settings */
 .lb-main { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .lb-hero { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-height: 10.5rem; padding: 0.8rem 0.9rem; border: var(--px) solid var(--ink); }

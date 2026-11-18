@@ -154,6 +154,8 @@ export class Menu {
   private arenaInPlay: string | null = null;
   private unsubscribe: (() => void) | null = null;
   private invite: RoomInvite | null = null;
+  /** The Room link is shown to copy by hand (copying it failed); kept across redraws, until another Room. */
+  private linkShown = false;
   private connecting = { title: '', detail: '', code: '' };
   private inGame = false;
   private joinText = '';
@@ -262,6 +264,7 @@ export class Menu {
       this.unsubscribe = lobby?.onChange(() => this.onLobbyChange()) ?? null;
     }
     this.lobby = lobby;
+    if (invite?.link !== this.invite?.link) this.linkShown = false;
     this.invite = invite;
   }
 
@@ -650,16 +653,18 @@ export class Menu {
   private inviteBlock(): HTMLElement | null {
     if (!this.invite) return null;
     const { code, link } = this.invite;
+    // Where the link cannot be copied for you (no clipboard here, as over plain http, or it was refused), it is shown to
+    // copy by hand, and stays shown across the Lobby's redraws.
+    const showLink = () => {
+      this.linkShown = true;
+      linkInput.classList.add('shown');
+      linkInput.select();
+    };
     const copy = button('ghost small', 'Copy link', () => {
-      void navigator.clipboard?.writeText(link).then(
-        () => (copy.textContent = 'Copied ✓'),
-        () => {
-          linkInput.classList.add('shown');
-          linkInput.select();
-        },
-      );
+      if (!navigator.clipboard) return showLink();
+      void navigator.clipboard.writeText(link).then(() => (copy.textContent = 'Copied ✓'), showLink);
     });
-    const linkInput = h('input', 'text-input link-input');
+    const linkInput = h('input', this.linkShown ? 'text-input link-input shown' : 'text-input link-input');
     linkInput.type = 'text';
     linkInput.readOnly = true;
     linkInput.value = link;

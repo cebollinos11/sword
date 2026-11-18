@@ -213,8 +213,7 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   let k = 0;
   for (let index = 0; index < MAX_TEAM_SIZE; index++) {
     const held = state.teams[team]![index]!;
-    // A Battle's armies are its own: an AI Seat fields nobody, and shows as Empty.
-    const seat: Seat = held.kind === 'AI' && isBattle(state) ? { kind: 'Closed' } : held;
+    const seat = shownSeat(state, held);
     // Empty Seats are filled with the side's + (or emptied with its −), so only the filled ones are listed here.
     if (seat.kind === 'Closed') continue;
     const fights = seat.kind === 'Player' || seat.kind === 'AI';
@@ -416,15 +415,35 @@ function weaponSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { 
 
 // --- The Match: the map picture with the Format and length on it ---
 
+/** A map's look: its picture (public/thumbs) and the painted stand-in shown while it loads (or if it is missing). */
+interface MapArt {
+  readonly picture: string;
+  readonly art: string;
+}
+
+const arenaArt = (arena: string): MapArt => ({ picture: thumb('arenas', arena), art: ARENA_INFO[arena]?.art ?? PLAIN_ART });
+const randomArt = (): MapArt => ({ picture: thumb('arenas', RANDOM_THUMB), art: RANDOM_ART });
+const battleArt = (choice: { id: string; art: string }): MapArt => ({ picture: thumb('battlemaps', choice.id), art: choice.art });
+
+/**
+ * Paint a map's picture over its stand-in as `el`'s background, under `over` (a shade, say). A map file's `art` the
+ * browser cannot read would drop the whole declaration: then the picture over the plain stand-in.
+ */
+function paintMap(el: HTMLElement, { picture, art }: MapArt, over = ''): void {
+  const layers = (stand: string) => `${over ? `${over}, ` : ''}url("${picture}") center / cover no-repeat, ${stand}`;
+  el.style.background = layers(art);
+  if (!el.style.background) el.style.background = layers(PLAIN_ART);
+}
+
 /** The picked map's name, picture and (for the Random Map) its seed line. */
-function pickedMap(ctx: LobbyViewContext, state: LobbyState): { label: string; art: string; sub: string | null } {
+function pickedMap(ctx: LobbyViewContext, state: LobbyState): { label: string; look: MapArt; sub: string | null } {
   if (isBattle(state)) {
     const choice = battleMapChoice(ctx.tuning, state.settings.battle);
-    return { label: choice.label, art: `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`, sub: null };
+    return { label: choice.label, look: battleArt(choice), sub: null };
   }
   const arena = state.settings.arena;
-  if (mapSeed(arena) !== null) return { label: 'Random', art: `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`, sub: randomBlurb(state, ctx.played, false) };
-  return { label: arenaLabel(arena), art: `url("${thumb('arenas', arena)}") center / cover no-repeat, ${ARENA_INFO[arena]?.art ?? PLAIN_ART}`, sub: null };
+  if (mapSeed(arena) !== null) return { label: 'Random', look: randomArt(), sub: randomBlurb(state, ctx.played, false) };
+  return { label: arenaLabel(arena), look: arenaArt(arena), sub: null };
 }
 
 /** A setting on the map picture: a dropdown for the host, plain text for everyone else. */
@@ -444,7 +463,7 @@ function token(editable: boolean, label: string, options: readonly (readonly [st
 
 function matchHero(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
-  const { label, art, sub } = pickedMap(ctx, state);
+  const { label, look, sub } = pickedMap(ctx, state);
   const tokens: HTMLElement[] = [];
   const formats = lobbyFormats();
   if (formats.length > 1) {
@@ -466,8 +485,7 @@ function matchHero(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   if (sub) line.append(h('span', 'lb-hero-sub', sub));
 
   const hero = h('div', 'lb-hero', null, h('div', 'lb-hero-name', label), line);
-  hero.style.background = `linear-gradient(180deg, #0d0a1420, #0d0a14e6 85%), ${art}`;
-  if (!hero.style.background) hero.style.background = `linear-gradient(180deg, #0d0a1420, #0d0a14e6 85%), ${PLAIN_ART}`;
+  paintMap(hero, look, 'linear-gradient(180deg, #0d0a1420, #0d0a14e6 85%)');
 
   const picker = mapPicker(ctx, state);
   if (editable && isGauntlet(state)) {
@@ -489,16 +507,18 @@ function matchHero(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
       if (!(e.target as Element).closest('select, button')) change.click();
     });
   }
-  return h('div', 'lb-match', null, hero, editable ? picker : null);
+  // Why a Format cannot be picked, in sight of the Format dropdown (its options' tooltips do not show on touch screens).
+  const refusal = editable ? formatRefusal(state) : null;
+  return h('div', 'lb-match', null, hero, refusal ? h('p', 'lb-note', refusal) : null, editable ? picker : null);
 }
 
 /** The host's map picker, under the map picture: every map as a picture with its name. */
 function mapPicker(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
   if (isGauntlet(state)) return null;
   const grid = h('div', 'map-grid lb-map-picker');
-  const card = (name: string, art: string, picked: boolean, pick: () => void) => {
+  const card = (name: string, look: MapArt, picked: boolean, pick: () => void) => {
     const c = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', name));
-    (c.firstChild as HTMLElement).style.background = art;
+    paintMap(c.firstChild as HTMLElement, look);
     c.setAttribute('aria-pressed', String(picked));
     c.addEventListener('click', () => {
       mapsOpen = false;
@@ -509,19 +529,18 @@ function mapPicker(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null
   if (isBattle(state)) {
     const picked = battleMapChoice(ctx.tuning, state.settings.battle).id;
     for (const choice of battleMaps(ctx.tuning)) {
-      grid.append(card(choice.label, `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`, choice.id === picked, () =>
+      grid.append(card(choice.label, battleArt(choice), choice.id === picked, () =>
         ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })),
       ));
     }
     return grid;
   }
   for (const a of shownArenas(ctx.tuning, state)) {
-    const art = `url("${thumb('arenas', a)}") center / cover no-repeat, ${ARENA_INFO[a]?.art ?? PLAIN_ART}`;
-    grid.append(card(arenaLabel(a), art, a === state.settings.arena, () => ctx.lobby.edit((s) => updateSettings(s, { arena: a }))));
+    grid.append(card(arenaLabel(a), arenaArt(a), a === state.settings.arena, () => ctx.lobby.edit((s) => updateSettings(s, { arena: a }))));
   }
   // Picking Random (again) rolls a fresh seed.
   if (Object.keys(ctx.tuning.kits).length > 0) {
-    grid.append(card('Random', `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`, mapSeed(state.settings.arena) !== null, () =>
+    grid.append(card('Random', randomArt(), mapSeed(state.settings.arena) !== null, () =>
       ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, pickSeed()) })),
     ));
   }
@@ -662,7 +681,9 @@ function floorsSide(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 /** The host's one AI level for every AI (each can still be set apart under More options). Shown while there is an AI. */
 function aiLevelRow(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
   if (!ctx.lobby.isHost || isBattle(state)) return null;
-  const ais = state.teams.flatMap((row, team) => row.map((seat, index) => ({ seat, at: { team, index } }))).filter((x) => x.seat.kind === 'AI');
+  const aisOf = (s: LobbyState) =>
+    s.teams.flatMap((row, team) => row.flatMap((seat, index) => (seat.kind === 'AI' ? [{ seat, at: { team, index } }] : [])));
+  const ais = aisOf(state);
   if (ais.length === 0) return null;
   const levels = SEAT_DIFFICULTIES.filter((d) => ctx.tuning.ai.difficulties[d]);
   const group = h('div', 'segmented');
@@ -670,10 +691,11 @@ function aiLevelRow(ctx: LobbyViewContext, state: LobbyState): HTMLElement | nul
   group.setAttribute('aria-label', 'AI level');
   for (const d of levels) {
     const b = button('', d, () =>
-      ctx.lobby.edit((s) => ais.reduce((acc, { seat, at }) => setSeat(acc, at, { ...(seat as Extract<Seat, { kind: 'AI' }>), difficulty: d }), s)),
+      // The AIs as they are when clicked (a Seat may have moved since this was drawn).
+      ctx.lobby.edit((s) => aisOf(s).reduce((acc, { seat, at }) => setSeat(acc, at, { ...seat, difficulty: d }), s)),
     );
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(ais.every(({ seat }) => seat.kind === 'AI' && seat.difficulty === d)));
+    b.setAttribute('aria-checked', String(ais.every(({ seat }) => seat.difficulty === d)));
     group.append(b);
   }
   return h('div', 'lb-row', null, h('span', 'lb-label', 'AI level'), group);
@@ -684,14 +706,13 @@ function moreBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
   const seed = mapSeed(nextMatchArena(state, ctx.played ?? undefined));
   const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
-  const refusal = editable ? formatRefusal(state) : null;
   const details = h('details', 'lb-more');
   details.open = moreOpen;
   details.addEventListener('toggle', () => (moreOpen = details.open));
   const hint = isBattle(state) ? (editable ? 'fighting speed · how a Battle goes' : 'how a Battle goes') : editable ? "each AI's style, Weapon and build · seed" : 'seats and details';
   details.append(
     h('summary', '', null, h('span', '', 'More options'), h('span', 'lb-more-hint', hint)),
-    h('div', 'lb-more-body', null, seedRow, refusal ? h('p', 'lb-note', refusal) : null, teamsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null),
+    h('div', 'lb-more-body', null, seedRow, teamsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null),
   );
   return details;
 }
@@ -861,22 +882,31 @@ function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | n
   // Drawn live over the picture (which shows until then, or for good where there is no WebGL).
   const at = me === null ? null : seatOf(state, me);
   // Your colour as the Match gives it: your Team's, by how many fight before you on it.
-  const before = at ? state.teams[at.team]!.slice(0, at.index).filter((s) => s.kind === 'Player' || s.kind === 'AI').length : 0;
+  // (as the sides number them: a Battle's AI Seats field nobody, so they are not counted).
+  const before = at ? state.teams[at.team]!.slice(0, at.index).filter((s) => shownSeat(state, s).kind === 'Player' || shownSeat(state, s).kind === 'AI').length : 0;
   const live = portraitOf(ctx.tuning);
   if (live) {
     live.attach(portrait, { body: mine.body, weapon: mine.weapon, size: mine.size, colour: teamColour(at?.team ?? 0, before) });
     portrait.classList.add('is-live');
   }
-  let panel: HTMLElement | null = null;
-  if (ctx.look) {
-    const { grid, sliders } = ctx.look();
-    panel = h('div', 'lb-look', null, grid, sliders);
+  // The look panel, built only once opened (the Lobby redraws on every change, and it holds a picture per Body).
+  const panel = h('div', 'lb-look');
+  panel.hidden = true;
+  const showLook = (look: NonNullable<LobbyViewContext['look']>) => {
+    if (lookOpen && !panel.firstChild) {
+      const { grid, sliders } = look();
+      panel.append(grid, sliders);
+    }
     panel.hidden = !lookOpen;
+  };
+  if (ctx.look) {
+    const look = ctx.look;
+    showLook(look);
     portrait.title = 'Change your look, height and weight';
     portrait.setAttribute('aria-expanded', String(lookOpen));
     portrait.addEventListener('click', () => {
       lookOpen = !lookOpen;
-      panel!.hidden = !lookOpen;
+      showLook(look);
       portrait.setAttribute('aria-expanded', String(lookOpen));
       portrait.querySelector('.lb-portrait-edit')!.textContent = lookOpen ? 'Done' : 'Edit';
     });
@@ -894,5 +924,19 @@ function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | n
   }
   const picked = ctx.tuning.weapons[mine.weapon];
   const line = h('div', 'lb-weapon-line', null, h('span', 'lb-weapon-name', mine.weapon), picked ? h('span', '', picked.grip === 'twoHanded' ? 'Two-handed' : 'One-handed') : null);
-  return h('div', 'lb-load', null, portrait, panel, h('div', '', null, grid, line));
+  const stats = picked ? weaponStats(ctx.tuning, picked) : null;
+  const note = ctx.inGame ? h('p', 'lb-note', 'Changes apply when the Match restarts.') : null;
+  return h('div', 'lb-load', null, portrait, ctx.look ? panel : null, h('div', '', null, grid, line, stats), note);
+}
+
+/** The picked Weapon's Reach, Damage and Speed bars, each against the roster's best. */
+function weaponStats(tuning: TuningData, w: TuningData['weapons'][string]): HTMLElement {
+  const roster = Object.values(tuning.weapons);
+  const top = (k: 'length' | 'damage') => Math.max(...roster.map((x) => x[k]));
+  const stat = (label: string, value: number, max: number) => {
+    const bar = h('span', 'stat-fill');
+    bar.style.width = `${Math.round((100 * value) / max)}%`;
+    return h('span', 'stat', null, h('span', 'stat-label', label), h('span', 'stat-bar', null, bar));
+  };
+  return h('div', 'lb-weapon-stats', null, stat('Reach', w.length, top('length')), stat('Damage', w.damage, top('damage')), stat('Speed', swingSpeedBars(tuning)[w.name]!, 1));
 }
