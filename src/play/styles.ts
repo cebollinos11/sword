@@ -19,7 +19,7 @@ const CSS = `
 .hud-fighter { display: flex; flex-wrap: wrap; align-items: center; column-gap: 0.4rem; transition: opacity 300ms steps(4, end); }
 .hud-side-1 .hud-fighter { flex-direction: row-reverse; }
 .hud-fighter.fallen { opacity: 0.35; }
-.hud-label { flex: 0 0 4.6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: clip; font-size: 1.1rem; line-height: 1; opacity: 0.85; text-shadow: var(--px) var(--px) 0 #000; }
+.hud-label { flex: 0 0 4.6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 1.1rem; line-height: 1; opacity: 0.85; text-shadow: var(--px) var(--px) 0 #000; }
 .hud-you .hud-label { font-weight: 700; opacity: 1; }
 .hud-side-1 { text-align: right; }
 .hud-bar { position: relative; height: 1.3rem; background: #0d0a14; border: calc(var(--px) * 2) solid #000; box-shadow: 0 0 0 var(--px) #f3e6c8; overflow: hidden; }
