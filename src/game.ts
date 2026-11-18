@@ -488,9 +488,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /**
    * Whether the Match waits behind its loading bar before its next Tick: a Battle until its impostors are baked and its shaders
    * warmed; a Run or a Duel played here until theirs are (online the Match is already ticking on every peer, so it runs on).
+   * An online Battle with no state yet is never held: its peers connect in `tick`, and the Battle's warm-up waits for a
+   * first state to draw (else the bar would wait on the connection and the connection on the bar, for good).
    */
   function heldForLoading(): boolean {
-    if (battleOn) return !battle?.ready;
+    if (battleOn) return !battle?.ready && driver?.state != null;
     if (lobby?.online || !driver) return false;
     return (curr.delver !== undefined && !floorCrowdSettled) || duelWarm !== null;
   }
