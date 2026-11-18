@@ -4,6 +4,7 @@ import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, 
 import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
 import { sconceMeshes, sconcesOf, TorchLights, type Flame } from './delverTorches';
+import { CLUTTER, CLUTTER_SHADE, clutterEnabled, clutterModel, clutterOf } from './delverClutter';
 import { mapModel } from './mapModel';
 import { SEAM_SHADE, seamShadeMaterial } from './seamShade';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
@@ -466,7 +467,8 @@ function prepared(root: THREE.Object3D, lamps: readonly Lamp[]): THREE.Object3D 
     if (o instanceof THREE.Mesh) {
       // The shade where Walls meet floor and ceiling keeps its own material (what a .glb holds of it lacks its polygon offset).
       if (o.name === SEAM_SHADE) o.material = seamShadeMaterial();
-      else lambert(o);
+      // A Delver Floor's cobwebs and cracks (`delverClutter.ts`) are built in place, in their own unlit material.
+      else if (o.name !== CLUTTER_SHADE) lambert(o);
       o.matrixAutoUpdate = false;
       o.updateMatrix();
     } else if (o instanceof THREE.PointLight) {
@@ -569,6 +571,8 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     return setting;
   }
   let torches: TorchLights | undefined;
+  /** A Delver Floor's clutter, shown or hidden each frame as the menu's setting says. */
+  let clutter: THREE.Object3D | undefined;
   /** Whether the map's look has no sky, so its haze hides all past the fog (see `Setting.far`). */
   let skyless = false;
   const loaded = (draft ?? arenaModel(`battle_${map}`, BATTLE_LAMPS))
@@ -588,6 +592,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
         skyless = !battleLook(sky).sky;
       }
       setting.root.add(model);
+      clutter = model.getObjectByName(CLUTTER);
       // A Delver Floor's flames: its fires' static lights give way to the few that follow the camera from flame to flame.
       const flames = model.userData.flames as readonly Flame[] | undefined;
       if (flames) {
@@ -617,7 +622,10 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
   return {
     ...setting,
     loaded,
-    animate: (seconds, camera) => torches?.update(camera, seconds),
+    animate: (seconds, camera) => {
+      torches?.update(camera, seconds);
+      if (clutter) clutter.visible = clutterEnabled();
+    },
     far: () => (skyless ? setting.fog.far + PAST_FOG : undefined),
   };
 }
@@ -658,6 +666,8 @@ function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
       if (o instanceof THREE.PointLight) fires.push({ x: o.position.x, y: o.position.y, z: o.position.z, colour: o.color.getHex() });
     });
     drawn.userData.flames = [...sconces, ...fires];
+    // Its clutter (rubble, bones, cobwebs, chains, cracked tiles), its webs lit by those flames.
+    drawn.add(clutterModel(clutterOf(floor.plan, draft.arena, { fireRadius: tuning.delver.fireRadius, flames: drawn.userData.flames as Flame[] })));
     model = drawnMapModel(drawn);
     if (floorModels.size >= KEPT_FLOOR_MODELS) {
       // The oldest goes: never the one just asked for, nor the one still drawn (the latest before it, as the Stage swaps settings in order).

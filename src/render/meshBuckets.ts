@@ -6,6 +6,27 @@ import type { MaterialLook } from '../mapEditor/look';
  * shapes is drawn in a dozen draw calls. Each triangle is flat (its own three vertices); the material is a plain one named as the look says
  * (`MaterialLook.name`), which is what the game's texturing reads once the model is loaded. Render-only.
  */
+/** Each geometry's triangles' corners, in order (x, y, z each), read out the first time it is laid. */
+const flats = new WeakMap<THREE.BufferGeometry, Float32Array>();
+
+function flatOf(geometry: THREE.BufferGeometry): Float32Array {
+  let flat = flats.get(geometry);
+  if (!flat) {
+    const pos = geometry.getAttribute('position');
+    const index = geometry.index;
+    const n = index ? index.count : pos.count;
+    flat = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) {
+      const i = index ? index.getX(k) : k;
+      flat[k * 3] = pos.getX(i);
+      flat[k * 3 + 1] = pos.getY(i);
+      flat[k * 3 + 2] = pos.getZ(i);
+    }
+    flats.set(geometry, flat);
+  }
+  return flat;
+}
+
 export class MeshBuckets {
   private readonly buckets = new Map<string, { look: MaterialLook; positions: number[] }>();
 
@@ -64,13 +85,28 @@ export class MeshBuckets {
       this.quad(look, c(p), c(q), c(r), c(s));
   }
 
-  /** A three.js geometry (indexed or not, left as it was), placed by `matrix`. */
+  /**
+   * A three.js geometry (indexed or not, left as it was), placed by `matrix`. Its triangles' corners are read out once per geometry and kept
+   * (`flatOf`), so laying the same shape a thousand times clones nothing.
+   */
   geometry(look: MaterialLook, geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): void {
-    const g = (geometry.index ? geometry.toNonIndexed() : geometry.clone()).applyMatrix4(matrix);
-    const pos = g.getAttribute('position');
+    const flat = flatOf(geometry);
+    const e = matrix.elements;
     const out = this.of(look);
-    for (let i = 0; i < pos.count; i++) out.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-    g.dispose();
+    for (let i = 0; i < flat.length; i += 3) {
+      const x = flat[i]!;
+      const y = flat[i + 1]!;
+      const z = flat[i + 2]!;
+      const w = 1 / (e[3]! * x + e[7]! * y + e[11]! * z + e[15]!);
+      out.push((e[0]! * x + e[4]! * y + e[8]! * z + e[12]!) * w, (e[1]! * x + e[5]! * y + e[9]! * z + e[13]!) * w, (e[2]! * x + e[6]! * y + e[10]! * z + e[14]!) * w);
+    }
+  }
+
+  /** How many triangles are laid so far, over every material. */
+  get triangles(): number {
+    let n = 0;
+    for (const b of this.buckets.values()) n += b.positions.length / 9;
+    return n;
   }
 
   /** One mesh per material, in the order the materials were first used, each named as its material. */

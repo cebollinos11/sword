@@ -40,6 +40,7 @@ import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MI
 import { getMasterVolume, setMasterVolume } from '../audio/volume';
 import { goreEnabled, setGoreEnabled } from '../render/gore';
 import { dustEnabled, setDustEnabled } from '../render/dustfall';
+import { clutterEnabled, setClutterEnabled } from '../render/delverClutter';
 
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
@@ -420,6 +421,17 @@ export class Menu {
     return b;
   }
 
+  /** Clutter toggle (on by default): a Delver Floor's rubble, bones, cobwebs, chains and cracked tiles, drawn or not from the next frame on; remembered. */
+  private clutterItem(): HTMLButtonElement {
+    const on = clutterEnabled();
+    const b = this.navItem(`Clutter: ${on ? 'On' : 'Off'}`, on ? 'Rubble, bones and cobwebs in the dungeon' : 'Bare halls (a little faster)', () => {
+      setClutterEnabled(!clutterEnabled());
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  }
+
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
     const b = this.navItem(`Show Colliders: ${this.colliders ? 'On' : 'Off'}`, 'Walk Surfaces and Walls over a see-through Arena', () => {
@@ -711,6 +723,7 @@ export class Menu {
     nav.append(this.sensitivityItem());
     nav.append(this.goreItem());
     nav.append(this.dustItem());
+    nav.append(this.clutterItem());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
