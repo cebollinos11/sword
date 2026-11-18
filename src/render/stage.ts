@@ -5,6 +5,7 @@ import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
 import { sconceMeshes, sconcesOf, TorchLights, type Flame } from './delverTorches';
 import { mapModel } from './mapModel';
+import { SEAM_SHADE, seamShadeMaterial } from './seamShade';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
@@ -446,7 +447,9 @@ function prepared(root: THREE.Object3D, lamps: readonly Lamp[]): THREE.Object3D 
   const dropped: THREE.Object3D[] = [];
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      lambert(o);
+      // The shade where Walls meet floor and ceiling keeps its own material (what a .glb holds of it lacks its polygon offset).
+      if (o.name === SEAM_SHADE) o.material = seamShadeMaterial();
+      else lambert(o);
       o.matrixAutoUpdate = false;
       o.updateMatrix();
     } else if (o instanceof THREE.PointLight) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { JUMP_HOLDS, jumpArc, navMesh, surfaceHeight } from '../sim';
 import type { ArenaGeometry, TuningData, WalkSurface } from '../tuning';
+import { SEAM_SHADE } from './seamShade';
 
 /** Walk Surface colours by kind: plain ground, lava, water, abyss. */
 const WALK_COLORS = { plain: 0x3ddc4a, lava: 0xff3020, water: 0x2a7bff, abyss: 0x8a2be2 } as const;
@@ -136,6 +137,8 @@ const SEE_THROUGH_OPACITY = 0.3;
 export function seeThrough(model: THREE.Object3D, on: boolean): void {
   model.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
+    // The shade where Walls meet floor and ceiling (`seamShade.ts`) would hang in the air with the Walls see-through.
+    if (o.name === SEAM_SHADE) o.visible = !on;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       if (!(m instanceof THREE.MeshLambertMaterial) || m.alphaHash === on) continue;
       m.alphaHash = on;

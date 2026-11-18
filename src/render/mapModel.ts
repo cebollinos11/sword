@@ -19,6 +19,7 @@ import type { Vec2 } from '../sim';
 import type { WallSegment } from '../tuning';
 import { MeshBuckets } from './meshBuckets';
 import { placeProps } from './mapProps';
+import { seamShade, type ShadedWall } from './seamShade';
 
 /** How thick (m) each kind of Wall is drawn: a Wall Brush, a rail, and a face (a Platform's side, a skirt under a raised edge). */
 const THICKNESS = { wall: 0.6, rail: 0.22, face: 0.3 };
@@ -259,6 +260,12 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   // The Walls the compiler stood, as boxes on their lines (the field's edge is open ground; a Ramp's skirt is drawn as its wedge below).
   // An Enclosure's sides are drawn first, so a face that one of them already holds (a roof's edge over a doorway's lintel) is not drawn again.
   const sides = map.walls.filter((w, i) => brushes.get(draft.wallBrush[i]!)?.kind === 'enclosure' && isEnclosureSide(w.id));
+  // Every Wall box as drawn, and each Block's sides, for the shade where they meet floor and ceiling.
+  const shaded: ShadedWall[] = [];
+  const wall = (look: MaterialLook, a: Vec2, b: Vec2, bottom: number, top: number, thick: number) => {
+    buckets.slab(look, a, b, bottom, top, thick);
+    shaded.push({ a, b, bottom, top, thick });
+  };
   map.walls.forEach((w, i) => {
     const id = draft.wallBrush[i]!;
     const owner = brushes.get(id);
@@ -274,18 +281,24 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
       // A Ramp's rail stops just short of each end, where it meets a Hall's Wall at a sloped Passage's mouth (or a Deck's side at a Gallery's head).
       const len = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z) || 1;
       const [ux, uz] = [((w.b.x - w.a.x) / len) * DOORWAY_NUDGE, ((w.b.z - w.a.z) / len) * DOORWAY_NUDGE];
-      buckets.slab(lookOf(id), { x: w.a.x + ux, z: w.a.z + uz }, { x: w.b.x - ux, z: w.b.z - uz }, w.bottom, w.top, thick);
+      wall(lookOf(id), { x: w.a.x + ux, z: w.a.z + uz }, { x: w.b.x - ux, z: w.b.z - uz }, w.bottom, w.top, thick);
       return;
     }
     const out = owner.kind === 'enclosure' ? outsideEnclosure(owner, drawn, source, thick) : null;
-    if (out) for (const p of out) buckets.slab(lookOf(id), p.a, p.b, p.bottom, p.top, thick);
-    else buckets.slab(lookOf(id), drawn.a, drawn.b, drawn.bottom, drawn.top, thick);
+    if (out) for (const p of out) wall(lookOf(id), p.a, p.b, p.bottom, p.top, thick);
+    else wall(lookOf(id), drawn.a, drawn.b, drawn.bottom, drawn.top, thick);
   });
 
   for (const b of source.brushes) {
     const look = brushLook(b, source);
     // A Block from its floor (the map's lowest level: a Block stands only on a map of one) or the Simulation's -1 m, whichever is lower, to its top.
-    if (b.kind === 'block') buckets.box(look, b.rect.x0, Math.min(-BELOW, source.levels[0]! - BELOW), b.rect.z0, b.rect.x1, b.top, b.rect.z1);
+    if (b.kind === 'block') {
+      const { x0, z0, x1, z1 } = b.rect;
+      const bottom = Math.min(-BELOW, source.levels[0]! - BELOW);
+      buckets.box(look, x0, bottom, z0, x1, b.top, z1);
+      const corners = [{ x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 }];
+      corners.forEach((a, k) => shaded.push({ a, b: corners[(k + 1) % 4]!, bottom, top: b.top, thick: 0 }));
+    }
     if (b.kind !== 'ramp') continue;
     // A Ramp's wedge: each long side from under its foot up to the slope, and its head's end from under its foot up to its top.
     const { foot, head } = rampCorners(b);
@@ -318,7 +331,19 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const lights = placeProps(props, buckets);
   const root = new THREE.Group();
   root.name = MAP_MODEL_ROOT;
-  root.add(...buckets.meshes(), ...lights);
+  // The shade where Walls meet floor and ceiling: none on deadly ground; a roof's ceiling is its own underside, a Deck's its slab's.
+  const shade = seamShade(
+    draft.arena,
+    shaded,
+    (i) => !!(map.walk[i]!.lava || map.walk[i]!.water || map.walk[i]!.abyss),
+    (i) => {
+      const w = map.walk[i]!;
+      if (w.roof) return 0;
+      const owner = brushes.get(draft.surfaceBrush[i]!);
+      return owner && isSlab(owner, w.points[0]!.y) ? DECK_SLAB : null;
+    },
+  );
+  root.add(...buckets.meshes(), ...(shade ? [shade] : []), ...lights);
   root.userData = { sky: source.look?.sky ?? 'dusk' };
   return root;
 }
