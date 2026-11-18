@@ -182,6 +182,8 @@ const flicker = (i: number, t: number, depth = 0.22): number => {
 export class TorchLights {
   readonly group = new THREE.Group();
   private readonly lights: THREE.PointLight[] = [];
+  /** The flame each light is on (-1 for none). */
+  private readonly on: Int32Array;
   private readonly lantern: THREE.PointLight;
   private readonly order: number[];
   private readonly dist: Float32Array;
@@ -198,6 +200,12 @@ export class TorchLights {
     this.group.add(this.lantern);
     this.order = flames.map((_, i) => i);
     this.dist = new Float32Array(flames.length);
+    this.on = new Int32Array(POOL).fill(-1);
+  }
+
+  /** The flames' lights (not the lantern), each kept on one flame while it is among the nearest. */
+  get flameLights(): readonly THREE.PointLight[] {
+    return this.lights;
   }
 
   /** Light the flames nearest `camera` (and move the lantern before it) at time `seconds`. */
@@ -224,9 +232,27 @@ export class TorchLights {
       o[b + 1] = v;
     }
     const next = o.length > POOL ? Math.sqrt(this.dist[o[POOL]!]!) : Infinity;
+    // Each light stays on its flame while that is among the nearest (it is the same light in the same place, frame to frame); the rest take
+    // the nearest flames left over. A light only moves once its flame has faded out, so the dust and embers it lights (`Dustfall`) never jump.
+    const nearest = o.slice(0, POOL);
+    const taken = new Set<number>();
+    for (let k = 0; k < this.lights.length; k++) {
+      const i = this.on[k]!;
+      if (i >= 0 && nearest.includes(i)) taken.add(i);
+      else this.on[k] = -1;
+    }
+    let n = 0;
+    for (let k = 0; k < this.lights.length; k++) {
+      if (this.on[k]! >= 0) continue;
+      while (n < nearest.length && taken.has(nearest[n]!)) n++;
+      if (n < nearest.length) {
+        this.on[k] = nearest[n]!;
+        taken.add(nearest[n]!);
+      }
+    }
     this.lights.forEach((light, k) => {
-      const i = o[k];
-      if (i === undefined) {
+      const i = this.on[k]!;
+      if (i < 0) {
         light.intensity = 0;
         return;
       }
