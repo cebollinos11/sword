@@ -206,7 +206,7 @@ describe('the model of a Map Editor map', () => {
     expect(fights(stairwell, [...eyes(2), v(-6, 1, -5), v(8, 1.6, -6), v(8, 2.5, -2), v(0.5, 2.2, -0.2)])).toEqual([]);
   });
 
-  it('shades where Walls meet floor and ceiling: wall bases, a roof, a pillar, a Deck’s underside; never a doorway (issue #171)', () => {
+  it('shades where Walls meet floor and ceiling and each other: wall bases, a roof, a pillar, a Deck’s underside, a Hall’s corners; never a doorway (issue #171)', () => {
     const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
     const hall: EnclosureBrush = { kind: 'enclosure', id: 'hall', rect: { x0: -10, z0: -10, x1: 10, z1: 0 }, y: 0, doors: { n: 3 }, top: 6, material: 'brick' };
     const passage: EnclosureBrush = { kind: 'enclosure', id: 'pass', rect: { x0: -1.5, z0: 0, x1: 1.5, z1: 12 }, y: 0, doors: { s: 3, n: 3 }, top: 4, material: 'stone' };
@@ -222,12 +222,21 @@ describe('the model of a Map Editor map', () => {
     const pos = shades[0]!.geometry.getAttribute('position');
     const colour = shades[0]!.geometry.getAttribute('color');
     expect(colour.itemSize).toBe(4);
-    /** Whether a dark vertex (the seam's edge of a strip) lies within `r` of (x, y, z). */
-    const dark = (x: number, y: number, z: number, r = 0.2) => {
-      for (let i = 0; i < pos.count; i++) if (colour.getW(i) > 0.5 && Math.hypot(pos.getX(i) - x, pos.getY(i) - y, pos.getZ(i) - z) < r) return true;
+    /** Whether the shade at (x, y, z) is dark (the seam's edge of a strip): its alpha there, on any triangle within 1 cm of the point. */
+    const dark = (x: number, y: number, z: number) => {
+      const at = new THREE.Vector3(x, y, z);
+      const tri = new THREE.Triangle();
+      const [near, bary] = [new THREE.Vector3(), new THREE.Vector3()];
+      for (let i = 0; i + 2 < pos.count; i += 3) {
+        tri.setFromAttributeAndIndices(pos as THREE.BufferAttribute, i, i + 1, i + 2);
+        if (tri.getArea() < 1e-9 || tri.closestPointToPoint(at, near).distanceTo(at) > 0.01) continue;
+        tri.getBarycoord(near, bary);
+        if (bary.x * colour.getW(i) + bary.y * colour.getW(i + 1) + bary.z * colour.getW(i + 2) > 0.5) return true;
+      }
       return false;
     };
     // The Hall's wall bases and its roof's edge, the Passage's, the pillar's foot and top, and the Deck's underside against the Hall's Wall.
+    expect(dark(5, 0, -5)).toBe(false);
     expect(dark(5, 0, -10)).toBe(true);
     expect(dark(10, 0, -5)).toBe(true);
     expect(dark(5, 6, -10)).toBe(true);
@@ -245,6 +254,18 @@ describe('the model of a Map Editor map', () => {
       const [x, y, z] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
       if (Math.abs(x) < 0.9 && Math.abs(z) < 0.6 && y < 3.5) expect(colour.getW(i)).toBe(0);
     }
+    // Up a Hall's corner, on both its faces: a vertex of the strip's middle row 0.15 m out of the corner, on the face, at the floor (y 0).
+    const upCorner = (x: number, z: number) => {
+      for (let i = 0; i < pos.count; i++)
+        if (Math.hypot(pos.getX(i) - x, pos.getZ(i) - z) < 0.01 && Math.abs(pos.getY(i)) < 0.002 && colour.getW(i) > 0.2 && colour.getW(i) < 0.6) return true;
+      return false;
+    };
+    expect(upCorner(-10 + 0.15, -10 + 0.004)).toBe(true);
+    expect(upCorner(-10 + 0.004, -10 + 0.15)).toBe(true);
+    expect(upCorner(10 - 0.15, -0.004)).toBe(true);
+    // A doorway's jamb juts out of the room: none up it.
+    expect(upCorner(1.5 + 0.15, -0.004)).toBe(false);
+    expect(upCorner(1.5 - 0.004, 0.15)).toBe(false);
     // Over deadly ground there is nothing to shade.
     for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThan(-1);
   });

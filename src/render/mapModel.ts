@@ -297,7 +297,8 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
       const bottom = Math.min(-BELOW, source.levels[0]! - BELOW);
       buckets.box(look, x0, bottom, z0, x1, b.top, z1);
       const corners = [{ x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 }];
-      corners.forEach((a, k) => shaded.push({ a, b: corners[(k + 1) % 4]!, bottom, top: b.top, thick: 0 }));
+      const centre = { x: (x0 + x1) / 2, z: (z0 + z1) / 2 };
+      corners.forEach((a, k) => shaded.push({ a, b: corners[(k + 1) % 4]!, bottom, top: b.top, thick: 0, centre }));
     }
     if (b.kind !== 'ramp') continue;
     // A Ramp's wedge: each long side from under its foot up to the slope, and its head's end from under its foot up to its top.
