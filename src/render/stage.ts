@@ -17,6 +17,7 @@ import { BATTLE_SKIES, type BattleSky } from '../mapEditor/source';
 import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { bakeSkies, sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
+import { Dustfall } from './dustfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
 const VERTICAL_FOV = 60;
@@ -204,6 +205,22 @@ const BATTLE_LOOKS: Readonly<Record<Exclude<BattleSky, 'dusk'>, BattlefieldLook>
     haze: 0x070504,
     near: 8,
     far: 34,
+    // Stale air: slow warm-grey motes, seen where a torch lights them, and a few embers rising off each lit flame.
+    dust: {
+      count: 5000,
+      box: [22, 9, 22],
+      wander: 0.3,
+      drift: [0.03, 0.012],
+      settle: 0.015,
+      size: 0.035,
+      color: 0xffe4c0,
+      opacity: 1,
+      ambient: 0.04,
+      gain: 1.2,
+      embers: 10,
+      emberRise: 1.0,
+      emberSize: 0.03,
+    },
   },
 };
 
@@ -578,6 +595,15 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
         for (const o of lit) o.removeFromParent();
         torches = new TorchLights(flames);
         setting.root.add(torches.group);
+      }
+      // The look's dust, if it has any, is lit by the flames: a Delver Floor's that follow the camera, else the map's own torches.
+      const dust = setting.root.children.find((o): o is Dustfall => o instanceof Dustfall);
+      if (dust) {
+        const own: THREE.PointLight[] = [];
+        model.traverse((o) => {
+          if (o instanceof THREE.PointLight) own.push(o);
+        });
+        dust.lights = torches ? torches.flameLights : own;
       }
     })
     .catch((e: unknown) => {

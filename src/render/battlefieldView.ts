@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { battlefieldHeight, type Heightfield } from '../sim';
 import { sky, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
+import { Dustfall, type DustLook } from './dustfall';
 import { applyTriplanar } from './triplanar';
 
 /** The haze: its colour (also the sky's horizon and the background), where it starts and where nothing shows through (m). */
@@ -82,7 +83,7 @@ export function terrainMesh(hf: Heightfield): THREE.Mesh {
 
 /**
  * How a Battlefield is lit and hazed: its lights, its haze (the background, the fog's colour, where the fog starts and where nothing shows
- * through, m), a sky dome (else the haze is the sky), and snow round the camera. The open field and the shipped maps are drawn at dusk
+ * through, m), a sky dome (else the haze is the sky), and snow, or dust, round the camera. The open field and the shipped maps are drawn at dusk
  * (`DUSK`); a map made in the Map Editor names another (docs/plans/map-editor.md, Stage 5).
  */
 export interface BattlefieldLook {
@@ -92,6 +93,8 @@ export interface BattlefieldLook {
   readonly far: number;
   readonly sky?: SkyLook;
   readonly snow?: SnowfallLook;
+  /** Dust hanging round the camera, lit by the flames near it (`Dustfall.lights`). */
+  readonly dust?: DustLook;
 }
 
 /** Dusk over the field: a dusky sky, cool sky light and a low warm sun, and a long haze for an open field. */
@@ -107,12 +110,13 @@ export const DUSK: BattlefieldLook = {
   sky: BATTLE_SKY,
 };
 
-/** A look's sky, lights and snow, and its haze (background and fog): a Battlefield's setting with no ground (the Map Editor's 3D view draws a draft's model in it). */
+/** A look's sky, lights, snow and dust, and its haze (background and fog): a Battlefield's setting with no ground (the Map Editor's 3D view draws a draft's model in it). */
 export function lookSetting(look: BattlefieldLook): { root: THREE.Group; background: THREE.Color; fog: THREE.Fog } {
   const root = new THREE.Group();
   if (look.sky) root.add(sky(look.sky));
   root.add(...look.lights());
   if (look.snow) root.add(snowfall(look.snow));
+  if (look.dust) root.add(new Dustfall(look.dust));
   return {
     root,
     background: new THREE.Color(look.haze),

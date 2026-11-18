@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { arenaOf } from '../sim/arena';
 import { arenaTuning, floorArenaName, floorOf } from '../sim/delver';
-import { sconcesOf } from './delverTorches';
+import * as THREE from 'three';
+import { sconcesOf, TorchLights } from './delverTorches';
 
 const tuning = loadTuningData();
 
@@ -26,5 +27,33 @@ describe('sconcesOf', () => {
       }
     }
     expect(sconces.length).toBeGreaterThan(built.plan.halls.length * 3);
+  });
+});
+
+describe('TorchLights', () => {
+  it('keeps each light on its flame while that flame is among the nearest, so what it lights never jumps', () => {
+    // A row of flames 4 m apart, walked along a tenth of a metre a step: the pool's lights take new flames ahead only as the ones behind fade out.
+    const flames = Array.from({ length: 30 }, (_, i) => ({ x: i * 4, y: 2, z: 0, colour: 0xffa050 }));
+    const torches = new TorchLights(flames);
+    const camera = new THREE.PerspectiveCamera();
+    const on = (light: THREE.PointLight) => flames.findIndex((f) => f.x === light.position.x);
+    let before: number[] = [];
+    let was: number[] = [];
+    for (let x = 0; x <= 60; x += 0.1) {
+      camera.position.set(x, 2, 0);
+      torches.update(camera, x);
+      const now = torches.flameLights.map(on);
+      expect(new Set(now).size).toBe(now.length);
+      torches.flameLights.forEach((light, k) => {
+        // A light changes flame only once the one it was on had all but gone dark (faded out as the farthest of the pool), and comes up
+        // dim on the next.
+        if (before.length && now[k] !== before[k]) {
+          expect(was[k]).toBeLessThan(1);
+          expect(light.intensity).toBeLessThan(1);
+        }
+      });
+      before = now;
+      was = torches.flameLights.map((l) => l.intensity);
+    }
   });
 });
