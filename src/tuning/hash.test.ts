@@ -77,6 +77,7 @@ describe('Tuning Data content hash', () => {
       loot: { ...d, loot: { ...d.loot, pedestals: d.loot.pedestals === 1 ? 2 : 1 } },
       inventory: { ...d, inventory: { ...d.inventory, relics: d.inventory.relics + 1 } },
       revive: { ...d, revive: d.revive + 0.05 },
+      restRevive: { ...d, restRevive: d.restRevive - 0.05 },
     })) expect(tuningDataHash({ ...tuning, dungeon }), name).not.toBe(base);
     expect(tuningDataHash({ ...tuning, dungeon: { ...d } })).toBe(base);
   });

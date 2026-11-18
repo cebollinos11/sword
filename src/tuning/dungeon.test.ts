@@ -63,7 +63,10 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
 
   it('loads the repo file: the Run numbers, the inventory sizes and the loot', () => {
     const d = tuning.dungeon;
-    expect([d.stairsSeconds, d.fadeSeconds, d.revive, d.restHeal]).toEqual([1.5, 1, 0.25, 0.5]);
+    expect([d.stairsSeconds, d.fadeSeconds, d.revive, d.restRevive, d.restHeal]).toEqual([1.5, 1, 0.25, 0.75, 1]);
+    // Tuning Data from before restRevive: a fire revives at `revive`.
+    const { restRevive: _, ...old } = raw() as Record<string, unknown>;
+    expect(parse(old).restRevive).toBe(0.25);
     expect(d.inventory).toEqual({ weapons: 3, relics: 6, equippedRelics: 3 });
     expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 }, odds: [[80, 18, 2], [60, 32, 8], [40, 45, 15]], eliteTierStep: 1, bossMin: 'Rare', pedestalMin: 'Rare', carried: ['Common', 'Rare', 'Legendary'], bossCarriedStep: 1 } });
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
@@ -78,6 +81,8 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(() => parse({ ...raw(), revive: 0 })).toThrow(/revive/);
     expect(() => parse({ ...raw(), revive: 1.5 })).toThrow(/revive/);
     expect(() => parse({ ...raw(), restHeal: 1.5 })).toThrow(/restHeal/);
+    expect(() => parse({ ...raw(), restRevive: 0 })).toThrow(/restRevive/);
+    expect(() => parse({ ...raw(), restRevive: 1.5 })).toThrow(/restRevive/);
     expect(() => parse({ ...raw(), inventory: { weapons: 0, relics: 6, equippedRelics: 3 } })).toThrow(/inventory\.weapons/);
     expect(() => parse({ ...raw(), inventory: { weapons: 3, relics: 2, equippedRelics: 3 } })).toThrow(/equippedRelics/);
     expect(() => parse({ ...raw(), inventory: { weapons: 3, relics: 6.5, equippedRelics: 3 } })).toThrow(/inventory\.relics/);

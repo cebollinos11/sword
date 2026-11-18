@@ -28,8 +28,10 @@ export interface DungeonTuning {
   readonly stairsSeconds: number;
   /** Seconds of fade from taking the Stairs to the next Floor's start. */
   readonly fadeSeconds: number;
-  /** A fallen Player's Fighter a fire (or the Stairs) brings back comes back with this share of its max HP. */
+  /** A fallen Player's Fighter the Stairs (or a Resurrection Stone) brings back comes back with this share of its max HP. */
   readonly revive: number;
+  /** A fallen Fighter a fire brings back comes back with this share of its max HP, and takes no heal at that fire. Left out: `revive`. */
+  readonly restRevive: number;
   /** A Player's Fighter at a fire heals this share of its max HP (once a fire). */
   readonly restHeal: number;
   /** Inventory sizes: Weapons held, Relics held and how many of those are equipped. */
@@ -70,6 +72,7 @@ export function parseDungeon(raw: unknown): DungeonTuning {
     stairsSeconds: positiveNumber(d, 'stairsSeconds', 'dungeon'),
     fadeSeconds: nonNegativeNumber(d, 'fadeSeconds', 'dungeon'),
     revive: share(d, 'revive', 'dungeon', 'positive'),
+    restRevive: d.restRevive === undefined ? share(d, 'revive', 'dungeon', 'positive') : share(d, 'restRevive', 'dungeon', 'positive'),
     restHeal: share(d, 'restHeal', 'dungeon', 'zero'),
     inventory: {
       weapons: wholeNumber(inv, 'weapons', 'dungeon.inventory', 1, 99),
