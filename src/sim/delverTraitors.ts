@@ -3,7 +3,7 @@
  * of its own, only a Pool slot of its own right after the party's (`traitorSlot`), which the Bubbles never hand out while it plays. Watching, it
  * waits its delay (`respawnTicks`), then takes over a living Warband Soldier no party Fighter sees and at least `delver.traitor.minDistance` from
  * every one of them by walking (`traitorPick`, seeded): the Soldier leaves its Warband and is the traitor's Fighter, in its Troop's Body, Weapon,
- * Mods and HP and the traitor's own Size, until it falls. With no such Soldier, it takes any living non-Boss Warband Soldier instead
+ * Mods, HP and Size, until it falls. With no such Soldier, it takes any living non-Boss Warband Soldier instead
  * (`traitorFallback`), one already fighting the party included (its Pool slot freed). Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
  * watches again for longer (the wait resets on each new Floor). A traitor has no Bubble, takes no pickup, fire or Stairs (those are the party Players'), and never takes the Boss.
  * Its records are plain Run state (`RunState.traitors`), hashed and rolled back. Pure.
@@ -217,8 +217,8 @@ export function stepTraitors(duel: SimState, records: readonly TraitorState[], c
           e.crowd.hp[s] = g.hp;
           e.fighters[p] = unboundSlot(tuning, duel.arena);
         }
-        const size = config.traitors?.[j]?.size ?? null;
-        e.fighters[k] = promotedFighter(tuning, duel.arena, e.crowd, s, size);
+        // The Fighter has the Soldier's own Size (its height and thickness), not the traitor's.
+        e.fighters[k] = promotedFighter(tuning, duel.arena, e.crowd, s);
         if (r.soldier >= 0 && e.crowd.slot[r.soldier] === k) e.crowd.slot[r.soldier] = -1;
         const warband = e.crowd.squad[s]!;
         e.crowd.slot[s] = k;

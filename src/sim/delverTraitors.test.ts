@@ -10,6 +10,7 @@ import { createMatch, stepMatch, takeOverFighter, type MatchOptions, type MatchS
 import type { SimEvent } from './events';
 import { BOSS } from './warband';
 import { promotedFighter } from './bubble';
+import { soldierSize } from './crowd';
 import { traitorWatchLine } from '../play/hud';
 
 const base = flatFloors(loadTuningData());
@@ -62,7 +63,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     expect(freshTraitors(tuning, {})).toBeUndefined();
   });
 
-  it('take over an unseen, far Warband Soldier after the delay: its Body, Weapon and HP, the traitor\'s own Size, out of its Warband', () => {
+  it('take over an unseen, far Warband Soldier after the delay: its Body, Weapon, HP and Size (not the traitor\'s), out of its Warband', () => {
     const size = { height: 1.2, thick: 0.9 };
     let m = delver({ traitors: [{ size }] });
     const k = traitorSlot(m.config, 0);
@@ -84,7 +85,8 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     expect(f.team).toBe(1);
     expect(f.soldier).toBeUndefined();
     expect(f.benched).toBeUndefined();
-    expect(f.size).toEqual(size);
+    expect(f.size).toEqual(soldierSize(before!.duel.crowd!, s));
+    expect(f.size).not.toEqual(size);
     expect(f.maxHp).toBe(c.maxHp![s]);
     expect(f.hp).toBe(c.hp[s]);
     expect(f.mods).toBeDefined();
