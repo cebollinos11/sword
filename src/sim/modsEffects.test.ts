@@ -194,6 +194,20 @@ describe('a blade Hit', () => {
     expect(wound.final.fighters[1]!.death).toBeUndefined();
     expect(wound.final.fighters[0]!.hp).toBe(50);
   });
+
+  it('a kill gives the killer one Throwing Dagger back, never above its full count', () => {
+    const felled = (a: Partial<Record<RelicEffect, number>>, held: number, hp1: number): ScriptRun => {
+      const s = armed(createInitialState(tuning, 1, duelPlacements(1.2), ['Arming Sword', 'Arming Sword']), 0, a);
+      return runScript(tuning, { ...s, fighters: s.fighters.map((f, i) => (i === 0 ? { ...f, daggers: held } : { ...f, hp: hp1 })) }, [attack('Overhead'), []]);
+    };
+    const kill = felled({}, 1, 1);
+    expect(kill.final.fighters[1]!.death).toBeDefined();
+    expect(kill.final.fighters[0]!.daggers).toBe(2);
+    expect(felled({}, dagger.count, 1).final.fighters[0]!.daggers).toBe(dagger.count);
+    expect(felled({ daggers: 1 }, dagger.count, 1).final.fighters[0]!.daggers).toBe(dagger.count + 1);
+    // A Hit that wounds without felling gives nothing back.
+    expect(felled({}, 1, 100).final.fighters[0]!.daggers).toBe(1);
+  });
 });
 
 describe('a Throwing Dagger', () => {
