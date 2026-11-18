@@ -292,7 +292,7 @@ One depth of a Dungeon: one generated dungeon of Halls and Passages (`docs/plans
 _Avoid_: Level, act, stage, room (Room is the online connection)
 
 **Hall**:
-One room of a Floor, an Enclosure the generator placed, with a kind: Entrance, Fight (a post for a Warband), Rest (a fire), Treasure (pedestals on crates), Stairs, Boss or Empty. A Hall may be a great hall, have a Gallery, a split level, a pit or a dais, or be shaped (an L, T, cross or ring) with pillars. A **fire** is drawn as crossed logs under a flickering flame, which turns to embers once the local Player has taken its heal: each present Player's living Fighter within `delver.fireRadius` heals `dungeon.restHeal` of its max HP, once a fire, and the first to reach it brings back every Player fallen at that moment (once a fire, at `dungeon.revive` of max HP).
+One room of a Floor, an Enclosure the generator placed, with a kind: Entrance, Fight (a post for a Warband), Rest (a fire), Treasure (pedestals on crates), Stairs, Boss or Empty. A Hall may be a great hall, have a Gallery, a split level, a pit or a dais, or be shaped (an L, T, cross or ring) with pillars. Its roof stands 6 m over its floor (`HALL_STOREY`), 8 m with a Gallery, so a full Jump has room; a Passage's 4 m over its higher door. A **fire** is drawn as crossed logs under a flickering flame, which turns to embers once the local Player has taken its heal: each present Player's living Fighter within `delver.fireRadius` heals `dungeon.restHeal` of its max HP, once a fire, and the first to reach it brings back every Player fallen at that moment (once a fire, at `dungeon.revive` of max HP).
 _Avoid_: Room (the online connection), chamber (a combat term), cell (the generator's grid), node
 
 **Door**:

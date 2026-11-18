@@ -284,10 +284,12 @@ export const PASSAGE_CLEAR = 1;
 export const MIN_LEG = 2;
 /** A level's rise (m): a Hall's floor is a whole number of levels, a Passage rises or falls one at most, a gallery's Deck stands one over its Hall's floor. */
 export const LEVEL_RISE = 2;
-/** A plain Hall's roof over its floor (m). */
-export const HALL_STOREY = 4;
-/** A gallery Hall's roof over its floor (m): the Deck stands `GALLERY_STOREY - LEVEL_RISE` = 4 m under it, more than the tallest Fighter. */
-export const GALLERY_STOREY = 6;
+/** A plain Hall's roof over its floor (m): tall enough that a standard Fighter's full Jump (its feet about 4 m up) never bumps its head. */
+export const HALL_STOREY = 6;
+/** A gallery Hall's roof over its floor (m): the Deck stands `GALLERY_STOREY - LEVEL_RISE` = `HALL_STOREY` under it, as much headroom as a plain Hall's floor. */
+export const GALLERY_STOREY = 8;
+/** A Passage's roof over its higher door (m): lower than a Hall's, more than a doorway (`DOOR_HEIGHT`, 3 m). */
+export const PASSAGE_STOREY = 4;
 /** A gallery's strip: its depth across (m), the Ramp's length and as deep as the strip, and the Hall's floor between the Ramp's foot and the side wall. */
 export const GALLERY_DEPTH = 4;
 export const GALLERY_RAMP = 4;

@@ -7,7 +7,7 @@
  * Pure: whole and half metres only, every list in the plan's fixed order.
  */
 import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
-import { HALL_STOREY, hallBase, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
+import { hallBase, PASSAGE_STOREY, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
 export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
@@ -56,7 +56,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
       const hi = Math.max(q.y0, q.y1);
       const width = q.axis === 'x' ? q.rect.z1 - q.rect.z0 : q.rect.x1 - q.rect.x0;
       const doors: Doors = q.y0 === q.y1 ? { [q.from]: width, [q.to]: width } : { [q.y0 < q.y1 ? q.from : q.to]: width };
-      return { q, id: pieceId(p, k), lo, hi, top: hi + HALL_STOREY, doors };
+      return { q, id: pieceId(p, k), lo, hi, top: hi + PASSAGE_STOREY, doors };
     }),
   );
   const heights = new Set<number>([-8, 0, 4]);

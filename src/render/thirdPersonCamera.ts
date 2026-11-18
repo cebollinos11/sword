@@ -8,6 +8,7 @@ export type CameraTarget = Vec2 & { readonly y?: number };
 
 const pivot = new THREE.Vector3();
 const eyeAt = new THREE.Vector3();
+const feet = new THREE.Vector3();
 
 /** The lowest the third-person camera may sink (m above the feet) when looking up. */
 const MIN_CAMERA_HEIGHT = 0.3;
@@ -46,9 +47,17 @@ export function placeThirdPersonCamera(
   const eye = tilt(-back, eyeHeight - lookHeight);
   const look = tilt(ahead, 0);
   eyeAt.set(position.x + fx * eye.forward + rx * shoulder, y + Math.max(MIN_CAMERA_HEIGHT, lookHeight + eye.up), position.z + fz * eye.forward + rz * shoulder);
-  if (collider) collider.pull(pivot.set(position.x + rx * shoulder * 0.5, y + lookHeight, position.z + rz * shoulder * 0.5), eyeAt);
+  pivot.set(position.x + rx * shoulder * 0.5, y + lookHeight, position.z + rz * shoulder * 0.5);
+  // The pivot itself stays under a low ceiling (a Jump in a Passage lifts it near the roof): pulled down from just over the feet.
+  let lookY = y + lookHeight + look.up;
+  if (collider) {
+    const top = pivot.y;
+    collider.pull(feet.set(pivot.x, y + MIN_CAMERA_HEIGHT, pivot.z), pivot);
+    lookY -= top - pivot.y;
+    collider.pull(pivot, eyeAt);
+  }
   camera.position.copy(eyeAt);
-  camera.lookAt(position.x + fx * look.forward + rx * shoulder * 0.5, y + lookHeight + look.up, position.z + fz * look.forward + rz * shoulder * 0.5);
+  camera.lookAt(position.x + fx * look.forward + rx * shoulder * 0.5, lookY, position.z + fz * look.forward + rz * shoulder * 0.5);
 }
 
 /** The follow camera for a Fighter `height` times as tall as standard: it sits, looks and stands off in proportion, so a giant is not crowded and a midget not lost. */
