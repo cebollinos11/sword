@@ -299,6 +299,51 @@ Settled here; a subagent makes no judgement call on these. Nothing in `src/sim` 
 - **Answering it (Skilled, Expert only):** seeing a hold (Reaction Time ago, from state), step out of reach or close in to hit before it arms; seeing a spin, Block its mirrored side, or Thrust or throw a dagger to interrupt when its own blow lands first. Never by Jumping a low one or ducking a high one (v1).
 - Update the AI header in `ai.ts` and **Reaction Time** in `CONTEXT.md`. Re-record the AI golden.
 
+#### Design (Stage 5)
+Settled here; a subagent makes no judgement call on these. Only `src/controllers/ai.ts`, `src/tuning/index.ts`, `data/ai.json`, `src/net/messages.ts` (the memory validator) and their tests change. Nothing in `src/sim` changes.
+
+**Tuning Data** (`data/ai.json`, `AiDifficulty`, both optional, both in `AI_DIFFICULTY_EXTRAS` so a Style may scale them; `Skill` defaults both to 0 in `skillOf`):
+- `whirlwindRate` (fraction): the chance, each Tick the moment is right (below), that it begins a Whirlwind hold. **Skilled 0.03, Expert 0.05.** Absent (0) for Beginner, Easy, Normal and Hard.
+- `whirlwindRead` (fraction): the chance, rolled once per enemy Whirlwind phase it sees (one hold, one Spin), that it answers it. **Skilled 0.7, Expert 0.9.** Absent (0) for Beginner, Easy, Normal and Hard.
+- Styles: Aggressive `whirlwindRate: 1.6`, Defensive `whirlwindRate: 0.4`. (Off stays off: a Style multiplies.)
+- So the legacy tiers and Beginner draw no new random number (`chance(0)` never draws), and `aiGolden.test.ts` does not move: **the AI golden is not re-recorded** (it pins Easy, Normal and Hard only, which are frozen).
+
+**Constants** (`ai.ts`): `WHIRL_NEAR = 1.5` (m beyond its own reach within which an enemy counts for a spin), `WHIRL_ALLY = 1.0` (m beyond its reach: an ally this near forbids a spin), `SPIN_LOOK = 5` (m: who it steers by), `SPIN_AHEAD = 2` (m: how far ahead a steer must be safe ground), `WHIRL_CLEAR = 1.5` (m beyond the spinner's reach it backs out to from a hold), `WHIRL_BLOCK = 1.0` (m beyond the spinner's reach within which it Blocks a Spin), `WHIRL_WATCH = 2.5` (m beyond the spinner's reach within which it answers a Spin at all).
+
+**Safe ground along a path.** `pathIsSafe(arena, tuning, at: Vec2, y: number, dir: Vec2, length: number): boolean` (exported beside `stepIsSafe`): from `at`, `stepIsSafe` once per SAFETY_PROBE along `dir` until `length` is covered, each probe from the ground found under the last (`groundBelow(arena, x, z, y + fall.stepUp)`; none: false). A Wall in the way counts as unsafe (as for a step), so it never starts a spin into a Wall.
+
+**Using it** (`spinMoment`, in `decide` right after the Kick and the throw, before the Sheathed Draw and the openings). It begins a hold, `{ ...base, whirlwind: true, direction }`, when all of these hold, tested in this order (no random number is drawn before the last two):
+1. `skill.whirlwindRate > 0`, its Action is Idle, it is on the ground (`!self.air`), not Sheathed, `level` with its focus, and `canWhirlwind(tuning, self.weapon)` (so a Flail never does);
+2. either two or more enemies seen on its level within `myReach + WHIRL_NEAR` (flat), or its focus within that distance seen in a Knockdown or a Stagger;
+3. no ally seen (the `allies` list) within `myReach + WHIRL_ALLY`;
+4. `pathIsSafe` along `toward` its focus for the whole drive (`driveSpeed × spinTicks × TICK_SECONDS`, 4.5 m);
+5. `chance(whirlwindRate)`;
+6. the side: `direction = this.random() < 0.5 ? 'Left' : 'Right'` (drawn only here).
+It always spins standing: no crouch and no Jump in its own Whirlwind (v1).
+
+**Its own Whirlwind** (`ownWhirlwind`, in `decide` once `focused` and `aimAt` are known, **before** the defence branches: a hold it began is committed, as a Player's is, and a Block or Attack Intent would not cancel it anyway):
+- *Wind-up:* `{ ...aimAt(focus), whirlwind: !armed, move }` with `move = safeMove(toward)` when the focus is beyond its reach, else ZERO. So it holds until armed and lets go on the next Tick (a Spin). No `attack`, `block`, `kick`, `throw`, `crouch` or `jump`.
+- *Spin:* `{ ...IDLE_INTENT, face }` with `face = spinSteer(...)`: the sum over enemies seen on its level within SPIN_LOOK of `unit(toward them) / max(1, d)`, minus 1.5 × the same sum over allies seen within SPIN_LOOK; a zero sum keeps the heading (`face` = the Action's `heading`). The chosen face is kept only if `pathIsSafe` along it for SPIN_AHEAD; otherwise the first safe of `heading`, `heading + 90°`, `heading − 90°`, `heading + 180°` (the steer is capped at 90°/s by the Simulation, so this is a best effort; the start check keeps the straight path safe).
+- *Recovery:* nothing special (the usual `default: return base`).
+
+**Answering it** (`answerWhirlwind`, in `decide` after the Attack-threat branch and `dodgeThrow`, before the Kick-threat check; only when `skill.whirlwindRead > 0`, and only while its own Action is Idle or Block). The spinner is the nearest enemy seen (as seen Reaction Time ago: `seen`) on a near level (`near`) whose Action is a Whirlwind Wind-up within `R + WHIRL_CLEAR + 1` or a Whirlwind Spin within `R + WHIRL_WATCH` (`R` = the spinner's reach, `this.reach(o)`). None: null (behaves as before).
+- **The roll:** memory `whirlRead: { fighter, phase: 'Wind-up' | 'Spin', since, read }` with `since = seen.tick − action.ticks` (identifies one phase of one Whirlwind). A new (fighter, phase, since) rolls `read = chance(whirlwindRead)`; not read: null (it does not answer that phase). The field is **omitted** from `save()` while null, so an AI that never meets a Whirlwind saves exactly what it did; `load` restores it absent or present; `isAiMemory` accepts it absent or valid (`fighter` a Fighter index, `phase` one of the two, `since` an int, `read` a bool).
+- **A hold read:** `left = armTicks − action.ticks − reactionTicks` (Ticks from now before it can arm). Its Attack `direction = chooseDirection(...)` lands in time when `max(windUpEnd, walk) + ceil((releaseEnd − windUpEnd) / 2) < left` (`walk` as `landsInTime`'s): then `startAttack(..., { swingIn: dist > myReach })` (with a step in when beyond reach). Otherwise, within `R + WHIRL_CLEAR`: `{ ...aimAt(spinner), move: retreat(away from spinner) }`; beyond it: `aimAt(spinner)` (it waits, facing it).
+- **A Spin read**, `closing = max(0.3, cos)` of the spinner's heading against spinner→it, `reachIn = (dist − R) / (driveSpeed·TICK_SECONDS·closing)` Ticks before the blade can reach it (0 inside `R`):
+  1. *Thrust* (its Weapon has one): `dist ≤ myReach + THRUST_REACH`, `dist > R`, and its Thrust's `windUpEnd + ceil(release/2) < reachIn`: `startAttack` with direction Thrust (it lands first and ends the spin).
+  2. *Dagger*: daggers left, `dist > R + 1`, `dist ≤ ai.throwRange`, `clearLine`, and `throwTimings(...).windUpEnd + reactionTicks < reachIn`: `{ ...aimAt(spinner), ...throwAim(self, spinner, dist), throw: true }` (aimError 0).
+  3. *Block*: `dist ≤ R + WHIRL_BLOCK`: `{ ...aimAt(spinner), block: true, direction: mirrorDirection(spin.direction) }` (it faces the spinner, so `roughlyFaces` holds; the mirrored side meets it).
+  4. Otherwise: `{ ...aimAt(spinner), move: retreat(away from spinner) }`.
+- Never a Jump or a Crouch against a Whirlwind (v1). The legacy tiers and Beginner (`whirlwindRead` 0) never get here.
+
+**Header and docs.** The `ai.ts` header gains a "Whirlwind" bullet (using and answering, the knobs, what it never does), and its fairness rules hold: it reads the Action and pose as seen Reaction Time ago, never Intents. `CONTEXT.md`'s **Reaction Time** notes that an AI answers a Whirlwind's hold and Spin as seen Reaction Time ago.
+
+**Tests** (`src/controllers/aiWhirlwind.test.ts`, new, modelled on `ai.test.ts`'s Duels): the knobs per tier (Skilled 0.03/0.7, Expert 0.05/0.9; Beginner, Easy, Normal, Hard 0/0; Aggressive ×1.6, Defensive ×0.4 of the rate); with `whirlwindRate 1` against two still enemies in reach it holds G for armTicks + 1 Ticks, lets go armed and Spins (a `WhirlwindPhase Spin` event), sending no crouch or jump through the Spin; against one standing enemy it does not start, against one in a Knockdown in reach it does; an ally within reach + 1 stops it; a drive path over an Abyss edge stops it (an Arena with a ledge, as `ai.test.ts`'s ledge tests); in a Spin with enemies to one side it steers toward them, and away from an ally ahead; a Flail AI with `whirlwindRate 1` never sends `whirlwind`; with `whirlwindRead 1`, seeing a Spin come it Blocks the mirrored side facing the spinner (the turn is Blocked: a `Block` event with `whirlwind`); seeing a hold in reach it attacks before arming when it lands in time, else backs out beyond `R + WHIRL_CLEAR` before the spin; with a Thrust reaching past the spinner's blade it Thrusts and the Spin ends (a Stagger of the spinner); with `whirlwindRead 0` it answers nothing; memory round-trips through `save`/`load` mid-answer (a restored AI decides the same), and a `whirlRead`-free memory saves exactly as before; `aiGolden.test.ts` passes untouched. Rewritten (expected): `ai.test.ts`'s "Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on" (destructures the two new knobs too). Plus `messages.test.ts`: `isAiMemory` with and without `whirlRead`, and a bad one refused.
+
+#### Tasks (Stage 5)
+1. Using it: Tuning Data and `skillOf`, `pathIsSafe`, `spinMoment`, `ownWhirlwind`/`spinSteer`, the knob and using tests.
+2. Answering it: `answerWhirlwind`, `whirlRead` memory, `isAiMemory`, the answering and memory tests, the header.
+
 ### Stage 6: The Flail
 - A Flail Whirlwind: decide how the ball on its chain spins (rigid in the sim, ADR 0026) and whether its Spin-up adds anything. Own Motion override. Needs a short design interview first.
 
