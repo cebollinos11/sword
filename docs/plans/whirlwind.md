@@ -251,6 +251,48 @@ Settled here; a subagent makes no judgement call on these.
 - Camera Shake on every Whirlwind Hit, for the spinner and the victim.
 - Controls help / key hints list G.
 
+#### Design (Stage 4)
+Settled here; a subagent makes no judgement call on these. Nothing in `src/sim` changes: no SimState, hash, snapshot, Intent or golden moves. Every effect below is a pure function of Simulation state, the drawn Tick (`prev.tick + alpha`) and the drawn pose, so a scrub, a Rollback or a replay draws and sounds the same (ADR 0026). Nothing here keeps history from frame to frame (unlike the swing trail's `Ribbon`).
+
+**The whirl trail** (`src/render/whirlwindView.ts`, new). A fan behind the drawn blade, swept back round the spinner's vertical axis, instead of a frame-sampled ribbon (at 20° a Tick a ribbon would be a polygon of chords, and its look would depend on the frame rate).
+- `whirlTrail(prev: SimState, curr: SimState, i: number, alpha: number): { arc: number; opacity: number; sign: 1 | -1 } | null` (pure). `a = curr.fighters[i].action`; null unless `a.kind === 'Whirlwind'` and the Fighter is not dead.
+  - *Spin:* `spun = max(0, a.ticks - 1 + alpha)` Ticks of turning drawn so far (the Spin's entering Tick only moves out of the coil); `arc = min(TRAIL_ARC, spun · 2π / turnTicks)`; `opacity = 1`. `arc` 0 → null.
+  - *Recovery*, `a.ticks < TRAIL_FADE_TICKS`: `arc = TRAIL_ARC`, `opacity = 1 - (a.ticks + alpha) / TRAIL_FADE_TICKS` (the fifth turn's trail fades out as the body stops). Later Recovery Ticks: null.
+  - `sign = spinSign(a.direction)`. `turnTicks` comes from `whirlwindTimings`, so the function also takes `tuning: TuningData` as a fifth argument.
+  - Constants: `TRAIL_ARC = 200°` (in radians; 10 Ticks of turning), `TRAIL_FADE_TICKS = 6`, `TRAIL_SEGMENTS = 24`, `TRAIL_INNER = 0.35` (share of the blade, hilt to tip, where the inner edge runs: as the swing trail's `INNER`), tip opacity 0.75, inner 0.15, colour `0xf4f8ff` (the swing trail's).
+- `trailFan(blade: BladeTransform, pivot: {x, z}, trail): { inner: Vec3[]; tip: Vec3[]; alpha: number[] }` (pure): for k = 0..TRAIL_SEGMENTS, θ = arc·k/SEGMENTS; the inner point (hilt + INNER·(tip − hilt)) and the tip, each rotated about the vertical line through `pivot` by δ = −sign·θ (back the way it came). Rotation in `facing`'s yaw convention (forward = (sin h, cos h)), offsets `(dx, dz)` from the pivot: `x' = dx·cos δ + dz·sin δ`, `z' = −dx·sin δ + dz·cos δ`; heights unchanged. `alpha[k] = opacity · (1 − k/SEGMENTS)²` (the mesh multiplies by the tip/inner opacity). k = 0 is the blade where it is drawn.
+- The pivot is the Fighter's drawn position (`prev`/`curr` `position` lerped by `alpha`), not the pelvis: the body turns about its position.
+- `WhirlwindEffects` (class, same file): `constructor(scene: THREE.Scene)`; `update(prev, curr, alpha, blades: readonly (BladeTransform | undefined)[], tuning)`: one fan mesh per Fighter (made on first need, vertex-coloured, see-through, `DoubleSide`, `depthWrite: false`, `frustumCulled = false`, as `ribbonMaterial`), hidden when `whirlTrail` is null or the Fighter is not drawn; plus the armed flash below. `dispose()` frees geometry and materials.
+- The swing trail (`swingTrail.ts` `trailing`) is unchanged: it trails Attacks only, so a Whirlwind leaves only the fan.
+
+**The armed flash** (same file).
+- `armedFlash(prev, curr, i, alpha, tuning): { flash: number; glow: number } | null` (pure): non-null only while `curr`'s Action is a Whirlwind **Wind-up** with `armed` (and not dead). `since = a.ticks − armTicks + alpha` (Ticks since the arming Tick; `ticks === armTicks` on it). `flash = since < FLASH_TICKS ? 1 − since / FLASH_TICKS : 0` (`FLASH_TICKS = 12`, 0.2 s); `glow = ARMED_GLOW` (0.3): a steady glint while it stays armed, so the opponent can tell an armed hold from one still charging.
+- Drawn as (a) a glint at the blade tip: an additive billboard `THREE.Sprite`, its texture a small radial-gradient `DataTexture` built in code (no DOM), size `0.25 + 0.6·flash` m, opacity `max(flash, glow)`, colour `0xfff1c0`; (b) a ring on the floor at the Fighter's feet (`THREE.RingGeometry`, flat, at the drawn position and `y + 0.02`), radius growing `0.3 → 1.6` m as `flash` goes 1 → 0, opacity `0.8·flash` (gone once `flash` is 0). Both seen by everyone (no "is this my Fighter" test).
+
+**Wiring.** `Renderer.render` (`renderer.ts`) owns one `WhirlwindEffects` and calls `update(prev, curr, alpha, poses.map((p) => p?.blade), world.tuning)` beside the swing trails (a Benched Fighter: undefined, so nothing drawn). The Editor's Duel sandbox (`src/editor/sandbox.ts`) owns one too and calls it in its frame with its own `poses`, so the Whirlwind script shows it.
+
+**Audio** (`src/audio/cues.ts`, `synth.ts`).
+- `WhirlwindArmedCue { sound: 'WhirlwindArmed'; fighter; at }` for each `WhirlwindArmed` event (`at` the Fighter's chest, `body(i)`): synth `armed()`: a bright steel shimmer, a short rising ring (~0.4 s, two `ring`/`tone` partials gliding up about a fifth over a quick `hiss` of a blade drawn back). No stock clip (`stockFor` returns null for it).
+- `WhirlwindTurnCue { sound: 'WhirlwindTurn'; fighter; turn; of; weight; at }`: one whoosh per turn, from state as the flail's `whirled` is: after the event cues, for each Fighter of `now` not dead whose Action is a Whirlwind **Spin** with `ticks % turnTicks === 0` (the Spin's entering Tick and each turn's start: 5 whooshes at the defaults), `turn = a.turn`, `of = tuning.whirlwind.turns`, `weight = weaponWeight(f)`. Needs `tuning` (like `Whirl`; without it, none). Synth `whirlwindTurn(cue)`: a broad whoosh lasting about a turn (`turnSeconds`, 0.3 s; use 0.3), its pitch and level rising with `turn / max(1, of − 1)` (0.8× → 1.3× pitch), lower for a heavier Weapon (as `swing`). No stock clip.
+- Hits and Blocks of a Whirlwind sound as any (their events already sound); a Whirlwind makes no `Swing` cue (it has no `AttackPhase`).
+
+**Camera Shake** (`cameraShake.ts` `shakeFor`): a Whirlwind `Hit` (`e.whirlwind`) is handled before the plain Hit branch:
+- on me as the victim: `WHIRL_TAKEN = 0.6` when `damage > 0` (it knocks down), `WHIRL_NUDGED = 0.25` when 0 (an ally pushed aside);
+- by me as the spinner: `WHIRL_DEALT = 0.25` when `damage > 0`, and **at most once per Tick** however many it hits (a spin through four enemies on one Tick would otherwise max the shake); nothing for an ally touched.
+- Every other event shakes exactly as before (`cameraShake.test.ts`'s existing cases unchanged).
+
+**Controls help** (`src/play/menu.ts`): `KEYS` gains, after `['F', 'Kick']`, `['G (hold)', 'Whirlwind: hold 1 s to coil it to the side you last moved (left or right), let go to spin five turns that hit everyone in reach; the mouse steers, crouch lowers the blade, Space jumps']`; the How to Play tips gain `'A Whirlwind can be Blocked on its mirrored side, ducked when high, jumped when low, and is stopped by any Hit, dagger or Kick.'` Touch play has no Whirlwind button in v1 (unchanged `TOUCH_HELP`).
+
+**Tests.**
+- `src/render/whirlwindView.test.ts` (headless, pure functions only): no trail outside a Whirlwind, in the Wind-up, or on the Spin's entering Tick at alpha 0; the arc grows 20° a Tick to `TRAIL_ARC` and stays there; Recovery fades it over `TRAIL_FADE_TICKS` then null; `sign` +1 Right, −1 Left; `trailFan` k = 0 is the blade's inner point and tip exactly, every point keeps its height and its distance from the pivot, and for a real Right Spin (run with `stepDuel`, the Whirlwind sandbox-like setup from `whirlwindSpin.test.ts`) the fan's k-th tip lies on the side the tip of one Tick earlier was (it trails behind); the same `(prev, curr, alpha)` always gives the same fan (no hidden state); `armedFlash` null before arming, flash 1 on the arming Tick at alpha 0, falling to 0 over FLASH_TICKS, glow while still held armed, null in the Spin.
+- `src/audio/cues.test.ts`: a `WhirlwindArmed` cue on the arming Tick only; a held-and-released Whirlwind gives exactly `turns` `WhirlwindTurn` cues, on the Spin's Ticks 0, 18, 36, 54, 72, with `turn` 0..4; none without `tuning`; re-running the states (as a replay) gives the same cues.
+- `src/render/cameraShake.test.ts`: Whirlwind Hit taken 0.6, ally nudge 0.25, dealt 0.25 once per Tick for two Hits on one Tick, ally touched by me 0 impulses.
+- `menu` text: none needed beyond typecheck (no test reads `KEYS`; check `grep KEYS src/play/*.test.ts`).
+
+#### Tasks (Stage 4)
+1. Render: `whirlwindView.ts` (trail and flash), its wiring in `renderer.ts` and `sandbox.ts`, `whirlwindView.test.ts`.
+2. Audio, shake and help: `cues.ts`, `synth.ts`, `cameraShake.ts`, `menu.ts`, their tests. Disjoint from Task 1; the two may run at once.
+
 ### Stage 5: AI
 - `data/ai.json`: `whirlwindRate` (and a Style multiplier: Aggressive more, Defensive less). **0 for Beginner and for Easy/Normal/Hard**; set for Skilled and Expert, more up the ladder.
 - **Using it:** begin the hold when two or more enemies are within a few metres, or one is down or Staggered. Release when armed; steer toward the densest group of enemies, away from allies. Always standing (no height play, no mid-spin Jump in v1). Its usual check that a Jump is safe applies to its drive path: never drive toward a drop, Lava or Water.
