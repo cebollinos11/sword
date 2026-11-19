@@ -119,6 +119,23 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
+  it('carries a Whirlwind Spin with its heading through a resync, and refuses a Spin or Recovery without one', () => {
+    let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+    const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 2;
+    for (let t = 0; t < held + 10; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: t < held }, IDLE_INTENT], tuning);
+    const state = JSON.parse(JSON.stringify(m)) as MatchState;
+    const action = state.duel.fighters[0]!.action;
+    expect(action.kind === 'Whirlwind' && action.phase).toBe('Spin');
+    expect(action.kind === 'Whirlwind' && typeof action.heading).toBe('number');
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const without = JSON.parse(JSON.stringify(state)) as MatchState;
+    const a = without.duel.fighters[0]!.action as { heading?: number };
+    delete a.heading;
+    expect(parseNetMessage(resync(without))).toBeNull();
+    a.heading = Number.NaN;
+    expect(parseNetMessage(resync(without))).toBeNull();
+  });
+
   it('refuses a Whirlwind Action with an Overhead direction or a bad phase', () => {
     const state = whirlingMatchState();
     const withAction = (patch: object): unknown => {

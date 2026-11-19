@@ -158,13 +158,15 @@ describe('Whirlwind hold walk', () => {
     expect(dHeld / dPlain).toBeCloseTo(tuning.whirlwind.holdWalkFactor, 6);
   });
 
-  it('cannot walk in the Spin but still turns, and walks normally in Recovery', () => {
+  it('does not walk by its move in the Spin (the drive takes it along its heading) but still turns, and walks normally in Recovery', () => {
     const move = { x: 1, z: 0 };
     let s = tick(held(t.armTicks).at(-1)!, { move }); // Spin begins
     expect(spin(s).phase).toBe('Spin');
-    const x0 = me(s).position.x;
+    const p0 = me(s).position;
     s = tick(s, { move, face: 1 });
-    expect(me(s).position.x).toBe(x0);
+    // Stage 2: the Spin drives along its heading (here +z, steered 1.5 degrees toward the face), not along `move`.
+    expect(Math.hypot(me(s).position.x - p0.x, me(s).position.z - p0.z)).toBeCloseTo(tuning.whirlwind.driveSpeed * (1 / 60), 9);
+    expect(me(s).position.x - p0.x).toBeLessThan(0.002);
     expect(me(s).facing).not.toBe(0);
     s = ticks(s, t.spinTicks, { move });
     expect(spin(s).phase).toBe('Recovery');

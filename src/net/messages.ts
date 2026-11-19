@@ -293,7 +293,7 @@ function isAction(v: unknown): boolean {
     case 'Kick':
       return PHASE_SET.has(v.phase as string) && isBool(v.landed) && (v.whiff === undefined || isTick(v.whiff));
     case 'Whirlwind':
-      return WHIRLWIND_PHASE_SET.has(v.phase as string) && (v.direction === 'Left' || v.direction === 'Right') && isTick(v.ticks) && isBool(v.armed) && isTick(v.turn);
+      return WHIRLWIND_PHASE_SET.has(v.phase as string) && (v.direction === 'Left' || v.direction === 'Right') && isTick(v.ticks) && isBool(v.armed) && isTick(v.turn) && (v.phase === 'Wind-up' ? v.heading === undefined || isNum(v.heading) : isNum(v.heading));
     case 'Throw':
       return PHASE_SET.has(v.phase as string) && isTick(v.startTick) && (v.held === undefined || isTick(v.held));
     case 'Knockdown':

@@ -1,5 +1,5 @@
 import { defaultWeaponName, sizedTuning, storedSize, weaponByName, type ArenaGeometry, type Size, type TuningData } from '../tuning';
-import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION, updateAction, type ActionUpdate } from './actions';
+import { advanceBlockImpact, fall, spinFacing, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
@@ -16,7 +16,7 @@ import { followMotion } from './motion';
 import { bladeAndLeg, motionPose, withPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { Airborne, Death, DeathBlow, FighterState, MotionPlayback, SimState } from './state';
+import type { Action, Airborne, Death, DeathBlow, FighterState, MotionPlayback, SimState } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -159,9 +159,11 @@ function wrapYaw(a: number): number {
  * The Fighter's facing after this Tick: it turns toward `intent.face` the
  * shorter way round, at most `fighter.turnSpeed` degrees per second, and lands
  * exactly on it. A Staggered Fighter cannot act, so it cannot turn either,
- * and a Fighter in Knockdown lies (or gets up) facing the way it fell.
+ * and a Fighter in Knockdown lies (or gets up) facing the way it fell. `action` is the Action it has after this Tick.
  */
-function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
+function turn(f: FighterState, intent: Intent, tuning: TuningData, action: Action): number {
+  // A Whirlwind's Spin turns the body a full turn per turn about its heading (and Recovery's entering Tick closes the last one exactly on it).
+  if (action.kind === 'Whirlwind' && action.heading !== undefined && (action.phase === 'Spin' || (action.phase === 'Recovery' && action.ticks === 0))) return spinFacing(action, tuning);
   const face = intent.face ?? null; // tolerate Intents built before `face` existed
   if (face === null || f.action.kind === 'Stagger' || f.action.kind === 'Knockdown') return f.facing;
   const maxStep = (tuning.fighter.turnSpeed * Math.PI * TICK_SECONDS) / 180;
@@ -194,15 +196,17 @@ function duck(f: FighterState, intent: Intent, tuning: TuningData): number {
 
 /**
  * An airborne Fighter's flight this Tick (`flyBody`): it steers toward where its Intent walks, at its walk speed
- * (slowed by a dagger Hit), unless it is locked.
+ * (slowed by a dagger Hit), unless it is locked. A Whirlwind's Spin neither steers nor slows in the air: its flight carries what it took off with.
  */
 function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData): Pick<FighterState, 'position' | 'y' | 'air'> {
+  const speed = Math.hypot(air.vx, air.vz);
+  if (f.action.kind === 'Whirlwind' && f.action.phase === 'Spin' && speed > 0) return flyBody(f, air, { x: air.vx / speed, z: air.vz / speed }, intent.jumpHeld === true, speed, tuning);
   const move = locked(f) ? { x: 0, z: 0 } : intent.move;
   return flyBody(f, air, move, intent.jumpHeld === true, tuning.fighter.walkSpeed * slowFactor(f, tuning), tuning);
 }
 
-/** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), or a Sheathe or Draw, which carries on in the air. */
-const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind);
+/** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), a Sheathe or Draw, or a Whirlwind's Spin, which carry on in the air. */
+const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind) || (update.action.kind === 'Whirlwind' && update.action.phase === 'Spin');
 
 /**
  * A playback of the Idle Motion as the Fighter's own Idle plays it (the Sheathed Idle while `sheathed`, or the Sheathed run while it also
@@ -222,9 +226,16 @@ function runsForward(f: FighterState, to: FighterState['position'], tuning: Tuni
   return forward >= tuning.gait.runSpeed * TICK_SECONDS - 1e-9;
 }
 
-/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking or Attacking. */
+/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking, Attacking or in a Whirlwind's Spin. */
 const jumps = (f: FighterState, intent: Intent): boolean =>
-  intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack');
+  intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack' || (f.action.kind === 'Whirlwind' && f.action.phase === 'Spin'));
+
+/** Where a Whirlwind's Spin drives a grounded Fighter this Tick before collision: `driveSpeed` along the updated heading (no Intent, crouch, Slow or backwardness scales it). */
+function drive(f: FighterState, action: Action, tuning: TuningData): FighterState['position'] | undefined {
+  if (action.kind !== 'Whirlwind' || action.phase !== 'Spin' || action.heading === undefined) return undefined;
+  const d = tuning.whirlwind.driveSpeed * TICK_SECONDS;
+  return { x: f.position.x + Math.sin(action.heading) * d, z: f.position.z + Math.cos(action.heading) * d };
+}
 
 /**
  * One Fighter's Action and movement this Tick, before bodies collide. A Jump leaps
@@ -235,8 +246,9 @@ const jumps = (f: FighterState, intent: Intent): boolean =>
 function stepFighter(f: FighterState, index: number, tick: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   let air = f.air;
   let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
+  const driven = drive(f, update.action, tuning);
   if (jumps(f, intent)) {
-    air = takeOff(f.position, walk(f, intent, tuning, true), f.y, tuning);
+    air = takeOff(f.position, driven ?? walk(f, intent, tuning, true), f.y, tuning);
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
@@ -252,14 +264,14 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
   // A Slide carries a grounded Fighter along on top of its walk; once airborne its speed lives in `air` instead.
   const sliding = !air && f.slide ? advanceSlide(f.slide) : undefined;
-  const walked = air ? undefined : walk(f, intent, tuning);
+  const walked = air ? undefined : (driven ?? walk(f, intent, tuning));
   const moved = air
     ? fly(f, air, intent, tuning)
     : { position: sliding ? { x: walked!.x + sliding.delta.x, z: walked!.z + sliding.delta.z } : walked!, y: f.y };
   const next = {
     ...rest,
     ...moved,
-    facing: turn(f, intent, tuning),
+    facing: turn(f, intent, tuning, update.action),
     pitch: tilt(f, intent, tuning),
     crouch: duck(f, intent, tuning),
     action: update.action,

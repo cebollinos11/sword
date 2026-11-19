@@ -81,7 +81,7 @@ export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } 
 export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, isIdleMotion, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
-export { startWhirlwind, updateWhirlwind, whirlwindDirection, lastTick as whirlwindLastTick, whirlwindHoldMotion, whirlwindLowMotion, whirlwindSpinMotion, whirlwindTimings, WHIRLWIND_HOLD_MOTIONS, WHIRLWIND_LOW_MOTIONS, WHIRLWIND_SPIN_MOTIONS, type WhirlwindTimings } from './whirlwind';
+export { spinFacing, spinSign, startWhirlwind, steerHeading, updateWhirlwind, whirlwindDirection, lastTick as whirlwindLastTick, whirlwindHoldMotion, whirlwindLowMotion, whirlwindSpinMotion, whirlwindTimings, WHIRLWIND_HOLD_MOTIONS, WHIRLWIND_LOW_MOTIONS, WHIRLWIND_SPIN_MOTIONS, type WhirlwindTimings } from './whirlwind';
 export { THROW_MOTION, throwTimings, type ThrowTimings } from './throw';
 export { offHandFree, sheatheMotionName, sheatheTimings, type SheatheKind, type SheatheTimings } from './sheathe';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';

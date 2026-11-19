@@ -122,6 +122,11 @@ export interface WhirlwindAction {
   readonly armed: boolean;
   /** Spin: `floor(ticks / turnTicks)`, 0..turns-1; 0 in the Wind-up, turns-1 kept in Recovery. */
   readonly turn: number;
+  /**
+   * The yaw (`facing`'s convention, in (-π, π]) the Spin drives along, set to the Fighter's facing on the Tick the Spin begins and steered
+   * by `intent.face` apart from the spinning facing. Present in Spin and Recovery, absent in the Wind-up.
+   */
+  readonly heading?: number;
 }
 
 /**

@@ -1,10 +1,10 @@
 /**
  * The Whirlwind Action (Stage 1: the hold). The Fighter holds the Whirlwind button to coil (Wind-up), which arms after
- * `whirlwind.armSeconds`; letting go armed Spins it (its pose is the Spin Motion, high or low by the Fighter's crouch; drive and contacts are later), letting go earlier cancels. After
+ * `whirlwind.armSeconds`; letting go armed Spins it (its pose is the Spin Motion, high or low by the Fighter's crouch; the body turns a full turn per turn while a separate heading is steered, and it drives along that heading; contacts are later), letting go earlier cancels. After
  * the Spin comes a Recovery. It is committed: attack, block, kick, throw, sheathe, Feint and Direction changes do nothing.
  */
 import { canWhirlwind, weaponMotion, type TuningData } from '../../tuning';
-import { secondsToTicks } from '../constants';
+import { secondsToTicks, TICK_SECONDS } from '../constants';
 import type { Direction } from '../intent';
 import type { WhirlwindAction, WhirlwindDirection, WhirlwindPhase } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
@@ -75,6 +75,37 @@ export function lastTick(tuning: TuningData, weapon: string, name: string): numb
   return secondsToTicks(motion.duration);
 }
 
+/** Wrap a yaw into (-π, π]. */
+function wrapYaw(a: number): number {
+  const w = a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+  return w === -Math.PI ? Math.PI : w;
+}
+
+/** Which way a Whirlwind's body turns: Right +1 (yaw increases, the blade coming across the front to the Fighter's left), Left -1. */
+export const spinSign = (direction: WhirlwindDirection): 1 | -1 => (direction === 'Right' ? 1 : -1);
+
+/**
+ * A Spin's heading after one Tick of steering: toward `face` (a yaw, or null to keep it) the shorter way by at most
+ * `whirlwind.steerSpeed` degrees per second, landing exactly on it when closer.
+ */
+export function steerHeading(heading: number, face: number | null, tuning: TuningData): number {
+  if (face === null) return heading;
+  const maxStep = (tuning.whirlwind.steerSpeed * Math.PI * TICK_SECONDS) / 180;
+  const delta = wrapYaw(face - heading);
+  if (Math.abs(delta) <= maxStep) return wrapYaw(face);
+  return wrapYaw(heading + Math.sign(delta) * maxStep);
+}
+
+/**
+ * The facing of a Fighter in a Whirlwind's Spin (or on the Tick Recovery begins): its heading plus the turns made so far, a closed form of the
+ * Spin's own Tick so no float error builds over the turns. A full turn ends back on the heading.
+ */
+export function spinFacing(a: WhirlwindAction, tuning: TuningData): number {
+  const { turnTicks } = whirlwindTimings(tuning);
+  const heading = a.heading ?? 0;
+  return wrapYaw(heading + (spinSign(a.direction) * 2 * Math.PI * (a.ticks % turnTicks)) / turnTicks);
+}
+
 /** The high Spin Motion of a Whirlwind, held at its last Tick (the Motion Blend from the coil carries it in). */
 function playSpin(a: WhirlwindAction, tuning: TuningData, weapon: string): ActionUpdate {
   const name = whirlwindSpinMotion(a.direction);
@@ -113,14 +144,15 @@ export const updateWhirlwind: ActionHandler<WhirlwindAction> = (f, intent, ctx) 
         if (arms) ctx.emit({ type: 'WhirlwindArmed', fighter: ctx.fighter });
         return playHold({ ...a, ticks, armed: a.armed || arms }, ticks, ctx.tuning, f.weapon);
       }
-      if (a.armed) return playSpin({ ...enter(a, 'Spin', ctx), turn: 0 }, ctx.tuning, f.weapon);
+      if (a.armed) return playSpin({ ...enter(a, 'Spin', ctx), turn: 0, heading: wrapYaw(f.facing) }, ctx.tuning, f.weapon);
       ctx.emit({ type: 'WhirlwindPhase', fighter: ctx.fighter, phase: 'Cancelled' });
       return { action: IDLE_ACTION, motion: IDLE_MOTION };
     }
     case 'Spin': {
       const ticks = a.ticks + 1;
-      if (ticks >= t.spinTicks) return { action: { ...enter(a, 'Recovery', ctx), turn: ctx.tuning.whirlwind.turns - 1 }, motion: IDLE_MOTION };
-      return playSpin({ ...a, ticks, turn: Math.floor(ticks / t.turnTicks) }, ctx.tuning, f.weapon);
+      const heading = steerHeading(a.heading ?? f.facing, intent.face ?? null, ctx.tuning);
+      if (ticks >= t.spinTicks) return { action: { ...enter({ ...a, heading }, 'Recovery', ctx), turn: ctx.tuning.whirlwind.turns - 1 }, motion: IDLE_MOTION };
+      return playSpin({ ...a, ticks, turn: Math.floor(ticks / t.turnTicks), heading }, ctx.tuning, f.weapon);
     }
     case 'Recovery': {
       const ticks = a.ticks + 1;
