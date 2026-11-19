@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, spinUpChargeTicks, weaponByName, whirlTurns, withWeapon } from '../tuning';
-import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, wait, type Intent, type SimState, type Track } from '../sim';
+import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, wait, whirlwindTimings, type Intent, type SimState, type Track } from '../sim';
 import { arenaSurface, matchCues, soundCues, type SoundCue } from './cues';
 import { CHEST } from './spatial';
 import { stockFor } from './stock';
@@ -342,5 +342,67 @@ describe('the Flail’s sounds (docs/plans/flail.md, Stage 3)', () => {
         expect(plain.some((c) => 'chain' in c || (c.sound === 'Hit' && c.by === 'Ball')), weapon).toBe(false);
       }
     }
+  });
+});
+
+describe('the Whirlwind’s sounds (docs/plans/whirlwind.md, Stage 4)', () => {
+  const t = whirlwindTimings(tuning);
+  /** Fighter 0 alone holds the Whirlwind `held` Ticks (to the right), lets go, and runs on `after` Ticks; every state, in order. */
+  const run = (held: number, after: number, weapon = 'Arming Sword'): SimState[] => {
+    let s = createInitialState(tuning, 1, [{ position: { x: 0, z: 0 }, facing: 0 }], [weapon]);
+    const states: SimState[] = [];
+    for (let i = 0; i < held + after; i++) {
+      s = step(s, [{ ...IDLE_INTENT, direction: 'Right', whirlwind: i < held }], tuning);
+      states.push(s);
+    }
+    return states;
+  };
+  const cuesOf = (states: readonly SimState[], tun: typeof tuning | undefined = tuning) => states.map((s) => soundCues(s.events, s, tun));
+  const turns = (states: readonly SimState[]) =>
+    states.flatMap((s, k) => soundCues(s.events, s, tuning).flatMap((c) => (c.sound === 'WhirlwindTurn' ? [{ ...c, k }] : [])));
+
+  it('an armed hold sounds once, on the Tick it arms, at the Fighter', () => {
+    const states = run(t.armTicks + 10, 0);
+    const armed = cuesOf(states).flatMap((cs, k) => cs.filter((c) => c.sound === 'WhirlwindArmed').map((c) => ({ ...c, k })));
+    expect(armed).toHaveLength(1);
+    expect(armed[0]).toMatchObject({ sound: 'WhirlwindArmed', fighter: 0, at: expect.any(Object) });
+    expect(states[armed[0]!.k]!.events.some((e) => e.type === 'WhirlwindArmed')).toBe(true);
+    // Armed with or without the Tuning Data (it is an event's cue), and no clip is recorded for it.
+    expect(soundCues(states[armed[0]!.k]!.events).map((c) => c.sound)).toEqual(['WhirlwindArmed']);
+    expect(stockFor(armed[0]!)).toBeNull();
+  });
+
+  it('a held-and-released Whirlwind whooshes once a turn, on the Ticks each begins, rising turn by turn', () => {
+    const states = run(t.armTicks + 1, t.spinTicks + t.recoveryTicks + 10);
+    const got = turns(states);
+    const enter = states.findIndex((s) => s.fighters[0]!.action.kind === 'Whirlwind' && s.fighters[0]!.action.phase === 'Spin');
+    expect(got).toHaveLength(tuning.whirlwind.turns);
+    expect(got.map((c) => c.k - enter)).toEqual([0, 1, 2, 3, 4].map((n) => n * t.turnTicks));
+    expect(got.map((c) => c.turn)).toEqual([0, 1, 2, 3, 4]);
+    for (const c of got) expect(c).toMatchObject({ sound: 'WhirlwindTurn', fighter: 0, of: 5, at: expect.any(Object) });
+    expect(stockFor(got[0]!)).toBeNull();
+    // A Whirlwind makes no Swing.
+    expect(states.flatMap((s) => soundCues(s.events, s, tuning)).some((c) => c.sound === 'Swing')).toBe(false);
+  });
+
+  it('a longer Weapon whooshes heavier; without the Tuning Data there are no turn whooshes', () => {
+    const w = (weapon: string) => turns(run(t.armTicks + 1, 10, weapon))[0]!.weight;
+    expect(w('Halberd')).toBeGreaterThan(w('Arming Sword'));
+    const states = run(t.armTicks + 1, t.spinTicks);
+    expect(states.flatMap((s) => soundCues(s.events, s)).some((c) => c.sound === 'WhirlwindTurn')).toBe(false);
+  });
+
+  it('is a function of the states: running them again (a replay) gives the same cues', () => {
+    const a = run(t.armTicks + 1, t.spinTicks + t.recoveryTicks);
+    const b = run(t.armTicks + 1, t.spinTicks + t.recoveryTicks);
+    expect(cuesOf(b)).toEqual(cuesOf(a));
+    expect(cuesOf(a).flat().filter((c) => c.sound === 'WhirlwindArmed')).toHaveLength(1);
+  });
+
+  it('a Duel with no Whirlwind has neither cue', () => {
+    const r = runDuel(tuning, { distance: 1.3, a: [...attack('Overhead', 40), ...wait(40)], b: hold(60, { block: true, direction: 'Overhead' }) });
+    const all = r.states.flatMap((s) => soundCues(s.events, s, tuning));
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.some((c) => c.sound === 'WhirlwindArmed' || c.sound === 'WhirlwindTurn')).toBe(false);
   });
 });
