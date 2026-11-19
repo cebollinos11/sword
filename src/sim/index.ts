@@ -108,6 +108,7 @@ export {
   whirlwindHoldMotion,
   whirlwindLowMotion,
   whirlwindSpinMotion,
+  whirlwindSweepLive,
   whirlwindTimings,
   WHIRLWIND_HOLD_MOTIONS,
   WHIRLWIND_LOW_MOTIONS,

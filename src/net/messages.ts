@@ -185,6 +185,8 @@ const isNullable = (item: (x: unknown) => boolean) => (v: unknown): boolean => v
 const isPlayer = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_PLAYERS;
 /** A Fighter's index: one of a Duel's or a Battle's Fighter Pool's slots. */
 const isFighterIndex = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_POOL;
+/** A Whirlwind's hit set: the turn and the Fighters met in it, each once. */
+const isMet = (v: unknown): boolean => isObject(v) && isTick(v.turn) && isArrayOf(v.fighters, isFighterIndex) && new Set(v.fighters as unknown[]).size === (v.fighters as unknown[]).length;
 const FORMAT_SET: ReadonlySet<unknown> = new Set(MATCH_FORMATS);
 /**
  * The Formats a Rollback session plays: the Lobby's wire list (`MATCH_FORMATS`) and a Battle (docs/plans/big-battle.md, Stage 6).
@@ -293,7 +295,7 @@ function isAction(v: unknown): boolean {
     case 'Kick':
       return PHASE_SET.has(v.phase as string) && isBool(v.landed) && (v.whiff === undefined || isTick(v.whiff));
     case 'Whirlwind':
-      return WHIRLWIND_PHASE_SET.has(v.phase as string) && (v.direction === 'Left' || v.direction === 'Right') && isTick(v.ticks) && isBool(v.armed) && isTick(v.turn) && (v.phase === 'Wind-up' ? v.heading === undefined || isNum(v.heading) : isNum(v.heading));
+      return WHIRLWIND_PHASE_SET.has(v.phase as string) && (v.direction === 'Left' || v.direction === 'Right') && isTick(v.ticks) && isBool(v.armed) && isTick(v.turn) && (v.phase === 'Wind-up' ? v.heading === undefined || isNum(v.heading) : isNum(v.heading)) && (v.met === undefined || isMet(v.met));
     case 'Throw':
       return PHASE_SET.has(v.phase as string) && isTick(v.startTick) && (v.held === undefined || isTick(v.held));
     case 'Knockdown':

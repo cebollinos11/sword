@@ -1,12 +1,12 @@
 /**
  * The Whirlwind Action (Stage 1: the hold). The Fighter holds the Whirlwind button to coil (Wind-up), which arms after
- * `whirlwind.armSeconds`; letting go armed Spins it (its pose is the Spin Motion, high or low by the Fighter's crouch; the body turns a full turn per turn while a separate heading is steered, and it drives along that heading; contacts are later), letting go earlier cancels. After
+ * `whirlwind.armSeconds`; letting go armed Spins it (its pose is the Spin Motion, high or low by the Fighter's crouch; the body turns a full turn per turn while a separate heading is steered, and it drives along that heading; its blade hits: see `findContacts`), letting go earlier cancels. After
  * the Spin comes a Recovery. It is committed: attack, block, kick, throw, sheathe, Feint and Direction changes do nothing.
  */
 import { canWhirlwind, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks, TICK_SECONDS } from '../constants';
 import type { Direction } from '../intent';
-import type { WhirlwindAction, WhirlwindDirection, WhirlwindPhase } from '../state';
+import type { Action, WhirlwindAction, WhirlwindDirection, WhirlwindPhase } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
@@ -104,6 +104,14 @@ export function spinFacing(a: WhirlwindAction, tuning: TuningData): number {
   const { turnTicks } = whirlwindTimings(tuning);
   const heading = a.heading ?? 0;
   return wrapYaw(heading + (spinSign(a.direction) * 2 * Math.PI * (a.ticks % turnTicks)) / turnTicks);
+}
+
+/**
+ * Whether a Whirlwind's Blade Sweep is live from `prev` to `next`: `prev` is a Spin and `next` a Whirlwind (a Spin, or the Recovery's entering
+ * Tick, which closes the last turn). The Spin's first Tick (out of the coil) is not live. The segment belongs to the turn `prev.turn`.
+ */
+export function whirlwindSweepLive(prev: Action, next: Action): next is WhirlwindAction {
+  return prev.kind === 'Whirlwind' && prev.phase === 'Spin' && next.kind === 'Whirlwind';
 }
 
 /** The high Spin Motion of a Whirlwind, held at its last Tick (the Motion Blend from the coil carries it in). */

@@ -136,6 +136,29 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(without))).toBeNull();
   });
 
+  it('carries a Whirlwind\'s hit set through a resync, and refuses a malformed one', () => {
+    let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+    const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 2;
+    for (let t = 0; t < held + 10; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: t < held }, IDLE_INTENT], tuning);
+    const state = JSON.parse(JSON.stringify(m)) as MatchState;
+    expect(state.duel.fighters[0]!.action.kind === 'Whirlwind' && state.duel.fighters[0]!.action.phase).toBe('Spin');
+    // The Simulation's own hit set is checked in whirlwindContact.test.ts; here only that the wire carries one (and only a sound one).
+    (state.duel.fighters[0]!.action as { met?: unknown }).met = { turn: 0, fighters: [1] };
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const bad = (met: unknown): unknown => {
+      const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+      (copy.duel.fighters[0]!.action as { met?: unknown }).met = met;
+      return parseNetMessage(resync(copy));
+    };
+    expect(bad({ turn: 1, fighters: [1] })).not.toBeNull();
+    expect(bad({ turn: 1, fighters: [1, 1] })).toBeNull();
+    expect(bad({ turn: 1, fighters: [-1] })).toBeNull();
+    expect(bad({ turn: 1.5, fighters: [1] })).toBeNull();
+    expect(bad({ turn: 1, fighters: 1 })).toBeNull();
+    expect(bad({ fighters: [1] })).toBeNull();
+    expect(bad(3)).toBeNull();
+  });
+
   it('refuses a Whirlwind Action with an Overhead direction or a bad phase', () => {
     const state = whirlingMatchState();
     const withAction = (patch: object): unknown => {

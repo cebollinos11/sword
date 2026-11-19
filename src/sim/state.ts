@@ -127,6 +127,11 @@ export interface WhirlwindAction {
    * by `intent.face` apart from the spinning facing. Present in Spin and Recovery, absent in the Wind-up.
    */
   readonly heading?: number;
+  /**
+   * Whom this Whirlwind's blade has met (Hit, Blocked or pushed aside as an ally) in the turn `turn`, in the order met: a Fighter met once in a
+   * turn is not met again until the next. Absent until the first contact (so a Whirlwind that meets nobody is as it was before contacts).
+   */
+  readonly met?: { readonly turn: number; readonly fighters: readonly number[] };
 }
 
 /**

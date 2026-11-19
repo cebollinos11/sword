@@ -65,6 +65,8 @@ export interface HitEvent {
   readonly blade?: { readonly hilt: Vec3; readonly tip: Vec3 };
   /** Unit direction the contact point of the blade was moving. Set on every Hit the Simulation emits. */
   readonly travel?: Vec3;
+  /** Present (true) only for a Whirlwind's blow: half damage (none to a teammate), a Knockdown, never a Heavy Blow. */
+  readonly whirlwind?: true;
 }
 
 /** A Kick's leg sweep connected: a Knockdown (the victim moved) or a Shove (it gave no movement input, or was already down). Teammates take no damage. */
@@ -141,6 +143,8 @@ export interface BlockEvent {
   readonly heavy: boolean;
   /** Present (true) only for a Block Break: the Block Impact reached the defender's Weapon's `blockImpact.breakAt`, so the defender is knocked down. */
   readonly broken?: true;
+  /** Present (true) only for a Whirlwind's blade being Blocked: the defender is pushed back and the spinner is not Staggered. */
+  readonly whirlwind?: true;
 }
 
 /** An Attack's Blade Sweep reached an Arena Wall (a pillar, a wall, a rail) before any Fighter: the blade stops and the attacker recoils. */
