@@ -1,12 +1,13 @@
-# Whirlwind (spinning AOE move): feature definition
+# Whirlwind (spinning AOE move): staged implementation plan
 
-> Status: **design agreed** (design interview done). Not staged for implementation yet. Name agreed: **Whirlwind**.
-> Before staging, read: this file, `CONTEXT.md`, `docs/adr/` (0001, 0002, 0007, 0012, 0020), `docs/plans/kick-mechanic.md` (the template for a new committed Action).
+> Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
+> A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
+> The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
 Players want a move that hits many enemies at once. The goal is **spectacle**: feeling powerful, not fixing a balance problem. It is a **core move**, available to every Fighter in every mode (Duel/Match, Run, Battle), with **no cooldown or cost**. Balance comes from the move itself: a long, readable telegraph and low damage per Hit.
 
-## Agreed design (from the design interview)
+## Agreed design (from the design interview — do not re-litigate)
 
 ### Input and Action
 - **G key, own Action** (`Whirlwind`, built like the Kick), not an Attack Direction.
@@ -58,5 +59,69 @@ Players want a move that hits many enemies at once. The goal is **spectacle**: f
 - The most a single victim can take is **5 × 0.5 = 2.5× a normal Hit**, plus repeated Knockdowns, if the spinner steers after a Fighter being knocked away. The forward speed against the Knockdown Slide (`heavyBlow.knockdownSlide`-like) decides whether this clears space or kills. Tune the forward speed below the Knockdown Slide speed if it should mostly clear space.
 - With no cooldown, the move's strength in a Duel depends entirely on the 1.0 s hold being readable and the spin being interruptible.
 
-## Open questions
-None left from the interview. Staging it into an implementation plan (like `kick-mechanic.md`) is next.
+## Codebase map (from exploration)
+- **Pure deterministic sim** in `src/sim`; `purity.test.ts` bans Math.random, Date, the DOM and three.js. Everything below that decides an outcome lives here (ADR 0001).
+- **Actions:** `src/sim/actions/`. The header of `actions/index.ts` says how to add one: the `Action` union in `state.ts`, a handler in its own file, `HANDLERS`, and a starter in `STARTERS` (order matters: Sheathe, Kick, Throw, Attack, Block). `kick.ts` is the template (phases from Motion markers `windUpEnd`/`releaseEnd`, `kickSweepLive`); `attack.ts` shows a held Wind-up (`attackSweepLive`, `landed`).
+- **Movement:** `step.ts`: `locked()` (~124) says who cannot walk; the walk itself (~148) scales `fighter.walkSpeed`; air flight goes through `flyBody` (~201). Jumps start in the jump rule there (Idle, Blocking or Attacking).
+- **Contacts:** `combat.ts`: `findContacts` (~154) builds blade contacts per attacker against every defender, then `wallContact` (~140, ~190) cuts the sweep at the first Wall; `resolveContacts` (~326) → `resolveContact` / `resolveWall`; `staggerFighter` (~346); `hitDamage` (~103); `resolveChainKnockdowns` (~537, ADR 0027). `block.ts` `blocksAttack` holds the Block rule (Direction mirrored, roughly facing).
+- **Intent:** `src/sim/intent.ts`; checked over the wire by `isIntent` in `src/net/messages.ts` (~246). Keys: `src/controllers/local.ts` (`KICK_KEY = 'KeyF'` etc.).
+- **AI:** `src/controllers/ai.ts` (its header lists the repertoire; the Kick is the model to follow), difficulties and Styles in `data/ai.json` (`kickRate`-style per-tier rates). `aiGolden.test.ts` / `aiGolden.testdata.json` must be re-recorded when AI behaviour changes on purpose.
+- **Render / audio:** `src/render/cameraShake.ts`; `src/render/flailChain.ts` and `whirlTurns` (`src/tuning/weapon.ts`) show a drawn whirl as a closed form of the Tick (ADR 0026); audio cues in `src/audio/cues.ts`.
+- **Tuning Data:** a new `data/whirlwind.json`, loaded and type-checked in `src/tuning/`.
+
+## Tuning Data `data/whirlwind.json` (starting values)
+`armSeconds 1.0`, `holdWalkFactor ≈0.4` (share of `walkSpeed` during the hold), `turns 5`, `turnSeconds 0.3`, `driveSpeed 3.0` (m/s), `steerSpeed 90` (°/s), `damageFactor 0.5`, `knockdownSlide`/`knockdownSlideTicks` (start from `kick.json`'s 1.5 / 24), `blockSlide`/`blockSlideTicks` (start near a Heavy Blow's `blockSlide`, ≈0.4), `allySlide`/`allySlideTicks` (short, ≈0.5 m), `recoverySeconds` (short, about an Attack's Recovery).
+
+## Stages
+
+### Stage 1: Vocabulary, Intent and the hold
+- `Intent.whirlwind?: boolean` (G held). Add it to `isIntent`, the Local Controller (`WHIRLWIND_KEY = 'KeyG'`), and any Intent prediction/serialisation.
+- `WhirlwindAction` in `state.ts`: `phase: 'Wind-up' | 'Spin' | 'Recovery'`, `direction: 'Left' | 'Right'`, `armed`, `turn`, and per-turn hit bookkeeping (stage 3). Starter in `STARTERS` (after Kick): from Idle, on the ground, in a Jump (`startAction`'s rule) or crouched; not Sheathed. Direction from `intent.direction` when it is Left or Right; for Overhead or Thrust, the Fighter's last horizontal one (decide and test it).
+- The hold: armed after `armSeconds`; letting go armed → Spin; letting go earlier → Idle (no Feint, no Block cancel: Q and block do nothing). Walk at `holdWalkFactor`; turning as normal.
+- Default Motions `WhirlwindHold` (coiled to the chosen side, mirrored for Left/Right) with every non-Flail Weapon using it. A Weapon with no Motion (the Flail) cannot start a Whirlwind until Stage 6.
+- Events: `WhirlwindPhase { fighter, phase }` and `WhirlwindArmed { fighter }`.
+- `CONTEXT.md`: add Whirlwind to the **Action** list, and update **Whirlwind**'s entry from "planned".
+- Tests: arms at exactly `armSeconds`; early release cancels; hold walk speed; cannot start Sheathed; starts in a Jump and crouched; hash/snapshot/rollback round-trip.
+
+### Stage 2: The spin's motion
+- Spin phase: `turns × turnSeconds`. The body (not only the Weapon) turns a full 360° per turn the chosen way, so the Blade Sweep is real (ADR 0002). Hands and Weapon held out by a `WhirlwindSpin` Motion.
+- **Drive:** each ground Tick the Fighter moves `driveSpeed` along its heading; `intent.face` turns the heading by at most `steerSpeed`. Its spinning facing and its heading are separate state (the blade turns, the path arcs). Body collision and Walls still stop the body. **No ledge guard**: it can drive off an Abyss.
+- **Height:** blend `WhirlwindSpin` between a high and a low pose by the Fighter's `crouch` amount, so crouching during the spin lowers the blade toward the legs.
+- **Air:** released in a Jump, the turns go on through the flight (`flyBody` with the Jump's own speed) and on after landing, when the drive takes over. `jump` during the Spin starts a Jump (a spinning Jump); add the Whirlwind's Spin to the jump rule.
+- Recovery: `recoverySeconds` back to guard; no extra whiff penalty.
+- Tests: duration; distance covered on flat ground (≈ `driveSpeed × turns × turnSeconds`); steer rate cap; crouch moves the blade's height; air release lands still spinning; drives off a ledge into a Fall.
+
+### Stage 3: Contacts (needs ADR 0029)
+- `whirlwindSweepLive`: in Spin, every Tick. In `findContacts`, a Whirlwind's blade meets defenders like an Attack's, with a **per-turn hit set**: a Fighter met once in a turn is not met again until the next turn.
+- **Hit (enemy):** `hitDamage × damageFactor` (Hit Zones, `mods.damage` apply), and a Knockdown with `knockdownSlide` away from the spinner, standing or already down (a Hit on a Knockdown pushes it again without restarting it). A Fighter in the air is knocked down as for any Hit (ADR 0012). Chain Knockdowns follow (ADR 0027).
+- **Block:** `blocksAttack` with the Whirlwind's Direction (Left/Right mirrored). Blocked: no damage, Block Impact on the defender, a push of `blockSlide` away, and **no Stagger for the spinner**; the spin goes on. A Block Break (Dagger) applies as usual.
+- **Ally:** Stagger (no damage) and a push aside (`allySlide`) away from the spin's path. The spin goes on.
+- **Walls:** skip `wallContact` for a Whirlwind; defenders past a Wall are met as if it were not there (ADR 0029).
+- **Interrupting the spinner:** any damaging Hit (blade or Throwing Dagger) or any Kick on the spinner (a Shove as well as a Knockdown) ends the Whirlwind at once: a Stagger, or the Knockdown. A Trade on the same Tick counts: both land, and the spin ends.
+- **Clashes:** normal contact rules; no special parry, no Chamber of a Whirlwind (`chamberedBy` never set for it).
+- Crowd Soldiers are untouched (ADR 0020): only full Fighters are met.
+- Events: `Hit`/`Block` carry `whirlwind: true` (render, audio and stats can tell them apart).
+- Tests: one Hit per turn per defender, 5 at most; half damage; Knockdown and re-hit while down; Block pushes and the spin continues; ally Staggered and pushed with no damage; hit through a Wall; Thrust, dagger and Kick each end the spin; teammates/enemies in a 4-a-side Duel.
+
+### Stage 4: Feedback
+- Render: the hold pose already reads (Stage 1); a whirl trail on every turn and the armed flash, both closed forms of the Tick and the action state (so scrubbing, Rollback and replay draw the same, ADR 0026).
+- Audio: an armed cue at `WhirlwindArmed`, a whoosh per turn (rising like the Flail's), the existing Hit/Block sounds.
+- Camera Shake on every Whirlwind Hit, for the spinner and the victim.
+- Controls help / key hints list G.
+
+### Stage 5: AI
+- `data/ai.json`: `whirlwindRate` (and a Style multiplier: Aggressive more, Defensive less). **0 for Beginner and for Easy/Normal/Hard**; set for Skilled and Expert, more up the ladder.
+- **Using it:** begin the hold when two or more enemies are within a few metres, or one is down or Staggered. Release when armed; steer toward the densest group of enemies, away from allies. Always standing (no height play, no mid-spin Jump in v1). Its usual check that a Jump is safe applies to its drive path: never drive toward a drop, Lava or Water.
+- **Answering it (Skilled, Expert only):** seeing a hold (Reaction Time ago, from state), step out of reach or close in to hit before it arms; seeing a spin, Block its mirrored side, or Thrust or throw a dagger to interrupt when its own blow lands first. Never by Jumping a low one or ducking a high one (v1).
+- Update the AI header in `ai.ts` and **Reaction Time** in `CONTEXT.md`. Re-record the AI golden.
+
+### Stage 6: The Flail
+- A Flail Whirlwind: decide how the ball on its chain spins (rigid in the sim, ADR 0026) and whether its Spin-up adds anything. Own Motion override. Needs a short design interview first.
+
+## Progress
+- [ ] Stage 1: Vocabulary, Intent and the hold
+- [ ] Stage 2: The spin's motion
+- [ ] Stage 3: Contacts
+- [ ] Stage 4: Feedback
+- [ ] Stage 5: AI
+- [ ] Stage 6: The Flail
