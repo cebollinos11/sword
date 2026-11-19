@@ -108,7 +108,7 @@ _Avoid_: Session (on its own), netcode, connection
 ## Combat
 
 **Action**:
-What a Fighter is doing right now: Idle, Attack, Block, Kick, Throw, Sheathe, Draw, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
+What a Fighter is doing right now: Idle, Attack, Block, Kick, Whirlwind, Throw, Sheathe, Draw, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
 _Avoid_: State, move, animation
 
 **Wind-up**:
@@ -178,7 +178,7 @@ _Avoid_: Knife, projectile, shuriken
 An Action (E key) in which the Fighter takes a Throwing Dagger by its point in its off hand, draws it back behind its head and throws it, the dagger spinning end over end. It follows an Attack's phases (Wind-up, Release, Recovery): the Wind-up takes 0.8 s to reach its held pose and, like an Attack's, holds there while E is held, for up to 2 s, after which the dagger goes by itself. The dagger shows in the hand from the start of the Wind-up, so the opponent can see a throw coming, and leaves it on the first Tick of Release; the whole Throw lasts about 1.25 s unheld. The Fighter can still walk, turn and crouch, but cannot Attack, Block, Kick, Feint or cancel. It starts from Idle, with a dagger left, on the ground or in a Jump. With a two-handed Weapon the off hand lets go of the Off-hand Grip during the Throw.
 _Avoid_: Shot, toss
 
-**Whirlwind** (planned: `docs/plans/whirlwind.md`, not built yet):
+**Whirlwind** (being built: `docs/plans/whirlwind.md`; the hold is in, the spin's motion and contacts are not yet):
 An Action (G key) in which the Fighter spins its Weapon round its body: a move every Fighter has in every mode, with no cooldown. Hold G to coil to Left or Right (the last horizontal mouse movement), walking slowly; once held 1 s it is armed, and letting go spins (letting go earlier cancels). The spin is five full turns, each a real Blade Sweep that can hit each Fighter once, driving forward and steered gently by the mouse; crouching lowers the blade, and it can Jump while spinning. A Hit deals half damage and knocks down; a Block of its mirrored side stops that turn and pushes the defender back without Staggering the spinner; an ally is Staggered and pushed aside. Its blade passes through Walls and hits what is beyond (ADR 0029). Any damaging Hit or Kick on the spinner ends it. It meets full Fighters only, never Crowd Soldiers.
 _Avoid_: Spin (the Flail's Spin-up), spin attack, AOE, cleave
 

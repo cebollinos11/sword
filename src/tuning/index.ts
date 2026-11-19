@@ -38,6 +38,7 @@ import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
+import { secondsToTicks, TICK_SECONDS } from '../sim/constants';
 import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
@@ -689,26 +690,27 @@ function parseWhirlwind(raw: unknown, roster: readonly string[]): WhirlwindTunin
   unavailable.forEach((name, i) => {
     if (typeof name !== 'string' || !roster.includes(name)) throw new TuningDataError(`whirlwind.unavailableWeapons[${i}] must name a Weapon of the roster, got ${JSON.stringify(name)}`);
   });
-  const ticks = (key: string): number => {
-    const v = nonNegativeNumber(w, key, 'whirlwind');
-    if (!Number.isInteger(v)) throw new TuningDataError(`whirlwind.${key} must be a whole number of Ticks, got ${v}`);
+  // A phase that rounds to no Ticks would never run (armTicks, turnTicks and recoveryTicks are `secondsToTicks` of these).
+  const seconds = (key: string): number => {
+    const v = positiveNumber(w, key, 'whirlwind');
+    if (secondsToTicks(v) < 1) throw new TuningDataError(`whirlwind.${key} must be at least one Tick (${TICK_SECONDS} s), got ${v}`);
     return v;
   };
   return {
-    armSeconds: positiveNumber(w, 'armSeconds', 'whirlwind'),
+    armSeconds: seconds('armSeconds'),
     holdWalkFactor: fraction(w, 'holdWalkFactor', 'whirlwind'),
     turns,
-    turnSeconds: positiveNumber(w, 'turnSeconds', 'whirlwind'),
+    turnSeconds: seconds('turnSeconds'),
     driveSpeed: nonNegativeNumber(w, 'driveSpeed', 'whirlwind'),
     steerSpeed: nonNegativeNumber(w, 'steerSpeed', 'whirlwind'),
     damageFactor: nonNegativeNumber(w, 'damageFactor', 'whirlwind'),
     knockdownSlide: nonNegativeNumber(w, 'knockdownSlide', 'whirlwind'),
-    knockdownSlideTicks: ticks('knockdownSlideTicks'),
+    knockdownSlideTicks: wholeTicks(w, 'knockdownSlideTicks', 'whirlwind'),
     blockSlide: nonNegativeNumber(w, 'blockSlide', 'whirlwind'),
-    blockSlideTicks: ticks('blockSlideTicks'),
+    blockSlideTicks: wholeTicks(w, 'blockSlideTicks', 'whirlwind'),
     allySlide: nonNegativeNumber(w, 'allySlide', 'whirlwind'),
-    allySlideTicks: ticks('allySlideTicks'),
-    recoverySeconds: positiveNumber(w, 'recoverySeconds', 'whirlwind'),
+    allySlideTicks: wholeTicks(w, 'allySlideTicks', 'whirlwind'),
+    recoverySeconds: seconds('recoverySeconds'),
     unavailableWeapons: unavailable as string[],
   };
 }

@@ -125,6 +125,15 @@ describe('Replay files', () => {
     expect(() => parseReplay(JSON.stringify(broken))).toThrow(/intents\[0\]/);
   });
 
+  it('round-trips an Intent with the Whirlwind held', () => {
+    const a = [...hold(5, { whirlwind: true, direction: 'Left' as const }), ...wait(5)];
+    const { replay } = playAndRecord(duelSandbox(tuning), createInitialState(tuning, 1, duelPlacements(1.3)), [scriptedController(a), scriptedController(wait(10))], 10);
+    const back = parseReplay(serializeReplay(replay));
+    expect(back.intents.some((tickIntents) => tickIntents[0]!.whirlwind === true)).toBe(true);
+    expect(back.intents[0]![0]!).toMatchObject({ whirlwind: true });
+    expect(back.intents[9]![0]!.whirlwind).not.toBe(true);
+  });
+
   it('stores runs of repeated Intents compactly', () => {
     const { replay } = scriptedDuel();
     const file = JSON.parse(serializeReplay(replay));

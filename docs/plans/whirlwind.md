@@ -2,6 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
+> **Status:** Stage 1 done (the hold); Stage 2 next.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -113,7 +114,8 @@ Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-tur
 - **Direction (settled):** `whirlwindDirection(d: Direction): WhirlwindDirection`: Left → Left, Right → Right, Overhead or Thrust → **Right**. The Simulation keeps no memory of past Directions; the *Local Controller* remembers the last horizontal gesture and latches it into `intent.direction` when G is pressed, so a human always sends Left or Right. The fallback Right only applies to Controllers that send something else (the AI, touch).
 
 **Update** `updateWhirlwind` (`HANDLERS.Whirlwind`; ignores `attack`, `block`, `kick`, `throw`, `sheathe` and Q's Feint entirely, so none of them cancels it):
-- *Wind-up:* G held → `ticks + 1`; when it reaches `armTicks`, `armed = true` and emit `WhirlwindArmed {fighter}` (once, on that Tick). G not held → armed: enter Spin (`ticks 0`, `turn 0`, emit `WhirlwindPhase Spin`); not armed: Idle (`IDLE_ACTION`, `IDLE_MOTION`) and emit `WhirlwindPhase {phase:'Cancelled'}`. So holding from the starting Tick S, the Fighter is armed on Tick S + armTicks, and letting go on any later Tick spins; letting go on Tick S + armTicks - 1 or earlier cancels.
+- *Wind-up:* G held → `ticks + 1`; when it reaches `armTicks`, `armed = true` and emit `WhirlwindArmed {fighter}` (once, on that Tick). G not held → armed: enter Spin (`ticks 0`, `turn 0`, emit `WhirlwindPhase Spin`); not armed: Idle (`IDLE_ACTION`, `IDLE_MOTION`) and emit `WhirlwindPhase {phase:'Cancelled'}`. So holding from the starting Tick S, the Fighter is armed by the held Intent of Tick S + armTicks (the arming Tick must itself be held), and letting go on any later Tick spins; letting go on Tick S + armTicks or earlier cancels. G is held for armTicks + 1 Intents (1.017 s at the defaults) before a release spins.
+- A human whose G overlaps a held attack (or a Wheel Attack) may start a Whirlwind with an Overhead or Thrust Direction; it coils Right. Accepted: the overlap is rare and the result is still a readable Whirlwind.
 - *Spin:* `ticks + 1`, `turn = floor((ticks+1) / turnTicks)`; when `ticks + 1 >= spinTicks` enter Recovery (`ticks 0`, turn kept at turns-1, emit `WhirlwindPhase Recovery`). In Stage 1 nothing else happens (no turning, drive or contact: Stage 2 and 3).
 - *Recovery:* `ticks + 1`; when `ticks + 1 >= recoveryTicks` → Idle (no event).
 - A Stagger, Knockdown or Fall ends it as it ends any Action (`staggerFighter`, ledge Fall after `fall.fallDelay`): nothing new.
@@ -138,6 +140,13 @@ Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-tur
 #### Tasks (Stage 1)
 1. Simulation and Tuning Data: everything above but the Net and the Local Controller.
 2. Net and Local Controller: `messages.ts`, `local.ts` and their tests.
+
+### Stage 1 result
+- **Built:** `Intent.whirlwind` (G held; `isIntent`, the Editor replay's `parseIntent`), `WhirlwindAction {phase, direction, ticks, armed, turn}` and `startWhirlwind`/`updateWhirlwind` (`src/sim/actions/whirlwind.ts`, after the Kick in `STARTERS`), `data/whirlwind.json` → `tuning.whirlwind` (every key of the move; `unavailableWeapons ["Flail"]`, `canWhirlwind`), the hold Motions `WhirlwindHoldLeft`/`WhirlwindHoldRight`, the hold walk at 0.4×, events `WhirlwindPhase` (Wind-up, Spin, Recovery, Cancelled) and `WhirlwindArmed`, the net validator (`PROTOCOL_VERSION` 37) and the G key with the horizontal-side latch (`local.ts`).
+- **Changed from the Design:** arming needs the arming Tick itself held, so G is held for armTicks + 1 Intents (1.017 s) before a release spins; the Design's wording is corrected above. The Local Controller also re-latches the horizontal side on every Tick G is held alone (so a hold that starts as a Block is let go still coils Left/Right). Seconds that round to no Tick and slide Ticks of 0 are refused at load. In Stage 1 the Spin only counts its turns on the held coil pose (no turning or drive yet); Recovery plays Idle.
+- **Tests:** `src/sim/whirlwind.test.ts` (24), plus cases in `tuning.test.ts`, `local.test.ts` (7), `messages.test.ts` (3), `replay.test.ts` (1); protocol pins in `messages.test.ts` and `delverMessages.test.ts` moved to 37; the Editor's Motion list gained the two hold Motions. Full suite 3173 passed; `test:slow` 52 passed. No SimState hash or AI golden moved.
+- **For Stage 2:** the hold poses were authored without being looked at (Right: twist 55, sword hand (0.5, 1.05, -0.4), rotation (-10, 130, -90), hips 0.86; Left mirrored); check them in the Editor's sandbox before going on. A Whirlwind started in a Jump works both by pressing G with Space and by pressing it mid-air (the Fall starts Actions for a jumper). A hold cannot Jump.
+- **To try in a playtest:** whether 1.0 s reads as a fair telegraph, and whether 0.4× walk is too slow to line up a spin.
 
 ### Stage 2: The spin's motion
 - Spin phase: `turns × turnSeconds`. The body (not only the Weapon) turns a full 360° per turn the chosen way, so the Blade Sweep is real (ADR 0002). Hands and Weapon held out by a `WhirlwindSpin` Motion.
@@ -175,7 +184,7 @@ Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-tur
 - A Flail Whirlwind: decide how the ball on its chain spins (rigid in the sim, ADR 0026) and whether its Spin-up adds anything. Own Motion override. Needs a short design interview first.
 
 ## Progress
-- [ ] Stage 1: Vocabulary, Intent and the hold
+- [x] Stage 1: Vocabulary, Intent and the hold
 - [ ] Stage 2: The spin's motion
 - [ ] Stage 3: Contacts
 - [ ] Stage 4: Feedback

@@ -105,6 +105,7 @@ function quantiseYaw(yaw: number): number {
  *   one Jump (sent on one Tick), and holding it boosts that Jump higher (sent as `jumpHeld` on every Tick it is held).
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
+ *   G held coils a Whirlwind to the side of the last horizontal gesture (sent as `whirlwind` on every Tick it is held); letting go once armed Spins, letting go sooner cancels.
  *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
  *   Mouse wheel up queues a quick Overhead Attack and wheel down a quick Thrust (a Wheel Attack, `wheel`).
  *   The number keys equip an inventory item (with Shift only select it) and X drops the one selected last, once each (`inventoryKeys.ts`); so does a click on the inventory screen.

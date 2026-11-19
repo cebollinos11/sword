@@ -196,6 +196,12 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, armSeconds: 0 } })).toThrow(/whirlwind\.armSeconds/);
     expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, holdWalkFactor: 1.5 } })).toThrow(/whirlwind\.holdWalkFactor/);
     expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, blockSlideTicks: 1.5 } })).toThrow(/whirlwind\.blockSlideTicks/);
+    for (const key of ['knockdownSlideTicks', 'blockSlideTicks', 'allySlideTicks']) {
+      expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, [key]: 0 } }), key).toThrow(new RegExp(`whirlwind\\.${key}`));
+    }
+    for (const key of ['armSeconds', 'turnSeconds', 'recoverySeconds']) {
+      expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, [key]: 0.001 } }), key).toThrow(new RegExp(`whirlwind\\.${key}`));
+    }
     expect(parseTuningData({ ...good, whirlwind: { ...good.whirlwind, unavailableWeapons: ['Sword'] } }).whirlwind.unavailableWeapons).toEqual(['Sword']);
   });
 

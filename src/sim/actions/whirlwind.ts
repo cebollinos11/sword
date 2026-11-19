@@ -95,8 +95,8 @@ export const updateWhirlwind: ActionHandler<WhirlwindAction> = (f, intent, ctx) 
     case 'Recovery': {
       const ticks = a.ticks + 1;
       if (ticks >= t.recoveryTicks) return { action: IDLE_ACTION, motion: IDLE_MOTION };
-      // The Idle Motion plays on from the Tick Recovery began (the Motion Blend takes the pose back to guard).
-      return { action: { ...a, ticks }, motion: a.ticks === 0 ? IDLE_MOTION : advance(f.motion) };
+      // The Tick that entered Recovery began the Idle Motion at its Tick 0; it plays on one Tick at a time (the Motion Blend takes the pose back to guard).
+      return { action: { ...a, ticks }, motion: advance(f.motion) };
     }
   }
 };

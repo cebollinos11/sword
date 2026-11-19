@@ -87,7 +87,15 @@ describe('Whirlwind hold', () => {
     expect(whirlEvents(later)).toEqual([]);
   });
 
-  it('letting go on Tick S + armTicks spins', () => {
+  it('holding through Tick S + armTicks - 1 and letting go on Tick S + armTicks cancels: the arming Tick must itself be held', () => {
+    const states = held(t.armTicks - 1); // Tick S .. S + armTicks - 1, still unarmed
+    expect(spin(states.at(-1)!).armed).toBe(false);
+    const s = tick(states.at(-1)!, {}); // Tick S + armTicks, let go
+    expect(me(s).action.kind).toBe('Idle');
+    expect(whirlEvents(s)).toEqual([{ type: 'WhirlwindPhase', fighter: 0, phase: 'Cancelled' }]);
+  });
+
+  it('holding through Tick S + armTicks and letting go on Tick S + armTicks + 1 spins', () => {
     const states = held(t.armTicks);
     const s = tick(states.at(-1)!, {});
     expect(spin(s)).toMatchObject({ phase: 'Spin', ticks: 0, turn: 0, armed: true });
@@ -131,7 +139,10 @@ describe('Whirlwind hold', () => {
     expect(playing(states.at(-1)!)).toEqual({ name: 'WhirlwindHoldRight', tick: lastTick });
     const spinning = tick(states.at(-1)!, {});
     expect(playing(spinning)).toEqual({ name: 'WhirlwindHoldRight', tick: lastTick });
-    expect(me(ticks(spinning, t.spinTicks)).motion.name).toBe('Idle');
+    const recovering = ticks(spinning, t.spinTicks); // the Tick that enters Recovery: Idle at its Tick 0
+    expect(playing(recovering)).toEqual({ name: 'Idle', tick: 0 });
+    expect(playing(tick(recovering, {}))).toEqual({ name: 'Idle', tick: 1 });
+    expect(playing(ticks(recovering, 5))).toEqual({ name: 'Idle', tick: 5 });
   });
 });
 

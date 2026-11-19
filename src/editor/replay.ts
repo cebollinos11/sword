@@ -380,6 +380,7 @@ function parseIntent(raw: unknown, path: string): Intent {
     ...(o.jumpHeld === undefined ? {} : { jumpHeld: bool(o.jumpHeld, `${path}.jumpHeld`) }),
     ...(o.crouch === undefined ? {} : { crouch: bool(o.crouch, `${path}.crouch`) }),
     ...(o.kick === undefined ? {} : { kick: bool(o.kick, `${path}.kick`) }),
+    ...(o.whirlwind === undefined ? {} : { whirlwind: bool(o.whirlwind, `${path}.whirlwind`) }),
   };
 }
 
