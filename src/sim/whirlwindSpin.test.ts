@@ -54,15 +54,25 @@ describe('Whirlwind Spin pose', () => {
   });
 
   for (const direction of ['Right', 'Left'] as const) {
-    it.each(WEAPONS)(`standing, the ${direction} blade lies above 1.3 m once the Motion Blend settles (%s)`, (weapon) => {
-      const s = ticks(spinning(weapon, direction, false), 20);
-      expect(heights(me(s)).low).toBeGreaterThan(1.3);
+    it.each(WEAPONS)(`standing, the ${direction} blade lies above 1.3 m through a whole turn once the Motion Blend settles (%s)`, (weapon) => {
+      let s = ticks(spinning(weapon, direction, false), 20);
+      let lowest = Infinity;
+      for (let n = 0; n < t.turnTicks; n++) {
+        s = tick(s);
+        lowest = Math.min(lowest, heights(me(s)).low);
+      }
+      expect(lowest).toBeGreaterThan(1.3);
     });
 
-    it.each(WEAPONS)(`fully crouched, the ${direction} blade lies below 0.5 m (%s)`, (weapon) => {
-      const s = ticks(spinning(weapon, direction, true), 20, { crouch: true });
+    it.each(WEAPONS)(`fully crouched, the ${direction} blade lies below 0.5 m through a whole turn (%s)`, (weapon) => {
+      let s = ticks(spinning(weapon, direction, true), 20, { crouch: true });
       expect(me(s).crouch).toBe(1);
-      expect(heights(me(s)).high).toBeLessThan(0.5);
+      let highest = -Infinity;
+      for (let n = 0; n < t.turnTicks; n++) {
+        s = tick(s, { crouch: true });
+        highest = Math.max(highest, heights(me(s)).high);
+      }
+      expect(highest).toBeLessThan(0.5);
     });
   }
 
@@ -108,6 +118,22 @@ const heading = (s: SimState): number => spinOf(s).heading!;
 const wrap = (a: number): number => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 const DEG = Math.PI / 180;
 const isSpin = (s: SimState): boolean => me(s).action.kind === 'Whirlwind' && (me(s).action as { phase: string }).phase === 'Spin';
+
+describe('Whirlwind crouched pose continuity', () => {
+  it.each(WEAPONS)('with crouch held the sword hand moves at most 0.15 m a Tick from just before release through 15 Recovery Ticks (%s)', (weapon) => {
+    const g: Partial<Intent> = { whirlwind: true, direction: 'Right', crouch: true };
+    let s = ticks(fresh(weapon), t.armTicks + 1 + 20, g);
+    const ys: number[] = [me(s).blade.hilt.y];
+    s = tick(s, { direction: 'Right', crouch: true });
+    ys.push(me(s).blade.hilt.y);
+    for (let n = 0; n < t.spinTicks + 15; n++) {
+      s = tick(s, { crouch: true });
+      ys.push(me(s).blade.hilt.y);
+    }
+    expect(me(s).action).toMatchObject({ kind: 'Whirlwind', phase: 'Recovery' });
+    for (let i = 1; i < ys.length; i++) expect(Math.abs(ys[i]! - ys[i - 1]!), `Tick ${i}`).toBeLessThanOrEqual(0.15);
+  });
+});
 
 describe('Whirlwind Spin turning', () => {
   it('lasts spinTicks, then Recovery lasts recoveryTicks', () => {
@@ -264,11 +290,39 @@ describe('Whirlwind Spin in the air and at edges', () => {
     s = tick(s, { jump: true });
     expect(me(s).air?.jumped).toBe(true);
     expect(spinOf(s).phase).toBe('Spin');
-    // The same Tick's flight (locked, so no steering) bleeds a little of it to `fall.airControl`.
-    expect(Math.hypot(me(s).air!.vx, me(s).air!.vz) / tuning.whirlwind.driveSpeed).toBeGreaterThan(0.97);
-    expect(Math.hypot(me(s).air!.vx, me(s).air!.vz)).toBeLessThanOrEqual(tuning.whirlwind.driveSpeed);
+    // A Spin's flight neither steers nor bleeds: it keeps the take-off velocity, the drive speed.
+    expect(Math.hypot(me(s).air!.vx, me(s).air!.vz)).toBeCloseTo(tuning.whirlwind.driveSpeed, 9);
     while (me(s).air) s = tick(s);
     expect(spinOf(s).phase).toBe('Spin');
+  });
+
+  it('Space on the Spin\'s last Tick does not Jump', () => {
+    let s = spinning(WEAPONS[0]!, 'Right', false);
+    s = ticks(s, t.spinTicks - 1);
+    expect(spinOf(s)).toMatchObject({ phase: 'Spin', ticks: t.spinTicks - 1 });
+    s = tick(s, { jump: true });
+    expect(spinOf(s)).toMatchObject({ phase: 'Recovery', ticks: 0 });
+    expect(me(s).air).toBeUndefined();
+    expect(s.events.some((e) => e.type === 'Jump')).toBe(false);
+  });
+
+  it('a Spin that ends airborne after a ledge drive closes its last turn exactly on the heading', () => {
+    const tn = withArena([floorAt(0), floorAt(1, -3, 3, -6, 0)]);
+    let found = 0;
+    for (let z = -3.2; z > -4.4 && found === 0; z -= 0.05) {
+      let s = start(tn, 0, z, 1);
+      for (let n = 0; n < t.armTicks + 1; n++) s = stepWith(tn, s, { whirlwind: true });
+      for (let n = 0; n <= t.spinTicks; n++) {
+        s = stepWith(tn, s);
+        if (spinOf(s).phase === 'Recovery') break;
+      }
+      if (spinOf(s).phase === 'Recovery' && spinOf(s).ticks === 0 && me(s).air) {
+        found++;
+        expect(me(s).facing).toBe(heading(s));
+        expect(spinOf(s).phase).toBe('Recovery');
+      }
+    }
+    expect(found).toBe(1);
   });
 
   it('driving off a ledge goes airborne still spinning and falls', () => {

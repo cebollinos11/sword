@@ -205,8 +205,8 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
   return flyBody(f, air, move, intent.jumpHeld === true, tuning.fighter.walkSpeed * slowFactor(f, tuning), tuning);
 }
 
-/** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), a Sheathe or Draw, or a Whirlwind's Spin, which carry on in the air. */
-const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind) || (update.action.kind === 'Whirlwind' && update.action.phase === 'Spin');
+/** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), a Sheathe or Draw, or a Whirlwind's Spin (and Recovery's entering Tick, which closes the last turn on the heading), which carry on in the air. */
+const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind) || (update.action.kind === 'Whirlwind' && (update.action.phase === 'Spin' || (update.action.phase === 'Recovery' && update.action.ticks === 0)));
 
 /**
  * A playback of the Idle Motion as the Fighter's own Idle plays it (the Sheathed Idle while `sheathed`, or the Sheathed run while it also
@@ -226,9 +226,9 @@ function runsForward(f: FighterState, to: FighterState['position'], tuning: Tuni
   return forward >= tuning.gait.runSpeed * TICK_SECONDS - 1e-9;
 }
 
-/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking, Attacking or in a Whirlwind's Spin. */
-const jumps = (f: FighterState, intent: Intent): boolean =>
-  intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack' || (f.action.kind === 'Whirlwind' && f.action.phase === 'Spin'));
+/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking, Attacking, or in a Whirlwind whose Action after this Tick (`updated`) is still a Spin. */
+const jumps = (f: FighterState, intent: Intent, updated: Action): boolean =>
+  intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack' || (f.action.kind === 'Whirlwind' && updated.kind === 'Whirlwind' && updated.phase === 'Spin'));
 
 /** Where a Whirlwind's Spin drives a grounded Fighter this Tick before collision: `driveSpeed` along the updated heading (no Intent, crouch, Slow or backwardness scales it). */
 function drive(f: FighterState, action: Action, tuning: TuningData): FighterState['position'] | undefined {
@@ -247,7 +247,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   let air = f.air;
   let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
   const driven = drive(f, update.action, tuning);
-  if (jumps(f, intent)) {
+  if (jumps(f, intent, update.action)) {
     air = takeOff(f.position, driven ?? walk(f, intent, tuning, true), f.y, tuning);
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();

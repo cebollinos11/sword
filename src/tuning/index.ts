@@ -717,11 +717,12 @@ function parseWhirlwind(raw: unknown, roster: readonly string[]): WhirlwindTunin
 
 /**
  * Whether a Fighter wielding `weapon` can start a Whirlwind: it is not in `whirlwind.unavailableWeapons`, and both hold Motions
- * (WhirlwindHoldLeft and WhirlwindHoldRight) exist for it (its override, or the default).
+ * (WhirlwindHoldLeft and WhirlwindHoldRight), both high Spin Motions (WhirlwindSpinLeft and WhirlwindSpinRight) and both low Spin Motions
+ * (WhirlwindLowLeft and WhirlwindLowRight) exist for it (its override, or the default).
  */
 export function canWhirlwind(tuning: Pick<TuningData, 'motions' | 'motionOverrides' | 'whirlwind'>, weapon: string): boolean {
   if (tuning.whirlwind.unavailableWeapons.includes(weapon)) return false;
-  return weaponMotion(tuning, weapon, 'WhirlwindHoldLeft') !== undefined && weaponMotion(tuning, weapon, 'WhirlwindHoldRight') !== undefined;
+  return ['WhirlwindHoldLeft', 'WhirlwindHoldRight', 'WhirlwindSpinLeft', 'WhirlwindSpinRight', 'WhirlwindLowLeft', 'WhirlwindLowRight'].every((name) => weaponMotion(tuning, weapon, name) !== undefined);
 }
 
 function parseDagger(raw: unknown): DaggerTuning {

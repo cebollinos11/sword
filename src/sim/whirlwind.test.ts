@@ -248,6 +248,11 @@ describe('Whirlwind availability', () => {
     expect(canWhirlwind({ ...tuning, motions }, SWORD)).toBe(false);
   });
 
+  it.each(['WhirlwindSpinLeft', 'WhirlwindSpinRight', 'WhirlwindLowLeft', 'WhirlwindLowRight'])('is refused when %s is missing', (name) => {
+    const { [name]: _gone, ...motions } = tuning.motions;
+    expect(canWhirlwind({ ...tuning, motions }, SWORD)).toBe(false);
+  });
+
   it('starts crouched', () => {
     const s = ticks(fresh(), 20, { crouch: true });
     expect(me(s).crouch).toBeGreaterThan(0.5);
