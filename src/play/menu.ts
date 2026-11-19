@@ -125,6 +125,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Space', 'Jump'],
   ['C or Left Ctrl (hold)', 'Crouch'],
   ['F', 'Kick'],
+  ['G (hold)', 'Whirlwind: hold 1 s to coil it to the side you last moved (left or right), let go to spin five turns that hit everyone in reach; the mouse steers, crouch lowers the blade, Space jumps'],
   ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
   ['R', 'Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again'],
   ['Q', 'Feint, during a Wind-up, into the Direction you last moved'],
@@ -627,6 +628,7 @@ export class Menu {
       h('li', '', 'A Block stops an Attack only from its Direction: watch the Wind-up, then answer it.'),
       h('li', '', 'Hold attack during Recovery to Chain straight into the next swing.'),
       h('li', '', 'A Kick knocks down a Fighter who moves into it, and only shoves one who stands still.'),
+      h('li', '', 'A Whirlwind can be Blocked on its mirrored side, ducked when high, jumped when low, and is stopped by any Hit, dagger or Kick.'),
       h('li', '', 'Three daggers a Duel: a hit wounds and slows.'),
     );
     return this.card('How to Play', h('div', 'menu-scroll', null, body, h('h3', 'lb-heading', 'Tips'), tips));

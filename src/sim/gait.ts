@@ -287,6 +287,12 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     const plant = (p: Vec2): FootState => ({ planted: p, y: after.air ? after.y : ground(p), step: null });
     return { left: plant(home.left), right: plant(home.right) };
   }
+  if (after.action.kind === 'Whirlwind' && after.action.phase === 'Spin') {
+    // A spinner pivots on the spot as it drives: both feet are planted at their home under the turned body, never stepping.
+    const home = footHome(tuning, after.weapon, after.motion, after);
+    const plant = (p: Vec2): FootState => ({ planted: p, y: ground(p), step: null });
+    return { left: plant(home.left), right: plant(home.right) };
+  }
   const owned = ownedFeet(tuning, after.weapon, after.motion);
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;

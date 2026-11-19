@@ -16,7 +16,7 @@ export interface LocalInputBinding {
  * Feeds browser mouse/key events to a Local Controller. Left mouse = attack,
  * right mouse = block, mouse movement = gesture + camera turn (pointer lock is
  * requested on the first click so the mouse never leaves the window), mouse wheel up / down
- * = queue a quick Overhead / Thrust Attack, WASD walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C or Left Ctrl = crouch (held). Losing focus lets go of everything.
+ * = queue a quick Overhead / Thrust Attack, WASD walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C or Left Ctrl = crouch (held), G = held coils a Whirlwind to the side of the last horizontal gesture (sent on every Tick it is held), letting go once armed Spins, sooner cancels. Losing focus lets go of everything.
  */
 export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement): LocalInputBinding {
   const binding: LocalInputBinding = { enabled: false, dispose };

@@ -20,6 +20,14 @@ function kickingMatchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
+/** A Match state caught mid-Whirlwind, held until armed, as a host would send it. */
+function whirlingMatchState(): MatchState {
+  let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+  const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 4;
+  for (let t = 0; t < held; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: true }, IDLE_INTENT], tuning);
+  return JSON.parse(JSON.stringify(m)) as MatchState;
+}
+
 /** A Match state caught mid-Throw, with a dagger spent, as a host would send it. */
 function throwingMatchState(): MatchState {
   let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
@@ -96,6 +104,80 @@ describe('Peer message validation', () => {
     const state = kickingMatchState();
     expect(state.duel.fighters[0]!.action.kind).toBe('Kick');
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
+  });
+
+  it('refuses an Intent whose whirlwind is not a boolean, and accepts one that Whirlwinds', () => {
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, whirlwind: 1 }]))).toBeNull();
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, whirlwind: true }]))).toEqual(intents([{ ...IDLE_INTENT, whirlwind: true }]));
+  });
+
+  it('carries a Whirlwind Action held until armed through a resync', () => {
+    const state = whirlingMatchState();
+    const action = state.duel.fighters[0]!.action;
+    expect(action.kind).toBe('Whirlwind');
+    expect(action.kind === 'Whirlwind' && action.armed).toBe(true);
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+  });
+
+  it('carries a Whirlwind Spin with its heading through a resync, and refuses a Spin or Recovery without one', () => {
+    let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+    const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 2;
+    for (let t = 0; t < held + 10; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: t < held }, IDLE_INTENT], tuning);
+    const state = JSON.parse(JSON.stringify(m)) as MatchState;
+    const action = state.duel.fighters[0]!.action;
+    expect(action.kind === 'Whirlwind' && action.phase).toBe('Spin');
+    expect(action.kind === 'Whirlwind' && typeof action.heading).toBe('number');
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const without = JSON.parse(JSON.stringify(state)) as MatchState;
+    const a = without.duel.fighters[0]!.action as { heading?: number };
+    delete a.heading;
+    expect(parseNetMessage(resync(without))).toBeNull();
+    a.heading = Number.NaN;
+    expect(parseNetMessage(resync(without))).toBeNull();
+  });
+
+  it('carries a Whirlwind\'s hit set through a resync, and refuses a malformed one', () => {
+    let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+    const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 2;
+    for (let t = 0; t < held + 10; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: t < held }, IDLE_INTENT], tuning);
+    const state = JSON.parse(JSON.stringify(m)) as MatchState;
+    expect(state.duel.fighters[0]!.action.kind === 'Whirlwind' && state.duel.fighters[0]!.action.phase).toBe('Spin');
+    // The Simulation's own hit set is checked in whirlwindContact.test.ts; here only that the wire carries one (and only a sound one).
+    (state.duel.fighters[0]!.action as { met?: unknown }).met = { turn: 0, fighters: [1] };
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const bad = (met: unknown): unknown => {
+      const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+      (copy.duel.fighters[0]!.action as { met?: unknown }).met = met;
+      return parseNetMessage(resync(copy));
+    };
+    const turn = (state.duel.fighters[0]!.action as { turn: number }).turn;
+    expect(bad({ turn, fighters: [1] })).not.toBeNull();
+    // The hit set belongs to a turn the Whirlwind has reached, never a later one.
+    expect(bad({ turn: turn + 1, fighters: [1] })).toBeNull();
+    expect(bad({ turn, fighters: [1, 1] })).toBeNull();
+    expect(bad({ turn, fighters: [-1] })).toBeNull();
+    expect(bad({ turn: 1.5, fighters: [1] })).toBeNull();
+    expect(bad({ turn, fighters: 1 })).toBeNull();
+    expect(bad({ fighters: [1] })).toBeNull();
+    expect(bad(3)).toBeNull();
+  });
+
+  it('refuses a Whirlwind Action with an Overhead direction or a bad phase', () => {
+    const state = whirlingMatchState();
+    const withAction = (patch: object): unknown => {
+      const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+      (copy.duel.fighters[0] as { action: unknown }).action = { ...copy.duel.fighters[0]!.action, ...patch };
+      return resync(copy);
+    };
+    expect(parseNetMessage(withAction({ direction: 'Overhead' }))).toBeNull();
+    expect(parseNetMessage(withAction({ phase: 'Release' }))).toBeNull();
+  });
+
+  it('refuses a Whirlwind hit set in the Wind-up, which has no turn to meet anyone in', () => {
+    const state = whirlingMatchState();
+    const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+    (copy.duel.fighters[0] as { action: unknown }).action = { ...copy.duel.fighters[0]!.action, phase: 'Wind-up', met: { turn: 0, fighters: [1] } };
+    expect(parseNetMessage(resync(copy))).toBeNull();
   });
 
   it('refuses an Intent whose throw is not a boolean', () => {
@@ -632,8 +714,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
       expect(parseNetMessage(resync(stock(bad), ai)), JSON.stringify(bad)).toBeNull();
   });
 
-  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 36', () => {
-    expect(PROTOCOL_VERSION).toBe(36);
+  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 37', () => {
+    expect(PROTOCOL_VERSION).toBe(37);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -731,5 +813,29 @@ describe("Peer message validation: a Run's Players, Inventories, pickups and Mod
     const m = intents([{ ...IDLE_INTENT, equip: { kind: 'relic', slot: 98 }, drop: { kind: 'weapon', slot: 98 } }]);
     expect(parseNetMessage(m)).toEqual(m);
     expect(parseNetMessage(intents([{ ...IDLE_INTENT, drop: { kind: 'weapon', slot: 99 } }]))).toBeNull();
+  });
+});
+
+describe('Peer message validation: the AI memory of an answered Whirlwind (docs/plans/whirlwind.md, Stage 5)', () => {
+  /** A real Skilled AI's memory (no Whirlwind met, so no `whirlReads` key), as the host would send it. */
+  function memory(): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Skilled');
+    let m = createMatch(tuning, { bestOf: 1, teams: [0, 1], seed: 3 });
+    for (let t = 0; t < 40; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it('accepts a memory with no whirlReads, or valid ones, and refuses a bad phase, a non-boolean read or a duplicate fighter', () => {
+    const good = memory();
+    expect('whirlReads' in good).toBe(false);
+    const read = { fighter: 0, phase: 'Spin', since: 12, read: true };
+    for (const ok of [good, { ...good, whirlReads: [] }, { ...good, whirlReads: [read] }, { ...good, whirlReads: [{ ...read, phase: 'Wind-up', read: false }, { ...read, fighter: 2 }] }]) {
+      const m = resync(matchState(), [null, ok]);
+      expect(parseNetMessage(m)).toEqual(m);
+    }
+    const bads = [[{ ...read, phase: 'Recovery' }], [{ ...read, read: 1 }], [{ ...read, fighter: -1 }], [{ ...read, since: 1.5 }], [{ ...read, fighter: undefined }], [null], [read, { ...read, phase: 'Wind-up' }], read, null];
+    for (const bad of bads) {
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlReads: bad }])), JSON.stringify(bad)).toBeNull();
+    }
   });
 });

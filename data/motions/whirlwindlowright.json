@@ -1,0 +1,75 @@
+{
+  "name": "WhirlwindLowRight",
+  "duration": 0.1,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.4,
+          "y": 0.7,
+          "z": 0.05
+        },
+        "rotation": {
+          "x": 0,
+          "y": 90,
+          "z": -90
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.25,
+          "y": 0.6499999999999999,
+          "z": 0.1
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 45
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.8,
+        "z": 0
+      },
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.1,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.4,
+          "y": 0.7,
+          "z": 0.05
+        },
+        "rotation": {
+          "x": 0,
+          "y": 90,
+          "z": -90
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.25,
+          "y": 0.6499999999999999,
+          "z": 0.1
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 45
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.8,
+        "z": 0
+      },
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    }
+  ]
+}

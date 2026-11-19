@@ -38,6 +38,7 @@ import type {
   ThunkCue,
   WallStrikeCue,
   WhirlCue,
+  WhirlwindTurnCue,
 } from './cues';
 import type { AudioTuning } from '../tuning';
 import type { Vec3 } from '../sim';
@@ -220,6 +221,10 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.block(cue);
       case 'Whirl':
         return this.whirl(cue);
+      case 'WhirlwindArmed':
+        return this.armed();
+      case 'WhirlwindTurn':
+        return this.whirlwindTurn(cue);
       case 'Hit':
         return this.hit(cue);
       case 'Chamber':
@@ -568,6 +573,34 @@ export class WebAudioPlayer implements SoundPlayer {
     this.hiss(out, { filter: 'bandpass', freq: 1600 * pitch, to: 2600 * pitch, q: 7, dur: dur * 0.8, peak: 0.25 * c, attack: dur * 0.5 });
     // The weight of it: a low rush.
     this.hiss(out, { filter: 'lowpass', freq: 220, to: 380, q: 0.8, dur: dur * 1.1, peak: 0.35 + 0.25 * c, attack: dur * 0.45 });
+  }
+
+  /** A Whirlwind's hold armed: a blade drawn back and a bright steel shimmer rising about a fifth. */
+  private armed(): void {
+    const out = this.bus(0.3, 0.85);
+    const p = vary(0.04);
+    // The blade drawn back: a quick, rising hiss.
+    this.hiss(out, { filter: 'bandpass', freq: 1800 * p, to: 5200 * p, q: 5, dur: 0.18, peak: 0.35, attack: 0.1 });
+    // The shimmer: two partials of steel gliding up a fifth, the second a little behind.
+    this.tone(out, { type: 'sine', freq: 1100 * p, to: 1650 * p, glide: 0.3, dur: 0.4, peak: 0.16, attack: 0.02 });
+    this.tone(out, { type: 'sine', freq: 1100 * p * 1.007, to: 1650 * p * 1.007, glide: 0.3, dur: 0.32, peak: 0.08, attack: 0.02 });
+    this.tone(out, { type: 'triangle', freq: 2310 * p, to: 3465 * p, glide: 0.3, at: 0.03, dur: 0.36, peak: 0.07, attack: 0.02 });
+    this.ring(out, { base: 1650 * p, partials: STEEL.slice(0, 3), at: 0.28, peak: 0.07, decay: 0.3, attack: 0.01 });
+  }
+
+  /**
+   * One turn of a Whirlwind's Spin: a broad whoosh of a body-length blade past the ears, higher and louder turn by turn
+   * (0.8x to 1.3x pitch), lower for a heavier Weapon.
+   */
+  private whirlwindTurn(cue: WhirlwindTurnCue): void {
+    const r = cue.turn / Math.max(1, cue.of - 1);
+    const w = cue.weight;
+    const pitch = (0.8 + 0.5 * r) * (1 - 0.35 * w) * vary(0.04);
+    const dur = 0.3;
+    const out = this.bus(0.12, 1.5 * (0.55 + 0.45 * r));
+    this.hiss(out, { filter: 'bandpass', freq: 280 * pitch, to: 1300 * pitch, q: 1.3, dur, peak: 0.6 + 0.2 * w, attack: dur * 0.5 });
+    this.hiss(out, { filter: 'bandpass', freq: 1300 * pitch, to: 3200 * pitch, q: 8, dur: dur * 0.85, peak: 0.28 * (1 - 0.6 * w), attack: dur * 0.55 });
+    this.hiss(out, { filter: 'lowpass', freq: 240, to: 480, q: 0.8, dur: dur * 1.1, peak: 0.3 + 0.3 * w, attack: dur * 0.45 });
   }
 
   /** A flail's spikes biting: a short crunch of points going in, over the blow itself. */

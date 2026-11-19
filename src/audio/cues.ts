@@ -6,7 +6,7 @@
  * Most sounds come from a Tick's events; a Duel starting and the Match
  * ending come from the Match's own events.
  */
-import type { CrowdState, DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
+import { whirlwindTimings, type CrowdState, type DeathCause, type Direction, type FighterState, type MatchEvent, type SimEvent, type SimState, type Vec3 } from '../sim';
 import { spinUpChargeTicks, weaponByName, whirlTurns, type HitZone, type TuningData } from '../tuning';
 import { CHEST } from './spatial';
 
@@ -49,6 +49,24 @@ export interface WhirlCue extends Placed {
   readonly sound: 'Whirl';
   readonly fighter: number;
   readonly charge: number;
+}
+
+/** A Whirlwind's hold became armed (letting go now Spins): a bright shimmer of steel. */
+export interface WhirlwindArmedCue extends Placed {
+  readonly sound: 'WhirlwindArmed';
+  readonly fighter: number;
+}
+
+/**
+ * A Whirlwind's Spin began a turn (its entering Tick, then each turn's start): one whoosh. `turn` is 0..`of`-1 and `of` the turns of the Spin: the whoosh
+ * rises in pitch and level turn by turn. `weight` is 0 (a light sword) to 1 (a polearm), as for a Swing: a heavier Weapon sounds lower.
+ */
+export interface WhirlwindTurnCue extends Placed {
+  readonly sound: 'WhirlwindTurn';
+  readonly fighter: number;
+  readonly turn: number;
+  readonly of: number;
+  readonly weight: number;
 }
 
 /**
@@ -222,6 +240,8 @@ export type SoundCue =
   | SwingCue
   | BlockCue
   | WhirlCue
+  | WhirlwindArmedCue
+  | WhirlwindTurnCue
   | HitCue
   | ChamberCue
   | FeintCue
@@ -285,7 +305,7 @@ function weaponWeight(fighter: FighterState | undefined): number {
 }
 
 /**
- * The sounds triggered by one Tick, in event order, then each Spin-up's whirl. `now` is the state the Tick produced: it gives
+ * The sounds triggered by one Tick, in event order, then each Spin-up's whirl and each Whirlwind turn's whoosh. `now` is the state the Tick produced: it gives
  * the Weapons and the floor (without it, a middling Weapon on stone). `tuning` tells the Weapons apart by their look (a flail's
  * blows and its whirl); without it every Weapon sounds as a plain blade.
  */
@@ -380,6 +400,9 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
       case 'Drawn':
         cues.push({ sound: 'Draw', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter) });
         break;
+      case 'WhirlwindArmed':
+        cues.push({ sound: 'WhirlwindArmed', fighter: e.fighter, at: body(e.fighter) });
+        break;
       case 'DuelEnd':
         cues.push({ sound: 'DuelEnd', winner: e.winner });
         break;
@@ -389,6 +412,15 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
     const charge = whirled(now, i, tuning);
     if (charge !== undefined) cues.push({ sound: 'Whirl', fighter: i, charge, at: body(i) });
   });
+  if (now && tuning) {
+    const { turnTicks } = whirlwindTimings(tuning);
+    now.fighters.forEach((f, i) => {
+      const a = f.action;
+      // Each turn's start, read from the state alone (as the flail's whirl is), so a Rollback, a scrub or a replay hears the same whooshes.
+      if (f.death || a.kind !== 'Whirlwind' || a.phase !== 'Spin' || a.ticks % turnTicks !== 0) return;
+      cues.push({ sound: 'WhirlwindTurn', fighter: i, turn: a.turn, of: tuning.whirlwind.turns, weight: weaponWeight(f), at: body(i) });
+    });
+  }
   return cues;
 }
 

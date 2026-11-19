@@ -11,6 +11,7 @@ import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
 import kickJson from '../../data/kick.json';
+import whirlwindJson from '../../data/whirlwind.json';
 import daggerJson from '../../data/dagger.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
@@ -37,6 +38,7 @@ import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
+import { secondsToTicks, TICK_SECONDS } from '../sim/constants';
 import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
@@ -172,6 +174,43 @@ export interface KickTuning {
   readonly whiffRecovery: number;
   /** Padding (m) around the kicking leg's segment when it is swept against Hit Zones. */
   readonly legRadius: number;
+}
+
+/**
+ * The Whirlwind (data/whirlwind.json): the held Wind-up, the Spin and its Recovery. Every key of the whole move is parsed up front, even those
+ * only later Stages read. Times in seconds, distances in metres, speeds in m/s, angles in degrees, `*Ticks` in Ticks.
+ */
+export interface WhirlwindTuning {
+  /** Seconds the Wind-up must be held before it is armed (letting go earlier cancels). */
+  readonly armSeconds: number;
+  /** Share of the walk speed a holding Fighter keeps (0..1). */
+  readonly holdWalkFactor: number;
+  /** Turns in a Spin (a whole number, at least 1). */
+  readonly turns: number;
+  /** Seconds one turn takes. */
+  readonly turnSeconds: number;
+  /** Speed (m/s) a spinning Fighter drives along its heading. */
+  readonly driveSpeed: number;
+  /** How fast (degrees per second) the Fighter's input steers the drive heading. */
+  readonly steerSpeed: number;
+  /** Share of a Hit's damage a Whirlwind blow does. */
+  readonly damageFactor: number;
+  /** How far (m) a Whirlwind Knockdown slides the victim. */
+  readonly knockdownSlide: number;
+  /** Ticks that Slide lasts. */
+  readonly knockdownSlideTicks: number;
+  /** How far (m) a Blocked Whirlwind blow pushes the defender back (the spinner is not Staggered). */
+  readonly blockSlide: number;
+  /** Ticks that Slide lasts. */
+  readonly blockSlideTicks: number;
+  /** How far (m) a blow on a teammate slides it. */
+  readonly allySlide: number;
+  /** Ticks that Slide lasts. */
+  readonly allySlideTicks: number;
+  /** Seconds of Recovery after the last turn. */
+  readonly recoverySeconds: number;
+  /** Weapons that cannot start a Whirlwind yet (each a Weapon of the roster). */
+  readonly unavailableWeapons: readonly string[];
 }
 
 /** The Throwing Dagger (data/dagger.json): ammo, flight, what a Hit does and how long the Slow lasts. Distances in metres, speeds in m/s, times in Ticks, angles in degrees. */
@@ -443,10 +482,14 @@ export interface AiDifficulty {
    * out of reach, rather than stand and Block a Heavy Blow.
    */
   readonly spinRespect?: number;
+  /** 0..1: the chance, each Tick the moment is right (two enemies near, or one down or Staggered), that it begins a Whirlwind hold. 0 = it never Whirlwinds. */
+  readonly whirlwindRate?: number;
+  /** 0..1: the chance, rolled once per enemy Whirlwind phase it sees (one hold, one Spin), that it answers it. 0 = it answers none. */
+  readonly whirlwindRead?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];
@@ -499,6 +542,7 @@ export interface TuningData {
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
   readonly kick: KickTuning;
+  readonly whirlwind: WhirlwindTuning;
   readonly dagger: DaggerTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
@@ -640,6 +684,49 @@ function parseKick(raw: unknown): KickTuning {
     whiffRecovery: wholeTicks(k, 'whiffRecovery', 'kick'),
     legRadius: positiveNumber(k, 'legRadius', 'kick'),
   };
+}
+
+function parseWhirlwind(raw: unknown, roster: readonly string[]): WhirlwindTuning {
+  const w = record(raw, 'whirlwind');
+  const turns = positiveNumber(w, 'turns', 'whirlwind');
+  if (!Number.isInteger(turns)) throw new TuningDataError(`whirlwind.turns must be a whole number, got ${turns}`);
+  const unavailable = array(w.unavailableWeapons, 'whirlwind.unavailableWeapons');
+  unavailable.forEach((name, i) => {
+    if (typeof name !== 'string' || !roster.includes(name)) throw new TuningDataError(`whirlwind.unavailableWeapons[${i}] must name a Weapon of the roster, got ${JSON.stringify(name)}`);
+  });
+  // A phase that rounds to no Ticks would never run (armTicks, turnTicks and recoveryTicks are `secondsToTicks` of these).
+  const seconds = (key: string): number => {
+    const v = positiveNumber(w, key, 'whirlwind');
+    if (secondsToTicks(v) < 1) throw new TuningDataError(`whirlwind.${key} must be at least one Tick (${TICK_SECONDS} s), got ${v}`);
+    return v;
+  };
+  return {
+    armSeconds: seconds('armSeconds'),
+    holdWalkFactor: fraction(w, 'holdWalkFactor', 'whirlwind'),
+    turns,
+    turnSeconds: seconds('turnSeconds'),
+    driveSpeed: nonNegativeNumber(w, 'driveSpeed', 'whirlwind'),
+    steerSpeed: nonNegativeNumber(w, 'steerSpeed', 'whirlwind'),
+    damageFactor: nonNegativeNumber(w, 'damageFactor', 'whirlwind'),
+    knockdownSlide: nonNegativeNumber(w, 'knockdownSlide', 'whirlwind'),
+    knockdownSlideTicks: wholeTicks(w, 'knockdownSlideTicks', 'whirlwind'),
+    blockSlide: nonNegativeNumber(w, 'blockSlide', 'whirlwind'),
+    blockSlideTicks: wholeTicks(w, 'blockSlideTicks', 'whirlwind'),
+    allySlide: nonNegativeNumber(w, 'allySlide', 'whirlwind'),
+    allySlideTicks: wholeTicks(w, 'allySlideTicks', 'whirlwind'),
+    recoverySeconds: seconds('recoverySeconds'),
+    unavailableWeapons: unavailable as string[],
+  };
+}
+
+/**
+ * Whether a Fighter wielding `weapon` can start a Whirlwind: it is not in `whirlwind.unavailableWeapons`, and both hold Motions
+ * (WhirlwindHoldLeft and WhirlwindHoldRight), both high Spin Motions (WhirlwindSpinLeft and WhirlwindSpinRight) and both low Spin Motions
+ * (WhirlwindLowLeft and WhirlwindLowRight) exist for it (its override, or the default).
+ */
+export function canWhirlwind(tuning: Pick<TuningData, 'motions' | 'motionOverrides' | 'whirlwind'>, weapon: string): boolean {
+  if (tuning.whirlwind.unavailableWeapons.includes(weapon)) return false;
+  return ['WhirlwindHoldLeft', 'WhirlwindHoldRight', 'WhirlwindSpinLeft', 'WhirlwindSpinRight', 'WhirlwindLowLeft', 'WhirlwindLowRight'].every((name) => weaponMotion(tuning, weapon, name) !== undefined);
 }
 
 function parseDagger(raw: unknown): DaggerTuning {
@@ -867,6 +954,7 @@ export function parseTuningData(raw: unknown): TuningData {
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     kick: parseKick(root.kick),
+    whirlwind: parseWhirlwind(root.whirlwind, Object.keys(weapons)),
     dagger: parseDagger(root.dagger),
     block: {
       facingHalfAngle,
@@ -985,6 +1073,7 @@ export function loadTuningData({ battleMapFiles: added = {} }: { readonly battle
     hitZones: hitZonesJson,
     chamber: chamberJson,
     kick: kickJson,
+    whirlwind: whirlwindJson,
     dagger: daggerJson,
     block: blockJson,
     match: matchJson,

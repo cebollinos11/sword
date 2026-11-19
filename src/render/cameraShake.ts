@@ -1,6 +1,6 @@
 /**
  * Camera Shake: the third-person camera jolts when the player's Fighter is hit, lands a Hit,
- * Chambers or is Chambered, is kicked down or lands hard. Like impact effects, it lives outside the Simulation and only
+ * Chambers or is Chambered, is kicked down or lands hard; a Whirlwind's Hits shake too (heavily for its victim, lightly for the spinner). Like impact effects, it lives outside the Simulation and only
  * listens to its events (ADR 0001). Which events shake is pure, and the shake's wobble is a
  * fixed sum of sines rather than random, so the same events always shake the same way.
  */
@@ -20,6 +20,11 @@ const HURT_LANDING = 0.6;
 /** ...for having an Attack Chambered, and (lighter) for Chambering one. */
 const CHAMBERED = 0.4;
 const CHAMBERING = 0.25;
+/** ...for a Whirlwind's blow taken (it knocks down), or an ally pushed aside by one (no damage)... */
+const WHIRL_TAKEN = 0.6;
+const WHIRL_NUDGED = 0.25;
+/** ...and for the spinner's own Whirlwind landing (once a Tick, however many it hits). */
+const WHIRL_DEALT = 0.25;
 /** How fast the shake dies away: per second, so a full shake lasts this many times less than a second. */
 const DECAY = 1.6;
 /** At full shake (and strength 1): the camera's sway sideways and up (m) and its roll (radians). */
@@ -29,7 +34,17 @@ const MAX_ROLL = 0.05;
 /** How much each of this Tick's events shakes the camera of the player whose Fighter is `me`, in event order (0..1 each). */
 export function shakeFor(events: readonly SimEvent[], me: number): number[] {
   const impulses: number[] = [];
+  let whirlDealt = false;
   for (const e of events) {
+    // A Whirlwind's ally push is its only blow without damage (an enemy Hit dealing 0, from mods, would read as one: accepted).
+    if (e.type === 'Hit' && e.whirlwind) {
+      if (e.defender === me) impulses.push(e.damage > 0 ? WHIRL_TAKEN : WHIRL_NUDGED);
+      else if (e.attacker === me && e.damage > 0 && !whirlDealt) {
+        whirlDealt = true;
+        impulses.push(WHIRL_DEALT);
+      }
+      continue;
+    }
     if (e.type === 'Hit' && e.defender === me) impulses.push(e.heavy ? HEAVY_TAKEN : HIT_TAKEN);
     else if (e.type === 'Hit' && e.attacker === me) impulses.push(e.heavy ? HEAVY_DEALT : HIT_DEALT);
     else if (e.type === 'Chamber' && e.attacker === me) impulses.push(CHAMBERED);

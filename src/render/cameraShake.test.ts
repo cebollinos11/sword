@@ -10,6 +10,35 @@ const shakesOf = (events: readonly SimEvent[]) => [0, 1, 2].map((me) => shakeFor
 
 const point = { x: 0, y: 1, z: 0 };
 
+describe('shakeFor: a Whirlwind', () => {
+  const whirl = (attacker: number, defender: number, damage: number): SimEvent => ({
+    type: 'Hit',
+    attacker,
+    defender,
+    direction: 'Right',
+    zone: 'torso',
+    point,
+    bladeSpeed: 8,
+    head: true,
+    heavy: false,
+    damage,
+    whirlwind: true,
+  });
+
+  it('shakes its victim as a Hit does, and an ally pushed aside only a little', () => {
+    expect(shakeFor([whirl(0, 1, 20)], 1)).toEqual([0.6]);
+    expect(shakeFor([whirl(0, 1, 0)], 1)).toEqual([0.25]);
+  });
+
+  it('shakes the spinner lightly, once a Tick however many it Hits, and not at all for an ally it touches', () => {
+    expect(shakeFor([whirl(0, 1, 20)], 0)).toEqual([0.25]);
+    expect(shakeFor([whirl(0, 1, 20), whirl(0, 2, 20)], 0)).toEqual([0.25]);
+    expect(shakeFor([whirl(0, 1, 0)], 0)).toEqual([]);
+    expect(shakeFor([whirl(0, 1, 0), whirl(0, 2, 20)], 0)).toEqual([0.25]);
+    expect(shakeFor([whirl(0, 1, 20)], 2)).toEqual([]);
+  });
+});
+
 describe('shakeFor', () => {
   it('a Hit shakes the defender hard, the attacker lightly, and nobody else', () => {
     const run = runDuel(tuning, { distance: 1.2, a: attack('Overhead'), b: [] });

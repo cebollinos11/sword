@@ -1,0 +1,49 @@
+{
+  "name": "WhirlwindHoldLeft",
+  "duration": 0.5,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.5,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": -0.4,
+          "y": 1.05,
+          "z": -0.4
+        },
+        "rotation": {
+          "x": -10,
+          "y": -130,
+          "z": 90
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.35,
+          "y": 1,
+          "z": -0.1
+        }
+      },
+      "torso": {
+        "twist": -58,
+        "lean": -5
+      },
+      "hip": {
+        "x": -0.04,
+        "y": 0.86,
+        "z": -0.04
+      }
+    }
+  ]
+}

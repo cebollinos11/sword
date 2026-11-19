@@ -46,9 +46,12 @@ export type {
   StaggerCause,
   ThrowAction,
   Vec2,
+  WhirlwindAction,
+  WhirlwindDirection,
+  WhirlwindPhase,
 } from './state';
-export { ATTACK_PHASES } from './state';
-export type { AttackPhaseEvent, BlockEvent, ChainKnockdownEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
+export { ATTACK_PHASES, WHIRLWIND_PHASES } from './state';
+export type { AttackPhaseEvent, BlockEvent, ChainKnockdownEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent, WhirlwindArmedEvent, WhirlwindPhaseEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, blockedAt, deadlyGround, groundBelow, onSurface, surfaceHeight, surfacesAt, wallCrossing, wallHit, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
@@ -98,6 +101,19 @@ export {
   KNOCKDOWN_MOTION,
   kickTimings,
   type KickTimings,
+  spinFacing,
+  spinSign,
+  steerHeading,
+  whirlwindDirection,
+  whirlwindHoldMotion,
+  whirlwindLowMotion,
+  whirlwindSpinMotion,
+  whirlwindSweepLive,
+  whirlwindTimings,
+  WHIRLWIND_HOLD_MOTIONS,
+  WHIRLWIND_LOW_MOTIONS,
+  WHIRLWIND_SPIN_MOTIONS,
+  type WhirlwindTimings,
   THROW_MOTION,
   throwTimings,
   type ThrowTimings,

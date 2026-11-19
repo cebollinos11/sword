@@ -60,6 +60,12 @@ export interface Intent {
    */
   readonly kick?: boolean;
   /**
+   * Whirlwind button held this Tick (absent = not held; it is not in `IDLE_INTENT`). A held value, like `attack`: pressing it on an Idle Fighter
+   * with a drawn Weapon that can Whirlwind starts the coiled Wind-up, holding it carries the Wind-up on (armed after `whirlwind.armSeconds`),
+   * and letting go armed Spins, letting go sooner cancels. `direction` picks the side it coils to (Left or Right).
+   */
+  readonly whirlwind?: boolean;
+  /**
    * Throw pressed this Tick (absent = not pressed). An Idle Fighter with a dagger left, on the ground or in a Jump, starts a Throw: the dagger
    * leaves the off hand in Release. It can still walk and turn while throwing but is committed otherwise. Held down, it does not repeat.
    */

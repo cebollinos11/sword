@@ -4,7 +4,7 @@
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
  * Movement, a Kill (yellow swings at blue until it falls, to see the Death Ragdoll and Dismemberment; Direction
- * and distance in the "Kill" folder), the Spin-up (a flail's whirl in each Direction), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
+ * and distance in the "Kill" folder), the Spin-up (a flail's whirl in each Direction), the Whirlwind (G: Right, a low Left, a spinning Jump, a steered Spin), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play yellow with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
@@ -49,6 +49,7 @@ import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { CameraShake } from '../render/cameraShake';
 import { Stage } from '../render/stage';
+import { WhirlwindEffects } from '../render/whirlwindView';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
 import { createAiController, LocalController, lineupStyle, scriptedController, TEST_OPPONENTS, type Controller } from '../controllers';
@@ -213,6 +214,35 @@ function spinUpDuel(tuning: TuningData): SandboxRun {
 }
 
 /**
+ * The Whirlwind, to watch its hold, Spin and Recovery (docs/plans/whirlwind.md, Stages 1-2; any Weapon but the Flail): yellow, 3.0 m
+ * from blue (who stands Idle throughout), holds G 75 Ticks (armed at 60) and lets go, four times over:
+ *  - a Right Whirlwind (Spin 90 Ticks, then 30 Ticks of Recovery);
+ *  - a Left one held crouched from the release through the Spin: a low Whirlwind;
+ *  - a Right one with a Jump pressed 30 Ticks into the Spin and held 30 Ticks: a spinning Jump;
+ *  - a Right one steered 90° to the left of its starting facing during the Spin, to show the steer arc.
+ */
+function whirlwindDuel(tuning: TuningData): SandboxRun {
+  const gust = (direction: Direction): Track => hold(75, { whirlwind: true, direction });
+  const a: Track = [
+    ...wait(30),
+    ...gust('Right'),
+    ...wait(150),
+    ...gust('Left'),
+    ...hold(90, { crouch: true }),
+    ...wait(150),
+    ...gust('Right'),
+    ...wait(30),
+    ...hold(1, { jump: true, jumpHeld: true }),
+    ...hold(29, { jumpHeld: true }),
+    ...wait(200),
+    ...gust('Right'),
+    ...hold(90, { face: Math.PI / 2 }), // +π/2 is 90° to the left of the starting facing (+z)
+    ...wait(150),
+  ];
+  return scripted(tuning, 3, a, wait(1), trackLength(a));
+}
+
+/**
  * AI vs AI: a best-of-N Match between two AI Controllers. The scrub index is
  * the Match Tick; the Duel shown at each is `match.duel` (each new Duel restarts
  * its own Tick), and events are tagged with the Match Tick. The AI Controllers'
@@ -263,6 +293,7 @@ const SCRIPTS: Record<string, (tuning: TuningData, local: LocalController) => Sa
   Movement: movementDuel,
   Kill: killDuel,
   'Spin-up': spinUpDuel,
+  Whirlwind: whirlwindDuel,
   'AI vs AI Match': aiVsAiMatch,
   [PLAYER_VS_AI]: playerVsAiMatch,
 };
@@ -391,6 +422,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
 
   const views = [0, 1].map((i) => new FighterView(FIGHTER_COLOURS[i]!, tuning));
   const trails = [0, 1].map(() => new BladeSweepTrail());
+  const whirls = new WhirlwindEffects(stage.scene);
   const zones = [0, 1].map(() => new HitZoneOverlay());
   const hitMarker = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2d55 }));
   stage.scene.add(...views.map((v) => v.root), ...trails.map((t) => t.root), ...zones.map((z) => z.root), hitMarker);
@@ -743,6 +775,8 @@ saved ${file} (${result})`),
       .map((e) => {
         if (e.type === 'Hit') return `${e.tick} Hit ${e.attacker}→${e.defender} ${e.zone} ${e.bladeSpeed.toFixed(1)} m/s −${e.damage.toFixed(1)}`;
         if (e.type === 'AttackPhase') return `${e.tick} F${e.fighter} ${e.phase}`;
+        if (e.type === 'WhirlwindPhase') return `${e.tick} F${e.fighter} Whirlwind ${e.phase}`;
+        if (e.type === 'WhirlwindArmed') return `${e.tick} F${e.fighter} Whirlwind armed`;
         if (e.type === 'KickPhase') return `${e.tick} F${e.fighter} Kick ${e.phase}`;
         if (e.type === 'KnockdownPhase') return `${e.tick} F${e.fighter} Knockdown ${e.phase}`;
         if (e.type === 'Death') return `${e.tick} F${e.fighter} falls (${e.cause})`;
@@ -772,6 +806,7 @@ saved ${file} (${result})`),
     if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
     const seconds = ui.playing ? ((now - drawn) / 1000) * ui.speed : 0;
+    whirls.update(from, to, alpha, poses.map((p) => p.blade), tuning);
     // Bloody blades and the stumps of a body in pieces drip, as in the game.
     impacts.drip(poses, seconds);
     impacts.update(seconds);

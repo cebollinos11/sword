@@ -3,7 +3,7 @@ import type { Controller } from './controller';
 import { getLookSensitivity } from './lookSensitivity';
 import { inventoryClick, inventoryKey, type InventoryClickAction, type InventoryKey } from './inventoryKeys';
 
-export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw' | 'sheathe';
+export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw' | 'sheathe' | 'whirlwind';
 
 /** The key that Jumps. */
 const JUMP_KEY = 'Space';
@@ -13,6 +13,9 @@ const THROW_KEY = 'KeyE';
 
 /** The key that Kicks. */
 const KICK_KEY = 'KeyF';
+
+/** The key held to coil a Whirlwind (let go armed, it Spins). */
+const WHIRLWIND_KEY = 'KeyG';
 
 /** The key that Sheathes the Weapon, or Draws it when Sheathed. */
 const SHEATHE_KEY = 'KeyR';
@@ -102,17 +105,20 @@ function quantiseYaw(yaw: number): number {
  *   one Jump (sent on one Tick), and holding it boosts that Jump higher (sent as `jumpHeld` on every Tick it is held).
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
+ *   G held coils a Whirlwind to the side of the last horizontal gesture (sent as `whirlwind` on every Tick it is held); letting go once armed Spins, letting go sooner cancels.
  *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
  *   Mouse wheel up queues a quick Overhead Attack and wheel down a quick Thrust (a Wheel Attack, `wheel`).
  *   The number keys equip an inventory item (with Shift only select it) and X drops the one selected last, once each (`inventoryKeys.ts`); so does a click on the inventory screen.
  */
 export class LocalController implements Controller {
-  private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
+  private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false, whirlwind: false };
   /** Pressed since the last sample: a click shorter than a Tick still reaches the Simulation for one Tick. */
-  private readonly pressed = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
+  private readonly pressed = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false, whirlwind: false };
   private readonly moving = { forward: false, back: false, left: false, right: false };
   /** The Direction of the most recent mouse gesture (what the next press will use). */
   private gestured: Direction = 'Overhead';
+  /** The side of the most recent Left or Right gesture ('Right' before any): the side a Whirlwind coils to, since it has no Overhead or Thrust. */
+  private horizontal: 'Left' | 'Right' = 'Right';
   /** Mouse travel since the last gesture or press. */
   private travel = { x: 0, y: 0 };
   /** The Direction sent in Intents, fixed when a button is pressed. */
@@ -157,6 +163,7 @@ export class LocalController implements Controller {
     this.travel.y += dy;
     if (Math.hypot(this.travel.x, this.travel.y) < GESTURE_PX) return;
     this.gestured = gestureDirection(this.travel.x, this.travel.y);
+    if (this.gestured === 'Left' || this.gestured === 'Right') this.horizontal = this.gestured;
     this.travel = { x: 0, y: 0 };
   }
 
@@ -171,6 +178,7 @@ export class LocalController implements Controller {
   /** A Direction gesture made some other way than the mouse (a swipe on a touch pad): the next press uses it. */
   aim(direction: Direction): void {
     this.gestured = direction;
+    if (direction === 'Left' || direction === 'Right') this.horizontal = direction;
     this.travel = { x: 0, y: 0 };
   }
 
@@ -192,6 +200,11 @@ export class LocalController implements Controller {
     if (button === 'attack') this.wheelQueued = this.wheelFiring = null;
     this.held[button] = true;
     this.pressed[button] = true;
+    // A Whirlwind coils to the last horizontal gesture's side, unless attack or block is held (their Direction stays); it leaves the gesture travel alone.
+    if (button === 'whirlwind') {
+      if (!this.held.attack && !this.held.block) this.latched = this.horizontal;
+      return;
+    }
     if (button === 'jump' || button === 'crouch' || button === 'kick' || button === 'throw' || button === 'sheathe') return;
     this.latched = this.gestured;
     this.travel = { x: 0, y: 0 };
@@ -210,6 +223,7 @@ export class LocalController implements Controller {
     else if (CROUCH_KEYS.includes(code)) this.buttonDown('crouch');
     else if (code === KICK_KEY) this.buttonDown('kick');
     else if (code === THROW_KEY) this.buttonDown('throw');
+    else if (code === WHIRLWIND_KEY) this.buttonDown('whirlwind');
     else if (code === SHEATHE_KEY) this.buttonDown('sheathe');
     else this.inventoryKey(code, shift);
   }
@@ -244,6 +258,7 @@ export class LocalController implements Controller {
     else if (CROUCH_KEYS.includes(code)) this.buttonUp('crouch');
     else if (code === KICK_KEY) this.buttonUp('kick');
     else if (code === THROW_KEY) this.buttonUp('throw');
+    else if (code === WHIRLWIND_KEY) this.buttonUp('whirlwind');
     else if (code === SHEATHE_KEY) this.buttonUp('sheathe');
   }
 
@@ -258,7 +273,7 @@ export class LocalController implements Controller {
 
   /** Let go of every button and key (the window lost focus). */
   releaseAll(): void {
-    this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = false;
+    this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = this.held.whirlwind = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
     this.equipAsked = this.dropAsked = this.useAsked = this.troopAsked = undefined;
     this.wheelQueued = this.wheelFiring = null;
@@ -336,6 +351,7 @@ export class LocalController implements Controller {
     const throwing = this.pressed.throw;
     const throwHeld = this.held.throw;
     const sheathe = this.pressed.sheathe;
+    const whirlwind = this.held.whirlwind || this.pressed.whirlwind;
     const equip = this.equipAsked;
     const drop = this.dropAsked;
     const use = this.useAsked;
@@ -348,12 +364,15 @@ export class LocalController implements Controller {
     this.pressed.kick = false;
     this.pressed.throw = false;
     this.pressed.sheathe = false;
+    this.pressed.whirlwind = false;
     // A held Block follows the latest gesture: the Simulation only lets it re-aim shortly after it was raised (`block.correctionWindow`).
     if (block && !attack) this.latched = this.gestured;
+    // A held G with nothing else held keeps the horizontal side, so a Whirlwind that starts once a Block is let go still coils Left or Right.
+    if (whirlwind && !attack && !block) this.latched = this.horizontal;
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }), ...(use && { use }), ...(troop !== undefined && { troop }) };
+    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(whirlwind && { whirlwind }), ...(equip && { equip }), ...(drop && { drop }), ...(use && { use }), ...(troop !== undefined && { troop }) };
   }
 
   intent(state?: SimState, fighter?: number): Intent {

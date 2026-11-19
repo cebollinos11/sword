@@ -19,10 +19,11 @@ import { updateKnockdown } from './knockdown';
 import { startSheathe, updateSheathe } from './sheathe';
 import { updateStagger } from './stagger';
 import { startThrow, updateThrow } from './throw';
+import { startWhirlwind, updateWhirlwind } from './whirlwind';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
 /** What Idle can turn into, tried in order; the first that accepts the Intent wins. Sheathe comes first: while Sheathed, attack and block Draw. */
-const STARTERS: readonly ActionStarter[] = [startSheathe, startKick, startThrow, startAttack, startBlock];
+const STARTERS: readonly ActionStarter[] = [startSheathe, startKick, startWhirlwind, startThrow, startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
   // Nothing starts in the air unless the Fighter jumped there: one that walked or was pushed off the ground waits to Fall or land.
@@ -57,6 +58,8 @@ const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { ki
   Block: updateBlock,
   // Committed: its Intent is ignored until the Motion ends.
   Kick: updateKick,
+  // Committed except for walking (slowly in the Wind-up, not in the Spin) and turning: its Intent is ignored except the held Whirlwind button.
+  Whirlwind: updateWhirlwind,
   // Committed except for walking and turning: its Intent is ignored until the Motion ends.
   Throw: updateThrow,
   // Committed except for walking, turning and crouching: its Intent is ignored until the Motion ends.
@@ -78,6 +81,7 @@ export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } 
 export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, isIdleMotion, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
+export { spinFacing, spinSign, startWhirlwind, steerHeading, updateWhirlwind, whirlwindDirection, lastTick as whirlwindLastTick, whirlwindHoldMotion, whirlwindLowMotion, whirlwindSpinMotion, whirlwindSweepLive, whirlwindTimings, WHIRLWIND_HOLD_MOTIONS, WHIRLWIND_LOW_MOTIONS, WHIRLWIND_SPIN_MOTIONS, type WhirlwindTimings } from './whirlwind';
 export { THROW_MOTION, throwTimings, type ThrowTimings } from './throw';
 export { offHandFree, sheatheMotionName, sheatheTimings, type SheatheKind, type SheatheTimings } from './sheathe';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';

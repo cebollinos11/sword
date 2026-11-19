@@ -20,7 +20,7 @@ import { TICK_SECONDS } from './constants';
 import { inDuel } from './duel';
 import { LODGE_TICKS } from './actions/attack';
 import { chamberHolds } from './chamber';
-import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
+import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact, whirlwindSweepLive } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
@@ -28,7 +28,7 @@ import { modsOf } from './mods';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { fighterPose, withPose } from './pose';
 import { startSlide } from './slide';
-import type { Airborne, AttackAction, FighterState, StaggerCause } from './state';
+import type { Airborne, AttackAction, FighterState, StaggerCause, WhirlwindAction } from './state';
 import type { BladeTransform } from './skeleton';
 import { apart, bladeSamples, boxOf, boxOfCapsules, closestSegmentSegment, sweepContact, type Box, type Capsule } from './sweep';
 import type { DaggerSweep } from './dagger';
@@ -51,6 +51,9 @@ export type BladeContact = {
   /** The blade at the moment of contact (last Tick's blade to this Tick's, at the contact's `s`), and the unit direction the contact point was moving. */
   readonly blade: { readonly hilt: Vec3; readonly tip: Vec3 };
   readonly travel: Vec3;
+  /** Present (true) only for a Whirlwind's blade: the Spin's turn it belongs to is `turn`, and `bladeSpeed` is the Weapon's reference speed. */
+  readonly whirlwind?: true;
+  readonly turn?: number;
 } & (
   | { readonly blocked: true; readonly chambered?: undefined }
   | { readonly blocked: false; readonly chambered: true }
@@ -156,8 +159,16 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   next.forEach((attacker, i) => {
     const before = prev[i];
     if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
-    if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
-    const { direction, chamberedBy, charge } = attacker.action;
+    if (!before || !inDuel(attacker)) return;
+    // A Whirlwind's blade (never Chambered, never stopped by a Wall) is swept like an Attack's, against whoever it has not met in this turn.
+    const whirl = whirlwindSweepLive(before.action, attacker.action) ? attacker.action : null;
+    if (!whirl && !attackSweepLive(before.action, attacker.action)) return;
+    const swing = whirl ? undefined : (attacker.action as AttackAction);
+    const direction: Direction = whirl ? whirl.direction : swing!.direction;
+    const chamberedBy = swing?.chamberedBy;
+    const charge = swing?.charge;
+    const turn = before.action.kind === 'Whirlwind' ? before.action.turn : 0;
+    const metNow = whirl?.met?.turn === turn ? whirl.met.fighters : [];
     const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
     // The Spin-up scales the Blade Speed here, where every contact's is produced, so damage, the Heavy Blow, Block Impact and the
     // events all see the same speed (ADR 0026). A Weapon without one carries no charge and keeps the swept speed as it is.
@@ -166,7 +177,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const found: { s: number; contact: BladeContact }[] = [];
     const sweepBox = boxOf(before.blade.hilt, before.blade.tip, attacker.blade.hilt, attacker.blade.tip);
     next.forEach((defender, j) => {
-      if (j === i || !inDuel(defender)) return;
+      if (j === i || !inDuel(defender) || metNow.includes(j)) return;
       const body = bodyOf(defender, tuning);
       const zones: readonly Capsule[] = body.zones;
       const blocked = blocksAttack(defender, attacker, direction, tuning);
@@ -179,7 +190,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       const blade = { hilt: lerp(before.blade.hilt, attacker.blade.hilt, c.s), tip: lerp(before.blade.tip, attacker.blade.tip, c.s) };
       // A contact point that did not move this Tick (the blade already in the body) is taken to travel the way the edge faces.
       const travel = normalize(sub(lerp(attacker.blade.hilt, attacker.blade.tip, c.along), lerp(before.blade.hilt, before.blade.tip, c.along)), attacker.blade.edge);
-      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed * spin, onHead: onHead(weapon, c.along), blade, travel };
+      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: whirl ? weapon.speed : c.bladeSpeed * spin, onHead: onHead(weapon, c.along), blade, travel, ...(whirl ? { whirlwind: true as const, turn } : {}) };
       const contact: BladeContact = blocked
         ? { ...at, blocked }
         : chambered
@@ -187,6 +198,11 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
           : { ...at, blocked, zone: (c.capsule as HitCapsule).zone };
       found.push({ s: c.s, contact });
     });
+    // A Whirlwind's blade passes through Walls (ADR 0029): only the Fighters it met count.
+    if (whirl) {
+      contacts.push(...found.map((f) => f.contact));
+      return;
+    }
     // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
     const wall = wallContact(before.blade, attacker.blade, arena, samples);
     if (wall && found.every((f) => f.s > wall.s)) contacts.push({ wall: true, attacker: i, direction, point: wall.point, bladeSpeed: wall.bladeSpeed * spin });
@@ -422,6 +438,10 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
  * `mods` (`src/sim/mods.ts`, which writes down the order and that nothing is rounded), and a Hit that fells its victim heals its attacker (`healOnKill`) and gives it a Throwing Dagger back (`rewardKill`).
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
+  if (c.whirlwind) {
+    resolveWhirlwindContact(before, out, c, tuning, emit);
+    return;
+  }
   const attacker = before[c.attacker]!;
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
@@ -474,6 +494,67 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit, mirrorDirection(direction)));
 }
 
+/** `f` without the chain it carries: a Fighter lying down and pushed by a short push knocks nobody else down. */
+function dropChain(f: FighterState): FighterState {
+  const { knockedBy: _chain, ...rest } = f;
+  return rest;
+}
+
+/**
+ * A Whirlwind's blade meets a Fighter (ADR 0029). Blocked (the Block rule, as for a swing in the Whirlwind's Direction): no damage, the Block
+ * Impact at the Weapon's reference speed (a Block Break as usual), else the defender is pushed back `whirlwind.blockSlide`; the spinner is not
+ * Staggered. A teammate: no damage, a Stagger (not in Knockdown) and a push aside, off the heading's line, `whirlwind.allySlide`. An enemy: half
+ * a Hit's damage (`whirlwind.damageFactor`, the Hit Zone and the `mods` as ever) and a Knockdown pushed `whirlwind.knockdownSlide` away (a Fighter
+ * already down is pushed again, its Knockdown not restarted); never a Heavy Blow, and the blade is not lodged. Every outcome adds the defender
+ * to the spinner's hit set for that turn.
+ */
+function resolveWhirlwindContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
+  const attacker = before[c.attacker]!;
+  const defender = before[c.defender]!;
+  if (attacker.action.kind !== 'Whirlwind') return;
+  const { whirlwind } = tuning;
+  const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
+  const { dx, dz } = awayFrom(attacker, defender);
+  const { attacker: a, defender: d, direction, point, bladeSpeed, blade, travel } = c;
+  if (c.blocked) {
+    const impact = startBlockImpact(attacker, defender, guardDirection(defender)!, bladeSpeed, tuning);
+    const { breakAt, breakSlide, breakSlideTicks } = weaponByName(tuning, defender.weapon).blockImpact;
+    const broken = breakAt > 0 && impact.strength >= breakAt;
+    emit({ type: 'Block', attacker: a, defender: d, direction, point, bladeSpeed, heavy: false, ...(broken ? { broken } : {}), whirlwind: true });
+    out[d] = broken
+      ? pushDown(out[d]!, dx, dz, breakSlide, breakSlideTicks, a, tuning)
+      : push({ ...dropChain(out[d]!), blockImpact: impact }, dx, dz, whirlwind.blockSlide, whirlwind.blockSlideTicks);
+  } else if (c.chambered) {
+    return;
+  } else if (attacker.team === defender.team) {
+    const { zone, onHead: head } = c;
+    emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy: false, damage: 0, blade, travel, whirlwind: true });
+    // Aside: perpendicular to the heading, on the side the ally stands (exactly on the line: the heading turned +90 degrees of yaw).
+    const heading = attacker.action.heading ?? attacker.facing;
+    const hx = Math.sin(heading);
+    const hz = Math.cos(heading);
+    const side = hz * (defender.position.x - attacker.position.x) - hx * (defender.position.z - attacker.position.z) < 0 ? -1 : 1;
+    const pushed = push(dropChain(out[d]!), side * hz, -side * hx, whirlwind.allySlide, whirlwind.allySlideTicks);
+    out[d] = pushed.action.kind === 'Knockdown' ? pushed : staggerFighter(pushed, d, 'Hit', tuning, emit, mirrorDirection(direction));
+  } else {
+    const { zone, onHead: head } = c;
+    const m = modsOf(attacker);
+    const damage = hitDamage(tuning, weapon, zone, bladeSpeed, head) * whirlwind.damageFactor * m.damage * modsOf(defender).damageTaken;
+    emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy: false, damage, blade, travel, whirlwind: true });
+    const hurt = out[d]!;
+    const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+    rewardKill(out, a, hurt.hp, wounded.hp, tuning);
+    out[d] = pushDown(wounded, dx, dz, whirlwind.knockdownSlide, whirlwind.knockdownSlideTicks, a, tuning);
+  }
+  // A Trade may have Staggered the spinner already this Tick: then there is no Whirlwind left to note it in.
+  const spinner = out[a]!;
+  if (spinner.action.kind !== 'Whirlwind') return;
+  const turn = c.turn!;
+  const old = spinner.action.met?.turn === turn ? spinner.action.met.fighters : [];
+  const action: WhirlwindAction = { ...spinner.action, met: { turn, fighters: [...old, d] } };
+  out[a] = { ...spinner, action };
+}
+
 /**
  * A blade stopped by a Wall: the attacker recoils as from a Block (Stagger, cause Blocked), unless a Trade this
  * Tick has Staggered it already.
@@ -487,7 +568,8 @@ function resolveWall(out: FighterState[], c: WallContact, tuning: TuningData, em
 /**
  * A Kick connects (ADR 0007). The outcome is ruled by the defender's movement Intent on this Tick: any
  * movement input is a Knockdown (more damage, a long Slide), none a Shove (little damage, a short Slide,
- * and the defender's Action is untouched). A teammate is pushed all the same but takes no damage. The
+ * and the defender's Action is untouched, with one exception: a Shove on a Fighter in a Whirlwind's Spin
+ * Staggers it, ending the Spin, as a Hit would; on its Wind-up or Recovery it leaves the Action alone). A teammate is pushed all the same but takes no damage. The
  * push goes along the ground from kicker to defender. A Kick lands once: the kicker's Action is marked `landed`.
  */
 function resolveKick(before: readonly FighterState[], out: FighterState[], c: KickContact, defenderIntent: Intent, tuning: TuningData, emit: Emit): void {
@@ -516,7 +598,9 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   // A Shove's short push knocks nobody else down: a Fighter lying down and Shoved stops carrying any chain it was in.
   if (!knocked) {
     const { knockedBy: _chain, ...shoved } = wounded;
-    out[c.defender] = shoved;
+    // Judged on the state this Tick has made, not the one it began with: a Knockdown that landed earlier this Tick is not turned into a Stagger.
+    const spinning = shoved.action.kind === 'Whirlwind' && shoved.action.phase === 'Spin';
+    out[c.defender] = spinning ? staggerFighter(shoved, c.defender, 'Hit', tuning, emit) : shoved;
     return;
   }
   out[c.defender] = knockDown({ ...wounded, knockedBy: c.attacker }, tuning);

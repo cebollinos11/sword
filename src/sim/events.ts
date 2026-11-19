@@ -1,6 +1,6 @@
 import type { HitZone } from '../tuning';
 import type { Direction } from './intent';
-import type { AttackPhase, DeathCause, KnockdownPhase, StaggerCause } from './state';
+import type { AttackPhase, DeathCause, KnockdownPhase, StaggerCause, WhirlwindPhase } from './state';
 import type { Vec3 } from './vec';
 
 /** A Fighter's Attack entered a phase (Wind-up on press, Release = the swing sound, Recovery). */
@@ -16,6 +16,19 @@ export interface KickPhaseEvent {
   readonly type: 'KickPhase';
   readonly fighter: number;
   readonly phase: AttackPhase;
+}
+
+/** A Fighter's Whirlwind entered a phase (Wind-up on press, Spin, Recovery), or was let go before it armed (`Cancelled`). */
+export interface WhirlwindPhaseEvent {
+  readonly type: 'WhirlwindPhase';
+  readonly fighter: number;
+  readonly phase: WhirlwindPhase | 'Cancelled';
+}
+
+/** A Fighter's Whirlwind Wind-up has been held long enough: letting go now Spins. Raised once, on the Tick it arms. */
+export interface WhirlwindArmedEvent {
+  readonly type: 'WhirlwindArmed';
+  readonly fighter: number;
 }
 
 /** A Fighter's Knockdown moved on to a later phase: Down (the body hits the floor) or Rising (the Get-up). It begins Falling with a KickLanded. */
@@ -52,6 +65,8 @@ export interface HitEvent {
   readonly blade?: { readonly hilt: Vec3; readonly tip: Vec3 };
   /** Unit direction the contact point of the blade was moving. Set on every Hit the Simulation emits. */
   readonly travel?: Vec3;
+  /** Present (true) only for a Whirlwind's blow: half damage (none to a teammate), a Knockdown, never a Heavy Blow. */
+  readonly whirlwind?: true;
 }
 
 /** A Kick's leg sweep connected: a Knockdown (the victim moved) or a Shove (it gave no movement input, or was already down). Teammates take no damage. */
@@ -128,6 +143,8 @@ export interface BlockEvent {
   readonly heavy: boolean;
   /** Present (true) only for a Block Break: the Block Impact reached the defender's Weapon's `blockImpact.breakAt`, so the defender is knocked down. */
   readonly broken?: true;
+  /** Present (true) only for a Whirlwind's blade being Blocked: the defender is pushed back and the spinner is not Staggered. */
+  readonly whirlwind?: true;
 }
 
 /** An Attack's Blade Sweep reached an Arena Wall (a pillar, a wall, a rail) before any Fighter: the blade stops and the attacker recoils. */
@@ -223,7 +240,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | ChainKnockdownEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | SheathedEvent | DrawnEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | KickPhaseEvent | WhirlwindPhaseEvent | WhirlwindArmedEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | ChainKnockdownEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | SheathedEvent | DrawnEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

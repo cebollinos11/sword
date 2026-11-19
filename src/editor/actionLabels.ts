@@ -14,6 +14,8 @@ export function describeAction(a: Action): string {
       return `Block ${a.direction}`;
     case 'Kick':
       return `Kick · ${a.phase}`;
+    case 'Whirlwind':
+      return `Whirlwind · ${a.phase} · ${a.direction}${a.phase === 'Wind-up' && a.armed ? ' · armed' : ''}`;
     case 'Throw':
       return `Throw · ${a.phase}`;
     case 'Knockdown':
