@@ -561,7 +561,8 @@ function resolveWall(out: FighterState[], c: WallContact, tuning: TuningData, em
 /**
  * A Kick connects (ADR 0007). The outcome is ruled by the defender's movement Intent on this Tick: any
  * movement input is a Knockdown (more damage, a long Slide), none a Shove (little damage, a short Slide,
- * and the defender's Action is untouched). A teammate is pushed all the same but takes no damage. The
+ * and the defender's Action is untouched, with one exception: a Shove on a Fighter in a Whirlwind's Spin
+ * Staggers it, ending the Spin, as a Hit would; on its Wind-up or Recovery it leaves the Action alone). A teammate is pushed all the same but takes no damage. The
  * push goes along the ground from kicker to defender. A Kick lands once: the kicker's Action is marked `landed`.
  */
 function resolveKick(before: readonly FighterState[], out: FighterState[], c: KickContact, defenderIntent: Intent, tuning: TuningData, emit: Emit): void {
@@ -590,7 +591,8 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   // A Shove's short push knocks nobody else down: a Fighter lying down and Shoved stops carrying any chain it was in.
   if (!knocked) {
     const { knockedBy: _chain, ...shoved } = wounded;
-    out[c.defender] = shoved;
+    const spinning = defender.action.kind === 'Whirlwind' && defender.action.phase === 'Spin';
+    out[c.defender] = spinning ? staggerFighter(shoved, c.defender, 'Hit', tuning, emit) : shoved;
     return;
   }
   out[c.defender] = knockDown({ ...wounded, knockedBy: c.attacker }, tuning);
