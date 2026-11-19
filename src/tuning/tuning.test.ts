@@ -17,6 +17,7 @@ function goodRaw() {
     },
     chamber: { windowSeconds: 0.15 },
     kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
+    whirlwind: { armSeconds: 1, holdWalkFactor: 0.4, turns: 5, turnSeconds: 0.3, driveSpeed: 3, steerSpeed: 90, damageFactor: 0.5, knockdownSlide: 1.5, knockdownSlideTicks: 24, blockSlide: 0.4, blockSlideTicks: 8, allySlide: 0.5, allySlideTicks: 12, recoverySeconds: 0.5, unavailableWeapons: [] as string[] },
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, homingCone: 25, homingRange: 20, homingTurn: 60, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
@@ -181,6 +182,21 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, kick: undefined })).toThrow(/kick/);
     expect(() => parseTuningData({ ...good, kick: { ...good.kick, whiffRecovery: 2.5 } })).toThrow(/kick\.whiffRecovery/);
     expect(() => parseTuningData({ ...good, kick: { ...good.kick, legRadius: 0 } })).toThrow(/kick\.legRadius/);
+  });
+
+  it('loads the Whirlwind Tuning Data and its hold Motions, and rejects bad Whirlwind data', () => {
+    const t = loadTuningData();
+    expect(t.whirlwind).toEqual({ armSeconds: 1, holdWalkFactor: 0.4, turns: 5, turnSeconds: 0.3, driveSpeed: 3, steerSpeed: 90, damageFactor: 0.5, knockdownSlide: 1.5, knockdownSlideTicks: 24, blockSlide: 0.4, blockSlideTicks: 8, allySlide: 0.5, allySlideTicks: 12, recoverySeconds: 0.5, unavailableWeapons: ['Flail'] });
+    expect(t.motions.WhirlwindHoldLeft).toBeDefined();
+    expect(t.motions.WhirlwindHoldRight).toBeDefined();
+    const good = goodRaw();
+    expect(() => parseTuningData({ ...good, whirlwind: undefined })).toThrow(/whirlwind/);
+    expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, turns: 2.5 } })).toThrow(/whirlwind\.turns/);
+    expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, unavailableWeapons: ['Spear'] } })).toThrow(/whirlwind\.unavailableWeapons/);
+    expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, armSeconds: 0 } })).toThrow(/whirlwind\.armSeconds/);
+    expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, holdWalkFactor: 1.5 } })).toThrow(/whirlwind\.holdWalkFactor/);
+    expect(() => parseTuningData({ ...good, whirlwind: { ...good.whirlwind, blockSlideTicks: 1.5 } })).toThrow(/whirlwind\.blockSlideTicks/);
+    expect(parseTuningData({ ...good, whirlwind: { ...good.whirlwind, unavailableWeapons: ['Sword'] } }).whirlwind.unavailableWeapons).toEqual(['Sword']);
   });
 
   it('loads the Block facing rule and the Match pacing from data/block.json and data/match.json', () => {

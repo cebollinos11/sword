@@ -100,6 +100,30 @@ export interface KickAction {
   readonly whiff?: number;
 }
 
+/** The phases of a Whirlwind, in order: the held coil, the Spin, the Recovery. */
+export const WHIRLWIND_PHASES = ['Wind-up', 'Spin', 'Recovery'] as const;
+export type WhirlwindPhase = (typeof WHIRLWIND_PHASES)[number];
+/** The side a Whirlwind coils to (and spins toward). */
+export type WhirlwindDirection = 'Left' | 'Right';
+
+/**
+ * A Whirlwind: the Fighter holds the Whirlwind button to coil (the Wind-up, armed after `whirlwind.armSeconds`), letting go armed Spins it
+ * for `whirlwind.turns` turns and then Recovers; letting go earlier cancels. Committed: it ignores attack, block, kick, throw, sheathe and
+ * Direction changes; the Wind-up walks slowly, the Spin cannot walk, and all three can turn.
+ */
+export interface WhirlwindAction {
+  readonly kind: 'Whirlwind';
+  readonly phase: WhirlwindPhase;
+  /** Fixed when the hold starts. */
+  readonly direction: WhirlwindDirection;
+  /** Ticks since the phase began (the starting Tick of each phase is 0). */
+  readonly ticks: number;
+  /** Wind-up: held for `armTicks`. Stays true through Spin and Recovery. */
+  readonly armed: boolean;
+  /** Spin: `floor(ticks / turnTicks)`, 0..turns-1; 0 in the Wind-up, turns-1 kept in Recovery. */
+  readonly turn: number;
+}
+
 /**
  * A Throw: the off (left) hand takes a Throwing Dagger by its point, draws it back behind the head and throws it, driven by the Throw Motion's
  * `windUpEnd` / `releaseEnd` markers like an Attack. Like an Attack's, its Wind-up holds at its held pose while throw is held (up to
@@ -154,7 +178,7 @@ export interface FallAction {
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | KickAction | ThrowAction | SheatheAction | DrawAction | KnockdownAction | StaggerAction | FallAction;
+export type Action = IdleAction | AttackAction | BlockAction | KickAction | WhirlwindAction | ThrowAction | SheatheAction | DrawAction | KnockdownAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */

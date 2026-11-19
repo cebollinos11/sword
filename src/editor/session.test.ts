@@ -36,6 +36,8 @@ describe('EditorSession', () => {
       'StaggerThrust',
       'Throw',
       'Thrust',
+      'WhirlwindHoldLeft',
+      'WhirlwindHoldRight',
     ]);
   });
 

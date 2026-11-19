@@ -120,8 +120,8 @@ export function standingFighter(
 /** Share of `fighter.walkSpeed` a blocked attacker keeps while it recoils (its Stagger is `Blocked`). */
 const RECOIL_WALK_FACTOR = 0.5;
 
-/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking or knocked-down Fighter is committed: it cannot walk (it can still turn). */
-const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick' || f.action.kind === 'Knockdown';
+/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking, spinning (a Whirlwind's Spin) or knocked-down Fighter is committed: it cannot walk (it can still turn). */
+const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick' || (f.action.kind === 'Whirlwind' && f.action.phase === 'Spin') || f.action.kind === 'Knockdown';
 
 /** The share of its speed a Fighter keeps while a dagger Hit's Slow lasts (1 when it is not slowed). It multiplies with crouch and recoil. */
 const slowFactor = (f: FighterState, tuning: TuningData): number => (f.slow ? tuning.dagger.slowFactor : 1);
@@ -144,7 +144,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData, drawnPace = f
   }
   const backness = Math.max(0, -(mx * Math.sin(f.facing) + mz * Math.cos(f.facing)) / Math.hypot(mx, mz));
   const backward = 1 - (1 - tuning.fighter.backwardWalkFactor) * backness;
-  const speed = backward * slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const speed = backward * slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (f.action.kind === 'Whirlwind' && f.action.phase === 'Wind-up' ? tuning.whirlwind.holdWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }

@@ -1,0 +1,17 @@
+{
+  "armSeconds": 1.0,
+  "holdWalkFactor": 0.4,
+  "turns": 5,
+  "turnSeconds": 0.3,
+  "driveSpeed": 3.0,
+  "steerSpeed": 90,
+  "damageFactor": 0.5,
+  "knockdownSlide": 1.5,
+  "knockdownSlideTicks": 24,
+  "blockSlide": 0.4,
+  "blockSlideTicks": 8,
+  "allySlide": 0.5,
+  "allySlideTicks": 12,
+  "recoverySeconds": 0.5,
+  "unavailableWeapons": ["Flail"]
+}
