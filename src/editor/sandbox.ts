@@ -49,6 +49,7 @@ import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { CameraShake } from '../render/cameraShake';
 import { Stage } from '../render/stage';
+import { WhirlwindEffects } from '../render/whirlwindView';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
 import { createAiController, LocalController, lineupStyle, scriptedController, TEST_OPPONENTS, type Controller } from '../controllers';
@@ -421,6 +422,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
 
   const views = [0, 1].map((i) => new FighterView(FIGHTER_COLOURS[i]!, tuning));
   const trails = [0, 1].map(() => new BladeSweepTrail());
+  const whirls = new WhirlwindEffects(stage.scene);
   const zones = [0, 1].map(() => new HitZoneOverlay());
   const hitMarker = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff2d55 }));
   stage.scene.add(...views.map((v) => v.root), ...trails.map((t) => t.root), ...zones.map((z) => z.root), hitMarker);
@@ -804,6 +806,7 @@ saved ${file} (${result})`),
     if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
     const seconds = ui.playing ? ((now - drawn) / 1000) * ui.speed : 0;
+    whirls.update(from, to, alpha, poses.map((p) => p.blade), tuning);
     // Bloody blades and the stumps of a body in pieces drip, as in the game.
     impacts.drip(poses, seconds);
     impacts.update(seconds);
