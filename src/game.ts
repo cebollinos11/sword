@@ -10,6 +10,7 @@ import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
 import { createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
+import { spectateTarget } from './play/spectateFollow';
 import type { BattleScreen } from './play/battleScreen';
 import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
@@ -625,6 +626,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   /** The Lineup the party's tags were last named from (a guest's arrives with the host's hello). */
   let taggedLineup: Lineup | null | undefined;
+  /** The party Fighter a watching Delver Player's camera follows (`spectateTarget`), or -1. */
+  let followed = -1;
   /** Name the party's tags by Fighter slot from the driver's Lineup. (A traitor tags the party's AI allies too, as `AI`.) */
   function tagNames(d: MatchDriver): void {
     taggedLineup = d.lineup;
@@ -1145,12 +1148,16 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
         if (drawFloorCrowd(curr, shot.to, shot.alpha, 0)) renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
       } else {
+        const fallen = curr.duel.fighters[me]?.death !== undefined;
+        // A traitor watching (no Soldier taken over yet).
+        const waiting = traitor && !inDuel(curr.duel.fighters[me]!);
+        const spectating = (fallen || waiting) && curr.duel.duel.status === 'Fighting';
+        // In a Run, a watcher follows one living party Fighter, the next once it falls, orbiting it (turned with the mouse).
+        followed = spectating && curr.delver ? spectateTarget(curr.config, curr.duel, me, followed) : -1;
+        if (followed >= 0) placeOrbitCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, followed, alpha), yaw, renderer.collider);
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
-        if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
-          placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
-        // A traitor watching (no Soldier taken over yet): orbit the party.
-        else if (traitor && !inDuel(curr.duel.fighters[me]!) && curr.duel.duel.status === 'Fighting')
-          placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha, 0), yaw, renderer.collider);
+        else if (spectating && fallen) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
+        else if (spectating) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha, 0), yaw, renderer.collider);
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
