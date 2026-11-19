@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stages 1-2 done (the hold, the spin's motion); Stage 3 (contacts) next.
+> **Status:** Stages 1-2 done (the hold, the spin's motion); Stage 3 (contacts) in progress.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -209,6 +209,33 @@ Settled here; a subagent makes no judgement call on these.
 - Crowd Soldiers are untouched (ADR 0020): only full Fighters are met.
 - Events: `Hit`/`Block` carry `whirlwind: true` (render, audio and stats can tell them apart).
 - Tests: one Hit per turn per defender, 5 at most; half damage; Knockdown and re-hit while down; Block pushes and the spin continues; ally Staggered and pushed with no damage; hit through a Wall; Thrust, dagger and Kick each end the spin; teammates/enemies in a 4-a-side Duel.
+
+#### Design (Stage 3)
+Settled here; a subagent makes no judgement call on these.
+
+**When the sweep is live.** `whirlwindSweepLive(prev: Action, next: Action): next is WhirlwindAction` (`whirlwind.ts`): `prev` is a Whirlwind **Spin** and `next` is a Whirlwind (a Spin, or Recovery's entering Tick, which closes the last turn). The Spin's first Tick (coil → Spin) is not live: the blade is only moving out of the coil. The segment's **turn** is `prev.turn` (the segment from Spin Tick k-1 to k finishes the turn Tick k-1 was in; at k = 18 it closes turn 0, though `next.turn` is already 1).
+
+**The hit set.** `WhirlwindAction.met?: { readonly turn: number; readonly fighters: readonly number[] }`: who this Whirlwind has met (Hit, Blocked or pushed as an ally) in turn `turn`, in the order met. Absent until the first contact, so a Whirlwind that meets nobody hashes as in Stage 2. A defender is skipped by `findContacts` when `met.turn === <segment turn>` and `met.fighters` includes it; on resolving a contact the spinner's `met` becomes `{turn, fighters: [...(same turn ? old : []), defender]}` (only while it is still in that Whirlwind in `out`: a Trade may have Staggered it first). `isAction` validates it (turn a Tick count, fighters Fighter indices, no duplicates).
+
+**Finding contacts** (`findContacts`, a branch beside the Attack's): for a live Whirlwind, each other Fighter in the Duel (`inDuel`; Crowd Soldiers are not Fighters and are never met, ADR 0020) not already met this turn is swept as an Attack's defender is: `blocksAttack(defender, spinner, direction)` with the Whirlwind's Direction (Left/Right, mirrored by the rule as for any swing; `roughlyFaces` judges the defender's facing toward the spinner's position), its Weapon capsule added when it Blocks, else its Hit Zones only. **No Chamber** (a Whirlwind is never an `AttackAction`, so `chamberedBy` never exists for it and no contact is `chambered`). **No Wall:** `wallContact` is not called for a Whirlwind (ADR 0029): every defender found is a contact, whatever Walls lie between. Each contact carries `whirlwind: true` (`BladeContact` gains `whirlwind?: true`) and its `bladeSpeed` is the **Weapon's reference speed** (`weapon.speed`), not the swept speed: a spin's tip moves about three times as fast as a swing's, and the move is meant to deal half a normal Hit (decided here), so the speed term is fixed; it also keeps Block Impact and Block Break at a normal blow's strength. A Whirlwind is never a Heavy Blow.
+
+**Resolving** (`resolveContact` hands a `whirlwind` contact to `resolveWhirlwindContact(before, out, c, tuning, emit)`; it returns at once if the spinner was not in a live Whirlwind in `before`):
+- *Blocked* (the rule says so): no damage; the defender's Block Impact as for any Block (`startBlockImpact` with the reference speed); a Block Break (`breakAt`) knocks the defender down with its `breakSlide` as usual; otherwise the defender is pushed `whirlwind.blockSlide` over `blockSlideTicks` away from the spinner (`awayFrom`, `push`). **The spinner is not Staggered**: its Whirlwind carries on. Event `Block {…, heavy: false, whirlwind: true}`.
+- *Ally* (same Team): no damage, a Stagger (`staggerFighter(…, 'Hit', …, mirrorDirection(direction))`; a Fighter in Knockdown is not Staggered, as now), and a push of `whirlwind.allySlide` over `allySlideTicks` **aside**: along the heading's perpendicular, on the side of the heading the ally stands (cross product of heading and spinner→ally; exactly on the line: the spinner's left, +90° of yaw). Event `Hit {damage: 0, heavy: false, whirlwind: true}`.
+- *Enemy Hit:* damage = `hitDamage(tuning, weapon, zone, weapon.speed, onHead) × whirlwind.damageFactor × mods.damage × defender's mods.damageTaken` (no `heavyDamage`). Then `pushDown(wounded, away, whirlwind.knockdownSlide, whirlwind.knockdownSlideTicks, spinner)`: a Knockdown (or, already down, pushed again without restarting it; in the air, as much speed added to its flight, ADR 0012), carrying a chain (`knockedBy`, ADR 0027). `rewardKill` as usual. Event `Hit {…, heavy: false, whirlwind: true}` with `blade` and `travel` as for any Hit. The spinner is not lodged and carries on.
+- Every outcome adds the defender to the spinner's `met`.
+
+**Interrupting the spinner.** A blade Hit, a dagger Hit, a Kick's Knockdown and a Heavy Blow already end any Action (Stagger or Knockdown). New: a Kick's **Shove** on a Fighter in a Whirlwind **Spin** Staggers it (cause `Hit`), ending the Spin, with the Shove's own damage and Slide (`resolveKick`). A Shove on a Wind-up or Recovery still leaves the Action untouched. Trades need nothing new: contacts are judged against the pre-resolution state, so a spinner Staggered by a Thrust on the same Tick still lands its own contact that Tick (both land), and its spin ends.
+
+**Events** (`events.ts`): `HitEvent.whirlwind?: true`, `BlockEvent.whirlwind?: true` (present only for a Whirlwind's). A felling Whirlwind Hit is a `DeathBlow` from the Hit as any (`fellingBlow` in `step.ts` reads the Hit event; its `bladeSpeed` is the reference speed, so the ragdoll is not flung).
+
+**Hash.** Nothing changes until a Whirlwind's blade meets someone; no recorded hash or AI golden moves.
+
+**Tests** (`src/sim/whirlwindContact.test.ts`): a standing enemy within reach is Hit once per turn at most, 5 at most over the Spin (when it stays in reach), and never twice in one turn; a Hit deals `hitDamage` at the reference speed × 0.5 (× Hit Zone; a head and a torso case); it knocks down and pushes `knockdownSlide` away; a Fighter already down is Hit again by a later turn, pushed again, its Knockdown not restarted; a Block of the mirrored side (Right spin, Left Block, facing the spinner) deals no damage, pushes the defender ≈ `blockSlide`, gives it a Block Impact, and the spinner is still spinning (and meets it again next turn); a Dagger Block breaks as usual; an ally is Staggered, takes no damage and is pushed sideways off the heading; a defender behind a Wall within reach is Hit, and no `WallStrike` is emitted; a Thrust landing on the spinner, a thrown dagger, a Kick's Knockdown and a Kick's Shove each end the Spin; a Trade (spinner and a Thrust hitting on the same Tick) lands both; a crouched Fighter ducks a standing spin and a crouched spin is Jumped (a Fighter at a Jump's apex over it is not Hit); in a 4-a-side Duel a spin among enemies and allies hits only enemies, Staggers allies, and every result is the same on a re-run (determinism); the spinner never meets itself; a Chain Knockdown follows a Whirlwind Knockdown into another Fighter. Plus a `messages.test.ts` case for `met`.
+
+#### Tasks (Stage 3)
+1. Contacts: `whirlwindSweepLive`, `met`, the `findContacts` branch, `resolveWhirlwindContact` (Hit, Block, ally), events, net; tests of Hits, Blocks, allies, Walls, Crowd, height play.
+2. Interrupting: the Shove rule in `resolveKick`; tests of every interrupt, the Trade, the 4-a-side Duel and the Chain Knockdown.
 
 ### Stage 4: Feedback
 - Render: the hold pose already reads (Stage 1); a whirl trail on every turn and the armed flash, both closed forms of the Tick and the action state (so scrubbing, Rollback and replay draw the same, ADR 0026).
