@@ -91,6 +91,13 @@
  *    raised while that dagger is still on its way. Its Reaction Time means it raises it after the Wind-up began,
  *    which is what a Block needs to stop a dagger (a Block held from before does not: it lets go and raises it
  *    again). `mistakeRate` is the chance, rolled once per throw, that it fails to.
+ *  - Whirlwind (`whirlwindRate`, Skilled and Expert only; `whirlwindRead`, answering one, is not yet used). Using it: an Idle,
+ *    grounded, drawn AI level with its focus and with a Weapon that can, begins the hold at `whirlwindRate` per Tick when two or
+ *    more enemies stand within its reach + WHIRL_NEAR (or its focus does, down or Staggered), no ally within its reach +
+ *    WHIRL_ALLY of any point of its drive, and the whole drive toward its focus is safe ground (`pathIsSafe`: no drop, Lava, Water or Wall). It holds
+ *    until armed and lets go (a Spin), always standing: never a Crouch or a Jump in its own Whirlwind. In the Spin it steers
+ *    toward the enemies within SPIN_LOOK and away from allies (`spinSteer`), keeping a steer only if SPIN_AHEAD m of it is safe.
+ *    A hold it began is committed, before any defence. Its Recovery is played as any.
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
@@ -175,6 +182,7 @@ import {
   staggerMotionName,
   throwTimings,
   TICK_SECONDS,
+  whirlwindTimings,
   type Action,
   type Direction,
   type FighterState,
@@ -186,7 +194,7 @@ import {
   type Vec2,
 } from '../sim';
 import { arenaTuning } from '../sim/delver';
-import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -611,6 +619,15 @@ const SPIN_PATIENCE = 60;
 /** Reading a spin, it keeps its Block up until this far (m, × the spinner's Size) beyond where the spinner's ball lands, and backs out to twice that. */
 const SPIN_OUT = 0.15;
 
+/** Beginning a Whirlwind, an enemy this far (m) beyond its own reach (flat) still counts for the spin. */
+const WHIRL_NEAR = 1.5;
+/** An ally this far (m) beyond its own reach (flat) forbids a Whirlwind: the spin would catch it. */
+const WHIRL_ALLY = 1.0;
+/** Spinning, it steers by the enemies and allies within this far (m). */
+const SPIN_LOOK = 5;
+/** Spinning, a steer is kept only if the ground this far (m) ahead along it is safe. */
+const SPIN_AHEAD = 2;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -663,6 +680,8 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     pressAhead: 0,
     spinHold: 0,
     spinRespect: 0,
+    whirlwindRate: 0,
+    whirlwindRead: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -1236,6 +1255,15 @@ class RuleAi implements AiController {
     const team = allies.length > 0 ? this.teamView(seen, self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
+    // A Whirlwind of its own is committed: hold it until armed, steer the Spin, nothing else (before any defence).
+    const own = this.ownWhirlwind(state, self, focused, aimAt, enemies, allies);
+    if (own) {
+      this.feintPlan = null;
+      this.defencePlan = null;
+      this.attackPlan = null;
+      return own;
+    }
+
     const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
       this.feintPlan = null;
@@ -1313,6 +1341,9 @@ class RuleAi implements AiController {
     if (kick) return { ...base, kick: true };
 
     if (this.toss(state, self, target, dist, toward)) return { ...base, ...this.throwAim(self, target, dist), throw: true };
+
+    const spin = this.spinMoment(state, self, focused, enemies, allies, toward, base);
+    if (spin) return spin;
 
     const myReach = this.reach(self);
     const theirReach = this.reach(target);
@@ -1944,6 +1975,75 @@ class RuleAi implements AiController {
     const { tuning: tn, arena } = this.world(state);
     const link = navMesh(arena, tn).links[run.link] as JumpLink;
     return { ...intent, move: link.heading, jump: false, jumpHeld: state.tick - run.flew < link.holdTicks, attack: false, kick: false, throw: false };
+  }
+
+  /**
+   * The moment for a Whirlwind of its own (`whirlwindRate`): Idle on the ground, drawn, level with its focus, with a Weapon that
+   * can, two or more enemies within its reach + WHIRL_NEAR (or its focus there, down or Staggered), no ally within its reach +
+   * WHIRL_ALLY of any point of the straight drive (a teammate in the way would be Staggered), and safe ground along the whole drive toward its focus. Then, at `whirlwindRate` per Tick, it begins the hold, to a
+   * side drawn once. No random number is drawn before the last two tests, so an AI that never Whirlwinds draws nothing.
+   */
+  private spinMoment(state: SimState, self: FighterState, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[], toward: Vec2, base: Intent): Intent | null {
+    if (this.skill.whirlwindRate <= 0 || self.action.kind !== 'Idle' || self.air || self.sheathed || !focused.level || !canWhirlwind(this.tuning, self.weapon)) return null;
+    const myReach = this.reach(self);
+    const within = myReach + WHIRL_NEAR;
+    const down = focused.flat <= within && (focused.o.action.kind === 'Knockdown' || focused.o.action.kind === 'Stagger');
+    if (!down && enemies.filter((e) => e.level && e.flat <= within).length < 2) return null;
+    const drive = this.tuning.whirlwind.driveSpeed * whirlwindTimings(this.tuning).spinTicks * TICK_SECONDS;
+    const allyWithin = myReach + WHIRL_ALLY;
+    for (const { o } of allies) {
+      const rx = o.position.x - self.position.x;
+      const rz = o.position.z - self.position.z;
+      const along = Math.min(drive, Math.max(0, rx * toward.x + rz * toward.z));
+      if (Math.hypot(rx - toward.x * along, rz - toward.z * along) <= allyWithin) return null;
+    }
+    const { tuning: tn, arena } = this.world(state);
+    if (!pathIsSafe(arena, tn, self.position, self.y, toward, drive)) return null;
+    if (!this.chance(this.skill.whirlwindRate)) return null;
+    return { ...base, whirlwind: true, direction: this.random() < 0.5 ? 'Left' : 'Right' };
+  }
+
+  /**
+   * Its own Whirlwind, once begun (null when it has none, or in its Recovery, which it plays as any). Wind-up: it keeps holding until
+   * armed, then lets go, facing its focus and walking toward it (safely) while beyond reach; never an Attack, Block, Kick, throw,
+   * Crouch or Jump. Spin: it steers (`spinSteer`) and does nothing else.
+   */
+  private ownWhirlwind(state: SimState, self: FighterState, focused: Enemy, aimAt: (o: Sighting, flat: number) => Intent, enemies: readonly Enemy[], allies: readonly Ally[]): Intent | null {
+    const a = self.action;
+    if (a.kind !== 'Whirlwind') return null;
+    if (a.phase === 'Wind-up') {
+      const dist = focused.flat;
+      const toward: Vec2 = dist > 0 ? { x: (focused.o.position.x - self.position.x) / dist, z: (focused.o.position.z - self.position.z) / dist } : ZERO;
+      return { ...aimAt(focused.o, dist), whirlwind: !a.armed, move: dist > this.reach(self) ? this.safeMove(state, self, toward) : ZERO };
+    }
+    if (a.phase === 'Spin') return { ...IDLE_INTENT, face: this.spinSteer(state, self, a.heading ?? 0, enemies, allies) };
+    return null;
+  }
+
+  /**
+   * Where a Spin steers its drive (a yaw): toward the enemies on its level within SPIN_LOOK (each weighted by 1 / its distance, at
+   * least 1 m) and away from the allies there (1.5 times as hard); no pull keeps the `heading`. A steer is kept only if the ground
+   * SPIN_AHEAD along it is safe; else the first safe of the heading, a quarter turn either way, and back (none: the heading).
+   */
+  private spinSteer(state: SimState, self: FighterState, heading: number, enemies: readonly Enemy[], allies: readonly Ally[]): number {
+    let x = 0;
+    let z = 0;
+    const pull = (o: Sighting, flat: number, k: number) => {
+      const u = unit({ x: o.position.x - self.position.x, z: o.position.z - self.position.z });
+      x += (k * u.x) / Math.max(1, flat);
+      z += (k * u.z) / Math.max(1, flat);
+    };
+    for (const e of enemies) if (e.level && e.flat <= SPIN_LOOK) pull(e.o, e.flat, 1);
+    for (const al of allies) {
+      const flat = Math.hypot(al.o.position.x - self.position.x, al.o.position.z - self.position.z);
+      if (flat <= SPIN_LOOK && Math.abs(al.o.y - self.y) < LEVEL) pull(al.o, flat, -1.5);
+    }
+    const chosen = Math.hypot(x, z) < 1e-6 ? heading : Math.atan2(x, z);
+    const { tuning: tn, arena } = this.world(state);
+    for (const f of [chosen, heading, heading + Math.PI / 2, heading - Math.PI / 2, heading + Math.PI]) {
+      if (pathIsSafe(arena, tn, self.position, self.y, { x: Math.sin(f), z: Math.cos(f) }, SPIN_AHEAD)) return f;
+    }
+    return heading;
   }
 
   /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
@@ -2681,6 +2781,25 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
     if (!g || blockedAt(arena, x, z, g.y, tuning)) return false;
     for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN, from)) return false;
     from = g.y;
+  }
+  return true;
+}
+
+/**
+ * Whether a path of `length` m from feet at (`at`, `y`) along `dir` (a unit vector) keeps it on safe ground: `stepIsSafe` once per
+ * SAFETY_PROBE, each from the ground found under the point before (none: not safe). A Wall in the way is not safe either.
+ */
+export function pathIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2, length: number): boolean {
+  let x = at.x;
+  let z = at.z;
+  let feet = y;
+  for (let covered = 0; covered < length; covered += SAFETY_PROBE) {
+    if (!stepIsSafe(arena, tuning, { x, z }, feet, dir)) return false;
+    x += dir.x * SAFETY_PROBE;
+    z += dir.z * SAFETY_PROBE;
+    const g = groundBelow(arena, x, z, feet + tuning.fall.stepUp);
+    if (!g) return false;
+    feet = g.y;
   }
   return true;
 }

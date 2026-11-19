@@ -482,10 +482,14 @@ export interface AiDifficulty {
    * out of reach, rather than stand and Block a Heavy Blow.
    */
   readonly spinRespect?: number;
+  /** 0..1: the chance, each Tick the moment is right (two enemies near, or one down or Staggered), that it begins a Whirlwind hold. 0 = it never Whirlwinds. */
+  readonly whirlwindRate?: number;
+  /** 0..1: the chance, rolled once per enemy Whirlwind phase it sees (one hold, one Spin), that it answers it. 0 = it answers none. */
+  readonly whirlwindRead?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];

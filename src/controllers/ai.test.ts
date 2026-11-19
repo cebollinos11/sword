@@ -1067,7 +1067,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, whirlwindRate: _wr, whirlwindRead: _wd, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
       expect(pressAhead, tier).toBe(1);
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
@@ -1266,7 +1266,8 @@ describe('AI Stage 1: exploit fixes', { timeout: 60_000 }, () => {
 describe('AI Stage 2: team coordination (docs/plans/ai-behaviour.md)', { timeout: 120_000 }, () => {
   /** A team of two (Fighters 1 and 2) on a dummy (Fighter 0) that never acts, looking at the pair (+z), with endless HP. */
   const tough: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 } };
-  const pair = (teamwork: number) => ({ ...aiDifficulty(repo, 'Skilled'), teamwork, kickRate: 0, throwRate: 0 });
+  // A spin moves the Fighters these tests measure, so the pair never Whirlwinds (whirlwindRate 0).
+  const pair = (teamwork: number) => ({ ...aiDifficulty(repo, 'Skilled'), teamwork, kickRate: 0, throwRate: 0, whirlwindRate: 0 });
   function onDummy(teamwork: number, seed: number, ticks = 1200) {
     const placements = [
       { position: { x: 0, z: 0 }, facing: 0 },
