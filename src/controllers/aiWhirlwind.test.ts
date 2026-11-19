@@ -42,8 +42,36 @@ function play(tuning: TuningData, difficulty: AiDifficulty, others: readonly { x
   return { run, intents, ai };
 }
 
+// A floor ending at z 2 (the Abyss beyond), running 8 m to the south.
+const ledge = parseArena(
+  {
+    name: 'whirlLedge',
+    walk: [
+      { id: 'WALK_floor', points: [[-6, 0, -8], [6, 0, -8], [6, 0, 2], [-6, 0, 2]] },
+      { id: 'WALK_abyss', abyss: true, points: [[-20, -8, -20], [20, -8, -20], [20, -8, 20], [-20, -8, 20]] },
+    ],
+    walls: [],
+  },
+  'whirlLedge',
+);
+const onLedge: TuningData = { ...repo, arenas: { ...repo.arenas, whirlLedge: ledge } };
+
 const two = [{ x: -0.6, z: 1.1, team: 1 }, { x: 0.6, z: 1.1, team: 1 }];
 const begins = (intents: readonly Intent[]) => intents.some((i) => i.whirlwind);
+
+/**
+ * What an AI (Fighter 0, no teamwork) sends on the Tick it sees itself in a Whirlwind Wind-up as `action` says, facing `yaw`, with two
+ * enemies behind it (-z) and `mates` standing as its teammates: the state is held still over its Reaction Time so it sees it.
+ */
+function holdIntent(action: { armed: boolean; ticks: number }, yaw: number, mates: readonly { x: number; z: number }[], tuning: TuningData = repo, arena?: string): Intent {
+  const placements = [{ position: { x: 0, z: 0 }, facing: yaw }, { position: { x: -0.6, z: -1.1 }, facing: 0 }, { position: { x: 0.6, z: -1.1 }, facing: 0 }, ...mates.map((m) => ({ position: m, facing: 0 }))];
+  const initial = createInitialState(tuning, 1, placements, [], [0, 1, 1, ...mates.map(() => 0)], arena);
+  const fighters = initial.fighters.map((f, i) => (i === 0 ? { ...f, action: { kind: 'Whirlwind' as const, phase: 'Wind-up' as const, direction: 'Left' as const, ticks: action.ticks, armed: action.armed, turn: 0 } } : f));
+  const ai = createAiController(tuning, calm({ whirlwindRate: 0, whirlwindRead: 0, teamwork: 0 }));
+  let intent: Intent = ai.intent({ ...initial, fighters }, 0);
+  for (let n = 1; n <= reaction; n++) intent = ai.intent({ ...initial, fighters, tick: initial.tick + n }, 0);
+  return intent;
+}
 
 describe('AI Whirlwind: knobs', () => {
   it('Skilled 0.03/0.7, Expert 0.05/0.9, and none for Beginner, Easy, Normal and Hard', () => {
@@ -120,19 +148,6 @@ describe('AI Whirlwind: when it will not', () => {
     expect(begins(play(repo, stays, [...two, ally(1.8)], 150).intents)).toBe(false);
   });
 
-  // A floor ending at z 2 (the Abyss beyond), running 8 m to the south.
-  const ledge = parseArena(
-    {
-      name: 'whirlLedge',
-      walk: [
-        { id: 'WALK_floor', points: [[-6, 0, -8], [6, 0, -8], [6, 0, 2], [-6, 0, 2]] },
-        { id: 'WALK_abyss', abyss: true, points: [[-20, -8, -20], [20, -8, -20], [20, -8, 20], [-20, -8, 20]] },
-      ],
-      walls: [],
-    },
-    'whirlLedge',
-  );
-  const onLedge: TuningData = { ...repo, arenas: { ...repo.arenas, whirlLedge: ledge } };
 
   it('a drive path over an Abyss edge stops it, while the same setup turned toward safe ground starts', () => {
     // It keeps to its spot (no footwork), so the setup is what the test says it is.
@@ -140,6 +155,53 @@ describe('AI Whirlwind: when it will not', () => {
     expect(begins(play(onLedge, stays, two, 150, 'whirlLedge').intents)).toBe(false);
     const behind = two.map((o) => ({ ...o, z: -o.z }));
     expect(begins(play(onLedge, stays, behind, 150, 'whirlLedge').intents)).toBe(true);
+  });
+
+  it('a teammate on the drive path stops it even without teamwork', () => {
+    const solo = calm({ footwork: 0, pressure: 0, caution: 0, teamwork: 0 });
+    const toward = { x: -0.6 / Math.hypot(0.6, 1.1), z: 1.1 / Math.hypot(0.6, 1.1) };
+    const ally = (along: number, side: number) => ({ x: along * toward.x + side * toward.z, z: along * toward.z - side * toward.x, team: 0 });
+    expect(begins(play(repo, solo, [...two, ally(3, 3.2)], 150).intents)).toBe(true);
+    expect(begins(play(repo, solo, [...two, ally(3, 1.8)], 150).intents)).toBe(false);
+  });
+
+  it('with its focus on its own spot it checks its drive along its facing', () => {
+    const stays = calm({ footwork: 0, pressure: 0, caution: 0, teamwork: 0 });
+    // The state is held still over its Reaction Time (the Simulation would push the two apart): its focus stays on its exact spot.
+    const facing = (yaw: number) => {
+      const placements = [{ position: { x: 0, z: 0 }, facing: yaw }, { position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0.6, z: -1.1 }, facing: 0 }];
+      const initial = createInitialState(onLedge, 1, placements, [], [0, 1, 1], 'whirlLedge');
+      const ai = createAiController(onLedge, stays);
+      const intents: Intent[] = [];
+      for (let n = 0; n <= reaction + 3; n++) intents.push(ai.intent({ ...initial, tick: initial.tick + n }, 0));
+      return intents;
+    };
+    // The ledge is 2 m ahead along +z.
+    expect(begins(facing(0))).toBe(false);
+    expect(begins(facing(Math.PI))).toBe(true);
+  });
+
+  it('unarmed, it judges the drive toward its focus (where it is turning), not the bearings it sweeps past: a teammate there cancels it', () => {
+    // Its enemies are behind it (-z), on clear ground; the Abyss is 2 m ahead (+z).
+    const intentAt = (yaw: number, mates: readonly { x: number; z: number }[] = []) => holdIntent({ armed: false, ticks: 10 }, yaw, mates, onLedge, 'whirlLedge');
+    expect(intentAt(0).whirlwind).toBe(true); // still facing the Abyss, but turning to its focus: it holds on
+    expect(intentAt(Math.PI).whirlwind).toBe(true);
+    expect(intentAt(Math.PI, [{ x: 0, z: -3 }]).whirlwind).toBeFalsy(); // a teammate on the drive toward its focus: it lets go unarmed
+  });
+
+  it('armed and turned toward a teammate it keeps holding and turns away; once clear it lets go', () => {
+    // Enemies behind it (-z); a teammate at x -3.2, z -2.5 stands on the drive along its facing toward them (yaw ~ -2.64).
+    const mate = [{ x: -3.2, z: -2.5 }];
+    const blocked = holdIntent({ armed: true, ticks: timings.armTicks }, -2.64, mate);
+    expect(blocked.whirlwind).toBe(true);
+    expect(blocked.face).toBeDefined();
+    expect(Math.abs(Math.atan2(Math.sin(blocked.face! + 2.64), Math.cos(blocked.face! + 2.64)))).toBeGreaterThan(0.5);
+    // Facing the way it turned (+90° from the enemies' bearing, away from the mate), the drive is clear: it lets go.
+    expect(holdIntent({ armed: true, ticks: timings.armTicks }, blocked.face!, mate).whirlwind).toBeFalsy();
+    // Held SPIN_WAIT Ticks armed with the way still blocked, it lets go anyway (a teammate all round it).
+    const boxed = [{ x: -3.2, z: -2.5 }, { x: 3.2, z: 2.5 }, { x: 3.2, z: -2.5 }, { x: -3.2, z: 2.5 }, { x: 0, z: -3 }, { x: 0, z: 3 }, { x: 3, z: 0 }, { x: -3, z: 0 }];
+    expect(holdIntent({ armed: true, ticks: timings.armTicks }, -2.64, boxed).whirlwind).toBe(true);
+    expect(holdIntent({ armed: true, ticks: timings.armTicks + 60 }, -2.64, boxed).whirlwind).toBeFalsy();
   });
 
   it('a Flail AI never sends whirlwind', () => {
@@ -294,17 +356,47 @@ describe('AI Whirlwind: answering it', () => {
     expect(events(off.run, 'Hit').some((e) => e.attacker === 0)).toBe(false);
   });
 
-  it('its memory round-trips through save()/load() mid-answer, and one that never met a Whirlwind has no whirlRead', () => {
+  it('its memory round-trips through save()/load() mid-answer, and one that never met a Whirlwind has no whirlReads', () => {
     const start = atSpin({ x: 0, z: 3.4 }, 'Left');
     const { intents, snaps, states } = playOn(start, reads(), 60);
     const mid = start.tick + 20;
     const saved = snaps.get(mid) as Record<string, unknown>;
-    expect(saved.whirlRead).toBeDefined();
+    expect(saved.whirlReads).toHaveLength(1);
     const again = createAiController(repo, reads());
     again.load!(saved);
     // The same Ticks from the same states give the same Intents.
     for (let t = mid; t < mid + 30; t++) expect(again.intent(states.get(t)!, 0), `Tick ${t}`).toEqual(intents.get(t));
     const calmRun = playOn(createInitialState(repo, 1, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 3 }, facing: Math.PI }], [], [0, 1]), reads(), 40);
-    for (const m of calmRun.snaps.values()) expect('whirlRead' in (m as object)).toBe(false);
+    for (const m of calmRun.snaps.values()) expect('whirlReads' in (m as object)).toBe(false);
+  });
+
+  it('one roll per spinner and phase: two enemies holding G at equal distance never re-roll', () => {
+    const rolls = new Map<string, boolean>();
+    let flips = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const ai = createAiController(repo, reads({ whirlwindRead: 0.5 }));
+      const rec = {
+        intent: (s: SimState, i: number) => {
+          const intent = ai.intent(s, i);
+          const saved = ai.save!() as { whirlReads?: { fighter: number; phase: string; since: number; read: boolean }[] };
+          const entries = saved.whirlReads ?? [];
+          expect(new Set(entries.map((e) => e.fighter)).size).toBe(entries.length);
+          for (const e of entries) {
+            const key = `${seed}:${e.fighter}:${e.phase}:${e.since}`;
+            if (rolls.has(key) && rolls.get(key) !== e.read) flips++;
+            rolls.set(key, e.read);
+          }
+          return intent;
+        },
+      };
+      const placements = [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: -0.8, z: 1.6 }, facing: 0 }, { position: { x: 0.8, z: 1.6 }, facing: 0 }];
+      const initial = createInitialState(repo, seed, placements, [], [0, 1, 1]);
+      runControllers(repo, initial, [rec, scriptedController([...heldG('Left'), ...wait(200)]), scriptedController([...heldG('Right'), ...wait(200)])], 150);
+    }
+    expect(rolls.size).toBeGreaterThan(0);
+    expect(flips).toBe(0);
+    // One Wind-up roll per spinner per seed, however often the nearer of the two changes.
+    const windUps = [...rolls.keys()].filter((k) => k.includes(':Wind-up:'));
+    expect(new Set(windUps.map((k) => k.split(':').slice(0, 2).join(':'))).size).toBe(windUps.length);
   });
 });

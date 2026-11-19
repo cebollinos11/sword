@@ -817,7 +817,7 @@ describe("Peer message validation: a Run's Players, Inventories, pickups and Mod
 });
 
 describe('Peer message validation: the AI memory of an answered Whirlwind (docs/plans/whirlwind.md, Stage 5)', () => {
-  /** A real Skilled AI's memory (no Whirlwind met, so no `whirlRead` key), as the host would send it. */
+  /** A real Skilled AI's memory (no Whirlwind met, so no `whirlReads` key), as the host would send it. */
   function memory(): Record<string, unknown> {
     const ai = createAiController(tuning, 'Skilled');
     let m = createMatch(tuning, { bestOf: 1, teams: [0, 1], seed: 3 });
@@ -825,16 +825,17 @@ describe('Peer message validation: the AI memory of an answered Whirlwind (docs/
     return JSON.parse(JSON.stringify(ai.save!()));
   }
 
-  it('accepts a memory with no whirlRead, or a valid one, and refuses a bad phase or a non-boolean read', () => {
+  it('accepts a memory with no whirlReads, or valid ones, and refuses a bad phase, a non-boolean read or a duplicate fighter', () => {
     const good = memory();
-    expect('whirlRead' in good).toBe(false);
+    expect('whirlReads' in good).toBe(false);
     const read = { fighter: 0, phase: 'Spin', since: 12, read: true };
-    for (const ok of [good, { ...good, whirlRead: read }, { ...good, whirlRead: { ...read, phase: 'Wind-up', read: false } }]) {
+    for (const ok of [good, { ...good, whirlReads: [] }, { ...good, whirlReads: [read] }, { ...good, whirlReads: [{ ...read, phase: 'Wind-up', read: false }, { ...read, fighter: 2 }] }]) {
       const m = resync(matchState(), [null, ok]);
       expect(parseNetMessage(m)).toEqual(m);
     }
-    for (const bad of [{ ...read, phase: 'Recovery' }, { ...read, read: 1 }, { ...read, fighter: -1 }, { ...read, since: 1.5 }, { ...read, fighter: undefined }, null]) {
-      expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlRead: bad }])), JSON.stringify(bad)).toBeNull();
+    const bads = [[{ ...read, phase: 'Recovery' }], [{ ...read, read: 1 }], [{ ...read, fighter: -1 }], [{ ...read, since: 1.5 }], [{ ...read, fighter: undefined }], [null], [read, { ...read, phase: 'Wind-up' }], read, null];
+    for (const bad of bads) {
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlReads: bad }])), JSON.stringify(bad)).toBeNull();
     }
   });
 });

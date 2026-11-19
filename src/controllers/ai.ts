@@ -439,8 +439,8 @@ interface AiMemory {
   readonly jitter: Jitter | null;
   /** Lapses are likelier until this Tick (`humanMistakes`): just after its own Attack or being hit (-1: none). */
   readonly shaken: number;
-  /** Whether it answers the enemy Whirlwind phase it last saw (`whirlwindRead`); absent while null, so a memory that never met one is as it was. */
-  readonly whirlRead?: WhirlRead;
+  /** Whether it answers each enemy Whirlwind phase it sees (`whirlwindRead`), one entry per spinner, in Fighter order; absent while empty, so a memory that never met one is as it was. */
+  readonly whirlReads?: readonly WhirlRead[];
 }
 
 /** The roll for one phase of one enemy Whirlwind: `since` (the Tick the phase began, as seen) identifies it; `read` is whether it answers. */
@@ -643,6 +643,8 @@ const WHIRL_ALLY = 1.0;
 const SPIN_LOOK = 5;
 /** Spinning, a steer is kept only if the ground this far (m) ahead along it is safe. */
 const SPIN_AHEAD = 2;
+/** Held armed with no safe way to spin, it lets go anyway after this many Ticks. */
+const SPIN_WAIT = 60;
 /** Seeing a Whirlwind hold it cannot hit first, it backs out this far (m) beyond the spinner's reach. */
 const WHIRL_CLEAR = 1.5;
 /** Seeing a Spin it cannot interrupt, it Blocks once the spinner's blade is within this far (m) beyond the spinner's reach. */
@@ -978,7 +980,7 @@ class RuleAi implements AiController {
   private beat: Beat | null = null;
   private jitter: Jitter | null = null;
   private shaken = -1;
-  private whirlRead: WhirlRead | null = null;
+  private whirlReads: readonly WhirlRead[] = [];
   /** Worked out once from its Tuning Data and difficulty (never memory): its jumping Attacks' holds and longest carry, and the default Weapon's length. */
   private holds: readonly number[] | undefined;
   private leapFar: number | undefined;
@@ -998,8 +1000,8 @@ class RuleAi implements AiController {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, whirlRead } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, ...(whirlRead ? { whirlRead } : {}) };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, whirlReads } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, ...(whirlReads.length > 0 ? { whirlReads } : {}) };
   }
 
   load(saved: unknown): void {
@@ -1025,7 +1027,7 @@ class RuleAi implements AiController {
     this.beat = m.beat;
     this.jitter = m.jitter;
     this.shaken = m.shaken;
-    this.whirlRead = m.whirlRead ?? null;
+    this.whirlReads = m.whirlReads ?? [];
   }
 
   private random(): number {
@@ -1067,7 +1069,7 @@ class RuleAi implements AiController {
     this.route = null;
     this.opening = null;
     this.landing = null;
-    this.whirlRead = null;
+    this.whirlReads = [];
     // A Jump already in the air is carried through.
     if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
   }
@@ -1280,8 +1282,14 @@ class RuleAi implements AiController {
     const team = allies.length > 0 ? this.teamView(seen, self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
+    // Every teammate as seen (not only with `teamwork`): it never spins through one.
+    const mates: Ally[] = [];
+    seen.fighters.forEach((o, i) => {
+      if (i !== fighter && !o.fallen && o.team === self.team) mates.push({ o, i });
+    });
+
     // A Whirlwind of its own is committed: hold it until armed, steer the Spin, nothing else (before any defence).
-    const own = this.ownWhirlwind(state, self, focused, aimAt, enemies, allies);
+    const own = this.ownWhirlwind(state, self, focused, aimAt, enemies, mates);
     if (own) {
       this.feintPlan = null;
       this.defencePlan = null;
@@ -1371,7 +1379,7 @@ class RuleAi implements AiController {
 
     if (this.toss(state, self, target, dist, toward)) return { ...base, ...this.throwAim(self, target, dist), throw: true };
 
-    const spin = this.spinMoment(state, self, focused, enemies, allies, toward, base);
+    const spin = this.spinMoment(state, self, focused, enemies, mates, toward, base);
     if (spin) return spin;
 
     const myReach = this.reach(self);
@@ -2009,50 +2017,73 @@ class RuleAi implements AiController {
   /**
    * The moment for a Whirlwind of its own (`whirlwindRate`): Idle on the ground, drawn, level with its focus, with a Weapon that
    * can, two or more enemies within its reach + WHIRL_NEAR (or its focus there, down or Staggered), no ally within its reach +
-   * WHIRL_ALLY of any point of the straight drive (a teammate in the way would be Staggered), and safe ground along the whole drive toward its focus. Then, at `whirlwindRate` per Tick, it begins the hold, to a
+   * WHIRL_ALLY of any point of the straight drive (a teammate in the way would be Staggered), and safe ground along the whole drive toward its focus
+   * (along its facing when the focus stands on its spot: `driveClear`). Then, at `whirlwindRate` per Tick, it begins the hold, to a
    * side drawn once. No random number is drawn before the last two tests, so an AI that never Whirlwinds draws nothing.
    */
-  private spinMoment(state: SimState, self: FighterState, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[], toward: Vec2, base: Intent): Intent | null {
+  private spinMoment(state: SimState, self: FighterState, focused: Enemy, enemies: readonly Enemy[], mates: readonly Ally[], toward: Vec2, base: Intent): Intent | null {
     if (this.skill.whirlwindRate <= 0 || self.action.kind !== 'Idle' || self.air || self.sheathed || !focused.level || !canWhirlwind(this.tuning, self.weapon)) return null;
     const myReach = this.reach(self);
     const within = myReach + WHIRL_NEAR;
     const down = focused.flat <= within && (focused.o.action.kind === 'Knockdown' || focused.o.action.kind === 'Stagger');
     if (!down && enemies.filter((e) => e.level && e.flat <= within).length < 2) return null;
-    const drive = this.tuning.whirlwind.driveSpeed * whirlwindTimings(this.tuning).spinTicks * TICK_SECONDS;
-    const allyWithin = myReach + WHIRL_ALLY;
-    for (const { o } of allies) {
-      const rx = o.position.x - self.position.x;
-      const rz = o.position.z - self.position.z;
-      const along = Math.min(drive, Math.max(0, rx * toward.x + rz * toward.z));
-      if (Math.hypot(rx - toward.x * along, rz - toward.z * along) <= allyWithin) return null;
-    }
-    const { tuning: tn, arena } = this.world(state);
-    if (!pathIsSafe(arena, tn, self.position, self.y, toward, drive)) return null;
+    // With its focus on its own spot it has no direction: the drive goes along its facing.
+    const dir = toward.x === 0 && toward.z === 0 ? { x: Math.sin(self.facing), z: Math.cos(self.facing) } : toward;
+    if (!this.driveClear(state, self, dir, mates)) return null;
     if (!this.chance(this.skill.whirlwindRate)) return null;
     return { ...base, whirlwind: true, direction: this.random() < 0.5 ? 'Left' : 'Right' };
   }
 
   /**
-   * Its own Whirlwind, once begun (null when it has none, or in its Recovery, which it plays as any). Wind-up: it keeps holding until
-   * armed, then lets go, facing its focus and walking toward it (safely) while beyond reach; never an Attack, Block, Kick, throw,
-   * Crouch or Jump. Spin: it steers (`spinSteer`) and does nothing else.
+   * Whether a Whirlwind driving along `dir` (a unit vector) for its whole length is clear: safe ground all the way (`pathIsSafe`)
+   * and no teammate (`mates`) within its reach + WHIRL_ALLY of any point of the straight drive.
    */
-  private ownWhirlwind(state: SimState, self: FighterState, focused: Enemy, aimAt: (o: Sighting, flat: number) => Intent, enemies: readonly Enemy[], allies: readonly Ally[]): Intent | null {
+  private driveClear(state: SimState, self: FighterState, dir: Vec2, mates: readonly Ally[]): boolean {
+    const drive = this.tuning.whirlwind.driveSpeed * whirlwindTimings(this.tuning).spinTicks * TICK_SECONDS;
+    const allyWithin = this.reach(self) + WHIRL_ALLY;
+    for (const { o } of mates) {
+      const rx = o.position.x - self.position.x;
+      const rz = o.position.z - self.position.z;
+      const along = Math.min(drive, Math.max(0, rx * dir.x + rz * dir.z));
+      if (Math.hypot(rx - dir.x * along, rz - dir.z * along) <= allyWithin) return false;
+    }
+    const { tuning: tn, arena } = this.world(state);
+    return pathIsSafe(arena, tn, self.position, self.y, dir, drive);
+  }
+
+  /**
+   * Its own Whirlwind, once begun (null when it has none, or in its Recovery, which it plays as any). Wind-up: it checks its drive
+   * along its facing (`driveClear`) every Tick, as the Spin's heading is its facing on the Tick it lets go. Unarmed and not clear, it
+   * lets go (the hold is cancelled). Armed and clear, it lets go (a Spin). Armed and not clear, it keeps holding and turns to the first
+   * of its focus, a quarter turn either way and back whose drive is clear (none: its focus), letting go anyway after SPIN_WAIT Ticks
+   * armed. It never Attacks, Blocks, Kicks, throws, Crouches or Jumps. Spin: it steers (`spinSteer`) and does nothing else.
+   */
+  private ownWhirlwind(state: SimState, self: FighterState, focused: Enemy, aimAt: (o: Sighting, flat: number) => Intent, enemies: readonly Enemy[], mates: readonly Ally[]): Intent | null {
     const a = self.action;
     if (a.kind !== 'Whirlwind') return null;
     if (a.phase === 'Wind-up') {
       const dist = focused.flat;
       const toward: Vec2 = dist > 0 ? { x: (focused.o.position.x - self.position.x) / dist, z: (focused.o.position.z - self.position.z) / dist } : ZERO;
-      return { ...aimAt(focused.o, dist), whirlwind: !a.armed, move: dist > this.reach(self) ? this.safeMove(state, self, toward) : ZERO };
+      const aim = aimAt(focused.o, dist);
+      // Unarmed, it is still turning to its focus: judge the drive it will face (its focus bearing), not the bearings it sweeps past.
+      const facing = a.armed ? self.facing : (aim.face ?? self.facing);
+      const clear = this.driveClear(state, self, { x: Math.sin(facing), z: Math.cos(facing) }, mates);
+      if (!a.armed) {
+        return clear ? { ...aim, whirlwind: true, move: dist > this.reach(self) ? this.safeMove(state, self, toward) : ZERO } : { ...aim, whirlwind: false };
+      }
+      if (clear || a.ticks - whirlwindTimings(this.tuning).armTicks >= SPIN_WAIT) return { ...aim, whirlwind: false, move: dist > this.reach(self) ? this.safeMove(state, self, toward) : ZERO };
+      const bearing = aim.face ?? self.facing;
+      const turn = [bearing, bearing + Math.PI / 2, bearing - Math.PI / 2, bearing + Math.PI].find((f) => this.driveClear(state, self, { x: Math.sin(f), z: Math.cos(f) }, mates));
+      return { ...aim, whirlwind: true, face: turn ?? bearing };
     }
-    if (a.phase === 'Spin') return { ...IDLE_INTENT, face: this.spinSteer(state, self, a.heading ?? 0, enemies, allies) };
+    if (a.phase === 'Spin') return { ...IDLE_INTENT, face: this.spinSteer(state, self, a.heading ?? 0, enemies, mates) };
     return null;
   }
 
   /**
    * An enemy Whirlwind it answers (`whirlwindRead`), as seen Reaction Time ago, while it is Idle or Blocking: the nearest enemy
    * on a near level holding one within its reach + WHIRL_CLEAR + 1, or Spinning within its reach + WHIRL_WATCH, rolled once per
-   * phase (`whirlRead`). Seeing a hold, it Attacks if that lands before it can arm, else backs out beyond reach + WHIRL_CLEAR.
+   * phase (`whirlReads`). Seeing a hold, it Attacks if that lands before it can arm, else backs out beyond reach + WHIRL_CLEAR.
    * Seeing a Spin, it interrupts it with a Thrust or a dagger that lands before the blade can reach it, else Blocks the mirrored
    * side once the blade is within WHIRL_BLOCK, else steps away. Never a Jump or a Crouch. Played as one of a team it rolls its turn
    * as any Attack does (`turnOf`), so `keepClear` guards its swing, and it starts no Attack with an ally in the swing line.
@@ -2060,6 +2091,13 @@ class RuleAi implements AiController {
    */
   private answerWhirlwind(state: SimState, self: FighterState, seen: Observation, enemies: readonly Enemy[], aimAt: (o: Sighting, flat: number) => Intent, team: TeamView | null): Intent | null {
     if (this.skill.whirlwindRead <= 0 || self.sheathed || (self.action.kind !== 'Idle' && self.action.kind !== 'Block')) return null;
+    // A roll is kept only while its spinner is still in a Whirlwind (as seen).
+    if (this.whirlReads.length > 0) {
+      this.whirlReads = this.whirlReads.filter((r) => {
+        const a = seen.fighters[r.fighter]?.action;
+        return a?.kind === 'Whirlwind' && a.phase !== 'Recovery';
+      });
+    }
     const spinner = enemies.find(({ o, flat, near }) => {
       const a = o.action;
       if (!near || a.kind !== 'Whirlwind') return false;
@@ -2070,11 +2108,13 @@ class RuleAi implements AiController {
     const spin = spinner.o.action;
     if (spin.phase !== 'Wind-up' && spin.phase !== 'Spin') return null;
     const since = seen.tick - spin.ticks;
-    const rolled = this.whirlRead;
-    if (rolled?.fighter !== spinner.i || rolled.phase !== spin.phase || rolled.since !== since) {
-      this.whirlRead = { fighter: spinner.i, phase: spin.phase, since, read: this.chance(this.skill.whirlwindRead) };
+    const rolled = this.whirlReads.find((r) => r.fighter === spinner.i);
+    let read = rolled?.read ?? false;
+    if (rolled?.phase !== spin.phase || rolled.since !== since) {
+      read = this.chance(this.skill.whirlwindRead);
+      this.whirlReads = [...this.whirlReads.filter((r) => r.fighter !== spinner.i), { fighter: spinner.i, phase: spin.phase, since, read }].sort((x, y) => x.fighter - y.fighter);
     }
-    if (!this.whirlRead?.read) return null;
+    if (!read) return null;
 
     this.feintPlan = null;
     const { o, flat: dist } = spinner;
@@ -2090,8 +2130,7 @@ class RuleAi implements AiController {
       const direction = this.chooseDirection(self, o, dist, this.narrowLine(self));
       const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
       const walk = Math.ceil(Math.max(0, dist - myReach) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
-      const line = this.turnOf(state.tick, self, team, toward, myReach).line;
-      if (!line && Math.max(windUpEnd, walk) + Math.ceil((releaseEnd - windUpEnd) / 2) < left) {
+      if (Math.max(windUpEnd, walk) + Math.ceil((releaseEnd - windUpEnd) / 2) < left && !this.turnOf(state.tick, self, team, toward, myReach).line) {
         return this.startAttack(state.tick, self, o, dist, dist > myReach ? { ...base, move: toward } : base, { swingIn: dist > myReach, direction, timed: true });
       }
       if (dist <= R + WHIRL_CLEAR) return { ...base, move: this.retreat(state, self, away) };
@@ -2119,7 +2158,7 @@ class RuleAi implements AiController {
    * least 1 m) and away from the allies there (1.5 times as hard); no pull keeps the `heading`. A steer is kept only if the ground
    * SPIN_AHEAD along it is safe; else the first safe of the heading, a quarter turn either way, and back (none: the heading).
    */
-  private spinSteer(state: SimState, self: FighterState, heading: number, enemies: readonly Enemy[], allies: readonly Ally[]): number {
+  private spinSteer(state: SimState, self: FighterState, heading: number, enemies: readonly Enemy[], mates: readonly Ally[]): number {
     let x = 0;
     let z = 0;
     const pull = (o: Sighting, flat: number, k: number) => {
@@ -2128,7 +2167,7 @@ class RuleAi implements AiController {
       z += (k * u.z) / Math.max(1, flat);
     };
     for (const e of enemies) if (e.level && e.flat <= SPIN_LOOK) pull(e.o, e.flat, 1);
-    for (const al of allies) {
+    for (const al of mates) {
       const flat = Math.hypot(al.o.position.x - self.position.x, al.o.position.z - self.position.z);
       if (flat <= SPIN_LOOK && Math.abs(al.o.y - self.y) < LEVEL) pull(al.o, flat, -1.5);
     }
