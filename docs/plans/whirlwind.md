@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stage 1 done (the hold); Stage 2 next.
+> **Status:** Stage 1 done (the hold); Stage 2 in progress.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -155,6 +155,40 @@ Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-tur
 - **Air:** released in a Jump, the turns go on through the flight (`flyBody` with the Jump's own speed) and on after landing, when the drive takes over. `jump` during the Spin starts a Jump (a spinning Jump); add the Whirlwind's Spin to the jump rule.
 - Recovery: `recoverySeconds` back to guard; no extra whiff penalty.
 - Tests: duration; distance covered on flat ground (≈ `driveSpeed × turns × turnSeconds`); steer rate cap; crouch moves the blade's height; air release lands still spinning; drives off a ledge into a Fall.
+
+#### Design (Stage 2)
+Settled here; a subagent makes no judgement call on these.
+
+**State.** `WhirlwindAction` gains `heading?: number`: the yaw (radians, `facing`'s convention, wrapped into (-π, π]) the spin drives along. Set on the Tick that enters Spin to the Fighter's `facing` then, present through Spin and Recovery, absent in the Wind-up (so the Stage 1 shape still validates and hashes the same). `isAction` accepts it absent or finite, and requires it in Spin and Recovery.
+
+**Turning: the body spins, the heading is steered apart from it.**
+- `spinSign(direction)`: Right → +1, Left → -1. A Right Whirlwind's blade comes from the Fighter's right across its front to its left (as a Right Attack does), so the body turns to its left: yaw increases (the Local Controller turns right by decreasing yaw).
+- `steerHeading(heading, face, tuning)`: toward `intent.face` the shorter way by at most `whirlwind.steerSpeed`·π/180·TICK_SECONDS (1.5° a Tick at 90°/s), landing on it exactly when closer; `face` null keeps it. `updateWhirlwind` steers it every Spin Tick (ground and air alike); the Spin's entering Tick sets it, unsteered.
+- `spinFacing(action, tuning)` = wrapYaw(heading + spinSign·2π·(ticks mod turnTicks)/turnTicks): a closed form of the Spin's own Tick, so no float error builds over the turns. On the Tick that enters Recovery the facing is exactly `heading` (the fifth turn closes); through the rest of Recovery `turn()` works as usual from there. `step.ts` `turn()` returns `spinFacing(update.action)` whenever the updated Action is a Whirlwind Spin or the Recovery's entering Tick (`ticks === 0`); so `turn` must read the updated Action (pass `update.action` in).
+- Facing per Tick in a Spin moves 20° (360/18) plus the steer: Hit Zones, blade and Skeleton all follow `facing`, so the Blade Sweep of Stage 3 is the body's real turn (ADR 0002).
+
+**Drive** (`step.ts`): on the ground during a Spin, the position before collision is `f.position + driveSpeed·TICK_SECONDS·(sin h, cos h)` with `h` the *updated* heading, plus any Slide; `intent.move` is ignored (still `locked`), and neither crouch, Slow nor backward walking scale it. Body collision (`resolveBodies`) and Walls stop the body as for any Fighter. No ledge guard: driving over an edge goes airborne in `settleGround` at the drive's speed. In the air the drive is off: `fly` with no move (the spinner is `locked`), so the flight carries what it had. Recovery walks as normal.
+
+**Air.**
+- `keepsOnFalling` keeps a Whirlwind **Spin** (not the Wind-up or Recovery): a Spin that drives off a ledge spins on through the air; a hard Landing (beyond `fall.safeHeight`, not a Jump) Staggers it out as for anyone; an Abyss kills it.
+- `jumps()` also allows a Whirlwind Spin on the ground (a spinning Jump). Its take-off carries the drive: `takeOff(f.position, <the drive position>, …)`. The Spin goes on in the air (`air.jumped`, so no Fall swap) and after the Landing (`land()` leaves a non-Fall Action alone), when the drive takes over again.
+- Released in a Jump (armed in the air: a full Jump lasts 1.7 s), the Spin starts airborne and goes on after landing.
+
+**Motions and height.** Four default Motions, `WhirlwindSpinLeft`/`WhirlwindSpinRight` (high) and `WhirlwindLowLeft`/`WhirlwindLowRight` (low), each a single held pose (`loop: false`, duration about 0.1 s, two Pose Keys with the same pose, no markers, no `"idle"` links), arms out to the leading side so the blade lies roughly level, about 90° from the facing toward the side it comes from (the Right Whirlwind's blade on the Fighter's right), its tip as far out as the Weapon reaches.
+- High: sword hand about shoulder height (hand y ≈ 1.4), so a standing spinner's blade passes over a fully crouched Fighter's head.
+- Low: sword hand about y ≈ 0.75, torso leaning forward, so with the crouch's own drop (`fighter.crouchDepth` 0.4) a fully crouched spinner's blade sweeps at about 0.3-0.45 m, under the feet of a Fighter at a Jump's apex and through a standing one's shins.
+- Playback in Spin: the high Motion of its Direction (a held pose; the Motion Blend from the coil carries it in over `fighter.motionBlend`). In `pose.ts` `solveFighter`, for a Fighter in a Whirlwind Spin, the Motion's targets are blended toward the low Motion's by `f.crouch` (`lerpTargets`) *before* `applyCrouch`, so the blade rises and falls continuously as C is held or let go. `motionNames()` gains the four (the Editor's `session.test.ts` Motion list changes, expected).
+- Recovery plays `Idle` (Motion Blend back to guard), as in Stage 1.
+
+**Gait.** During a Spin on the ground both feet are owned by the spin: each Tick they are planted at their Motion home (`footHome`) under the turned body, no steps and no `Step` events (the spinner pivots on the spot as it drives). Implemented in `updateGait`: a Fighter in a Whirlwind Spin returns both feet planted at `footHome(after)`; everything else is unchanged. When the Spin ends the usual glide/step logic takes over from there.
+
+**Hash.** Only a Whirlwind changes; a Fighter that never presses G hashes as before. No recorded hash or golden moves.
+
+**Tests** (`src/sim/whirlwindSpin.test.ts`): the Spin lasts spinTicks and Recovery recoveryTicks; facing moves +20° a Tick for Right and -20° for Left (no steer), is back on the heading at each turn's end and exactly on it as Recovery begins; over one turn the blade tip's bearing from the pelvis covers all eight 45° sectors; on flat ground with `move` held sideways the Spin covers driveSpeed × spinTicks × TICK_SECONDS (4.5 m) along the heading within 1%; with `face` held 180° away the heading changes by at most 1.5° a Tick (135° over the Spin) and the path arcs; standing, the lowest blade point over a turn is above 1.3 m; fully crouched, the highest is below 0.5 m; armed and released in a held Jump, it spins in the air and on after landing, driving again on the ground; Space during a Spin Jumps (still a Whirlwind in the air, take-off speed ≈ driveSpeed) and lands spinning; driving off a ledge goes airborne still spinning and falls (and onto an Abyss is a Death); a Wall stops the body (its position never passes it); snapshot → restore mid-Spin and mid-spinning-Jump hashes identically forward. Plus a `messages.test.ts` case for `heading`.
+
+#### Tasks (Stage 2)
+1. Motions and height: the four Spin/Low Motion files, Spin playback in `whirlwind.ts`, the crouch blend in `pose.ts`, the Editor Motion list; tests of blade height and the sweep's sectors (with facing still frozen, a sector test waits for Task 2 — Task 1 tests heights only).
+2. Turning, drive, air and Gait: `heading`, `steerHeading`, `spinFacing`, `step.ts` (turn, drive, jumps, keepsOnFalling, take-off), `gait.ts` pivot, `messages.ts`; the remaining tests.
 
 ### Stage 3: Contacts (needs ADR 0029)
 - `whirlwindSweepLive`: in Spin, every Tick. In `findContacts`, a Whirlwind's blade meets defenders like an Attack's, with a **per-turn hit set**: a Fighter met once in a turn is not met again until the next turn.
