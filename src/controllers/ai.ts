@@ -91,13 +91,19 @@
  *    raised while that dagger is still on its way. Its Reaction Time means it raises it after the Wind-up began,
  *    which is what a Block needs to stop a dagger (a Block held from before does not: it lets go and raises it
  *    again). `mistakeRate` is the chance, rolled once per throw, that it fails to.
- *  - Whirlwind (`whirlwindRate`, Skilled and Expert only; `whirlwindRead`, answering one, is not yet used). Using it: an Idle,
+ *  - Whirlwind (`whirlwindRate`, Skilled and Expert only; `whirlwindRead`, answering one). Using it: an Idle,
  *    grounded, drawn AI level with its focus and with a Weapon that can, begins the hold at `whirlwindRate` per Tick when two or
  *    more enemies stand within its reach + WHIRL_NEAR (or its focus does, down or Staggered), no ally within its reach +
  *    WHIRL_ALLY of any point of its drive, and the whole drive toward its focus is safe ground (`pathIsSafe`: no drop, Lava, Water or Wall). It holds
  *    until armed and lets go (a Spin), always standing: never a Crouch or a Jump in its own Whirlwind. In the Spin it steers
  *    toward the enemies within SPIN_LOOK and away from allies (`spinSteer`), keeping a steer only if SPIN_AHEAD m of it is safe.
  *    A hold it began is committed, before any defence. Its Recovery is played as any.
+ *    Answering one (`whirlwindRead`: the chance, rolled once per enemy hold and once per enemy Spin it sees, that it answers that
+ *    phase; Skilled and Expert only, Beginner and the legacy tiers never), from what it saw Reaction Time ago, as an Idle or Blocking
+ *    AI: seeing a hold, it hits before it arms when its own blow lands in time (`answerWhirlwind`), else backs out beyond the
+ *    spinner's reach + WHIRL_CLEAR; seeing a Spin, it interrupts it with a Thrust or a thrown dagger when that lands before the
+ *    blade can reach it, else Blocks the mirrored side facing the spinner once the blade is within WHIRL_BLOCK, else steps away.
+ *    It never Jumps or Crouches against a Whirlwind.
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
@@ -433,6 +439,16 @@ interface AiMemory {
   readonly jitter: Jitter | null;
   /** Lapses are likelier until this Tick (`humanMistakes`): just after its own Attack or being hit (-1: none). */
   readonly shaken: number;
+  /** Whether it answers the enemy Whirlwind phase it last saw (`whirlwindRead`); absent while null, so a memory that never met one is as it was. */
+  readonly whirlRead?: WhirlRead;
+}
+
+/** The roll for one phase of one enemy Whirlwind: `since` (the Tick the phase began, as seen) identifies it; `read` is whether it answers. */
+interface WhirlRead {
+  readonly fighter: number;
+  readonly phase: 'Wind-up' | 'Spin';
+  readonly since: number;
+  readonly read: boolean;
 }
 
 /** The enemy it fights (`fighter`), kept whatever the others do until Tick `until` (-1: only while none is much nearer). */
@@ -627,6 +643,12 @@ const WHIRL_ALLY = 1.0;
 const SPIN_LOOK = 5;
 /** Spinning, a steer is kept only if the ground this far (m) ahead along it is safe. */
 const SPIN_AHEAD = 2;
+/** Seeing a Whirlwind hold it cannot hit first, it backs out this far (m) beyond the spinner's reach. */
+const WHIRL_CLEAR = 1.5;
+/** Seeing a Spin it cannot interrupt, it Blocks once the spinner's blade is within this far (m) beyond the spinner's reach. */
+const WHIRL_BLOCK = 1.0;
+/** It answers a Spin only within this far (m) beyond the spinner's reach (a hold, within WHIRL_CLEAR + 1). */
+const WHIRL_WATCH = 2.5;
 
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
@@ -956,6 +978,7 @@ class RuleAi implements AiController {
   private beat: Beat | null = null;
   private jitter: Jitter | null = null;
   private shaken = -1;
+  private whirlRead: WhirlRead | null = null;
   /** Worked out once from its Tuning Data and difficulty (never memory): its jumping Attacks' holds and longest carry, and the default Weapon's length. */
   private holds: readonly number[] | undefined;
   private leapFar: number | undefined;
@@ -975,8 +998,8 @@ class RuleAi implements AiController {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, whirlRead } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, ...(whirlRead ? { whirlRead } : {}) };
   }
 
   load(saved: unknown): void {
@@ -1002,6 +1025,7 @@ class RuleAi implements AiController {
     this.beat = m.beat;
     this.jitter = m.jitter;
     this.shaken = m.shaken;
+    this.whirlRead = m.whirlRead ?? null;
   }
 
   private random(): number {
@@ -1043,6 +1067,7 @@ class RuleAi implements AiController {
     this.route = null;
     this.opening = null;
     this.landing = null;
+    this.whirlRead = null;
     // A Jump already in the air is carried through.
     if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
   }
@@ -1277,6 +1302,10 @@ class RuleAi implements AiController {
       this.feintPlan = null;
       return dodge;
     }
+
+    // An enemy Whirlwind (a hold or a Spin) it reads: hit it before it arms, interrupt the Spin, Block it, or step out of its way.
+    const answer = this.answerWhirlwind(state, self, seen, enemies, aimAt, team);
+    if (answer) return answer;
 
     // A Kick coming: stand still (it only knocks down a mover), and do not start anything else.
     const kickReach = this.tuning.ai.kickRange;
@@ -2018,6 +2047,71 @@ class RuleAi implements AiController {
     }
     if (a.phase === 'Spin') return { ...IDLE_INTENT, face: this.spinSteer(state, self, a.heading ?? 0, enemies, allies) };
     return null;
+  }
+
+  /**
+   * An enemy Whirlwind it answers (`whirlwindRead`), as seen Reaction Time ago, while it is Idle or Blocking: the nearest enemy
+   * on a near level holding one within its reach + WHIRL_CLEAR + 1, or Spinning within its reach + WHIRL_WATCH, rolled once per
+   * phase (`whirlRead`). Seeing a hold, it Attacks if that lands before it can arm, else backs out beyond reach + WHIRL_CLEAR.
+   * Seeing a Spin, it interrupts it with a Thrust or a dagger that lands before the blade can reach it, else Blocks the mirrored
+   * side once the blade is within WHIRL_BLOCK, else steps away. Never a Jump or a Crouch. Played as one of a team it rolls its turn
+   * as any Attack does (`turnOf`), so `keepClear` guards its swing, and it starts no Attack with an ally in the swing line.
+   * Null: nothing to answer.
+   */
+  private answerWhirlwind(state: SimState, self: FighterState, seen: Observation, enemies: readonly Enemy[], aimAt: (o: Sighting, flat: number) => Intent, team: TeamView | null): Intent | null {
+    if (this.skill.whirlwindRead <= 0 || self.sheathed || (self.action.kind !== 'Idle' && self.action.kind !== 'Block')) return null;
+    const spinner = enemies.find(({ o, flat, near }) => {
+      const a = o.action;
+      if (!near || a.kind !== 'Whirlwind') return false;
+      const reach = this.reach(o);
+      return a.phase === 'Wind-up' ? flat <= reach + WHIRL_CLEAR + 1 : a.phase === 'Spin' && flat <= reach + WHIRL_WATCH;
+    });
+    if (!spinner || spinner.o.action.kind !== 'Whirlwind') return null;
+    const spin = spinner.o.action;
+    if (spin.phase !== 'Wind-up' && spin.phase !== 'Spin') return null;
+    const since = seen.tick - spin.ticks;
+    const rolled = this.whirlRead;
+    if (rolled?.fighter !== spinner.i || rolled.phase !== spin.phase || rolled.since !== since) {
+      this.whirlRead = { fighter: spinner.i, phase: spin.phase, since, read: this.chance(this.skill.whirlwindRead) };
+    }
+    if (!this.whirlRead?.read) return null;
+
+    this.feintPlan = null;
+    const { o, flat: dist } = spinner;
+    const R = this.reach(o);
+    const myReach = this.reach(self);
+    const base = aimAt(o, dist);
+    const toward: Vec2 = dist > 0 ? { x: (o.position.x - self.position.x) / dist, z: (o.position.z - self.position.z) / dist } : ZERO;
+    const away: Vec2 = { x: -toward.x, z: -toward.z };
+
+    if (spin.phase === 'Wind-up') {
+      // Ticks from now before it can arm: its Attack must Release (about half through) before that. `timed`: no Feint to spoil it.
+      const left = whirlwindTimings(this.tuning).armTicks - spin.ticks - this.reactionTicks;
+      const direction = this.chooseDirection(self, o, dist, this.narrowLine(self));
+      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
+      const walk = Math.ceil(Math.max(0, dist - myReach) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
+      const line = this.turnOf(state.tick, self, team, toward, myReach).line;
+      if (!line && Math.max(windUpEnd, walk) + Math.ceil((releaseEnd - windUpEnd) / 2) < left) {
+        return this.startAttack(state.tick, self, o, dist, dist > myReach ? { ...base, move: toward } : base, { swingIn: dist > myReach, direction, timed: true });
+      }
+      if (dist <= R + WHIRL_CLEAR) return { ...base, move: this.retreat(state, self, away) };
+      return base;
+    }
+
+    // A Spin: how many Ticks before the blade can reach it, the spinner driving along its heading (less than full speed when not at it).
+    const heading = spin.heading ?? 0;
+    const closing = Math.max(0.3, Math.sin(heading) * -toward.x + Math.cos(heading) * -toward.z);
+    const reachIn = dist <= R ? 0 : (dist - R) / (this.tuning.whirlwind.driveSpeed * TICK_SECONDS * closing);
+    if (this.attacksOf(self).includes('Thrust') && dist <= myReach + THRUST_REACH && dist > R && !this.turnOf(state.tick, self, team, toward, myReach + THRUST_REACH).line) {
+      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Thrust');
+      if (windUpEnd + Math.ceil((releaseEnd - windUpEnd) / 2) + this.reactionTicks < reachIn) return this.startAttack(state.tick, self, o, dist, base, { direction: 'Thrust', timed: true });
+    }
+    if (self.daggers > 0 && dist > R + 1 && dist <= this.tuning.ai.throwRange && this.clearLine(state, self, o) && throwTimings(this.tuning, self.weapon).windUpEnd + this.reactionTicks < reachIn) {
+      this.aimError = 0;
+      return { ...base, ...this.throwAim(self, o, dist), throw: true };
+    }
+    if (dist <= R + WHIRL_BLOCK) return { ...base, block: true, direction: mirrorDirection(spin.direction) };
+    return { ...base, move: this.retreat(state, self, away) };
   }
 
   /**

@@ -895,7 +895,9 @@ export function isAiMemory(v: unknown): boolean {
   const beat = b === null || (isObject(b) && isBool(b.timed) && isNum(b.need) && isNum(b.done) && isBool(b.double) && isBool(b.wild));
   const j = v.jitter;
   const jitter = j === null || (isObject(j) && isTick(j.from) && isInt(j.until) && isInt(j.at));
-  return seen && defence && feint && attack && throwPlan && isNum(v.aimError) && jumpRun && failedJumps && landing && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
+  const w = v.whirlRead;
+  const whirlRead = w === undefined || (isObject(w) && isTick(w.fighter) && (w.phase === 'Wind-up' || w.phase === 'Spin') && isInt(w.since) && isBool(w.read));
+  return seen && defence && whirlRead && feint && attack && throwPlan && isNum(v.aimError) && jumpRun && failedJumps && landing && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
 }
 
 /**

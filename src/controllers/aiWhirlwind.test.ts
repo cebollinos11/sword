@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, createInitialState, wait, whirlwindTimings, type Intent, type SimState, type Track } from '../sim';
+import { attack, createInitialState, hold, wait, whirlwindTimings, type Intent, type SimEvent, type SimState, type Track } from '../sim';
 import { aiDifficulty, aiStyle, createAiController, runControllers, scriptedController } from './index';
 import { skillOf } from './ai';
 
@@ -188,5 +188,123 @@ describe('AI Whirlwind: steering the Spin', () => {
   it('with nothing near it keeps its heading', () => {
     const { face, heading } = steer(two, [{ x: 0, z: 40 }, { x: 1, z: 40 }]);
     expect(face!).toBeCloseTo(heading, 6);
+  });
+});
+
+describe('AI Whirlwind: answering it', () => {
+  /** An Expert that answers every Whirlwind it sees, with nothing else on its mind. */
+  const reads = (extra: Partial<AiDifficulty> = {}) => calm({ whirlwindRate: 0, whirlwindRead: 1, ...extra });
+  const standingReach = repo.ai.attackRange;
+  const heldG = (direction: 'Left' | 'Right', face?: number): Track => hold(timings.armTicks + 1, { whirlwind: true, direction, ...(face === undefined ? {} : { face }) });
+  const events = <T extends SimEvent['type']>(run: { events: readonly (SimEvent & { tick: number })[] }, type: T) => run.events.filter((e): e is Extract<SimEvent, { type: T }> & { tick: number } => e.type === type);
+  const spinStart = (states: readonly SimState[]) => states.findIndex((s) => s.fighters[1]!.action.kind === 'Whirlwind' && s.fighters[1]!.action.phase === 'Spin');
+
+  /** The Duel at the Tick the spinner (Fighter 1, at `at`, facing `face` or the AI) lets go armed: its Spin has just begun, unseen by the AI. */
+  function atSpin(at: { x: number; z: number }, direction: 'Left' | 'Right', weapons: readonly string[] = [], face?: number): SimState {
+    const placements = [{ position: { x: 0, z: 0 }, facing: 0 }, { position: at, facing: Math.atan2(-at.x, -at.z) }];
+    const initial = createInitialState(repo, 1, placements, weapons, [0, 1]);
+    const run = runControllers(repo, initial, [scriptedController(wait(1)), scriptedController([...heldG(direction, face), ...wait(400)])], timings.armTicks + 2);
+    const k = spinStart(run.states);
+    expect(k).toBeGreaterThan(0);
+    return run.states[k]!;
+  }
+
+  /** The AI (Fighter 0) plays on from `initial`, the spinner letting its Spin run (idle). */
+  function playOn(initial: SimState, difficulty: AiDifficulty, ticks: number) {
+    const ai = createAiController(repo, difficulty);
+    const intents = new Map<number, Intent>();
+    const snaps = new Map<number, unknown>();
+    const states = new Map<number, SimState>();
+    const recording = {
+      intent: (s: SimState, i: number) => {
+        states.set(s.tick, s);
+        snaps.set(s.tick, JSON.parse(JSON.stringify(ai.save())));
+        const intent = ai.intent(s, i);
+        intents.set(s.tick, intent);
+        return intent;
+      },
+    };
+    const run = runControllers(repo, initial, [recording, scriptedController(wait(1))], ticks);
+    return { run, intents, snaps, states };
+  }
+
+  it('seeing a Spin come, it Blocks the mirrored side facing the spinner, and the turn is Blocked', () => {
+    const start = atSpin({ x: 0, z: 3.4 }, 'Left');
+    const { run, intents } = playOn(start, reads(), 90);
+    const blocks = events(run, 'Block').filter((e) => e.whirlwind && e.defender === 0);
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(events(run, 'Hit').filter((e) => e.whirlwind && e.defender === 0)).toHaveLength(0);
+    // The Block raised for it is the mirrored side (Left spin, Right Block), facing the spinner.
+    const raised = [...intents.values()].filter((i) => i.block);
+    expect(raised.length).toBeGreaterThan(0);
+    for (const i of raised) expect(i.direction).toBe('Right');
+    const at = blocks[0]!.tick;
+    const me = run.states[at - start.tick]!.fighters[0]!;
+    expect(me.action.kind).toBe('Block');
+  });
+
+  it('it faces the spinner as it Blocks, and without the read the same Spin Hits it', () => {
+    const start = atSpin({ x: 0, z: 3.4 }, 'Right');
+    const { run, intents } = playOn(start, reads(), 90);
+    for (const i of [...intents.values()].filter((x) => x.block)) {
+      expect(i.direction).toBe('Left');
+      expect(Math.abs(Math.atan2(Math.sin(i.face! - 0), Math.cos(i.face! - 0)))).toBeLessThan(0.5);
+    }
+    expect(events(run, 'Block').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
+    const blind = playOn(start, reads({ whirlwindRead: 0 }), 90);
+    expect(events(blind.run, 'Hit').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
+  });
+
+  it('seeing a hold in reach where its Attack lands before arming, it attacks and the hold is broken', () => {
+    const { run } = play(repo, reads(), [{ x: 0, z: 1.2, team: 1 }], 150, undefined, [], [...heldG('Left'), ...wait(200)]);
+    const hit = events(run, 'Hit').find((e) => e.attacker === 0 && e.defender === 1);
+    expect(hit).toBeDefined();
+    expect(hit!.tick).toBeLessThan(timings.armTicks);
+    expect(events(run, 'WhirlwindPhase').some((e) => e.fighter === 1 && e.phase === 'Spin')).toBe(false);
+  });
+
+  it('seeing a hold late, where its Attack cannot land in time, it backs out beyond reach + WHIRL_CLEAR before the Spin begins', () => {
+    const late = reads({ reactionTime: 0.5 });
+    const { run } = play(repo, late, [{ x: 0, z: -2.6, team: 1 }], 150, undefined, [], [...heldG('Left'), ...wait(200)]);
+    expect(events(run, 'Hit').some((e) => e.attacker === 0)).toBe(false);
+    const k = spinStart(run.states);
+    expect(k).toBeGreaterThan(0);
+    // On the last Tick of the hold, before the spinner lets go.
+    const me = run.states[k - 1]!.fighters[0]!.position;
+    const them = run.states[k - 1]!.fighters[1]!.position;
+    expect(Math.hypot(me.x - them.x, me.z - them.z)).toBeGreaterThanOrEqual(standingReach + 1.5);
+  });
+
+  it('with a Thrust reaching past the spinner\'s blade it Thrusts and the Spin ends', () => {
+    // A Halberd against an Arming Sword's spinner, the spinner standing in its Thrust reach (but out of the sword's), driving off to the side.
+    const start = atSpin({ x: 0, z: 2.1 }, 'Left', ['Halberd', 'Arming Sword'], -Math.PI / 2);
+    const { run, intents } = playOn(start, reads(), 90);
+    expect([...intents.values()].some((i) => i.attack && i.direction === 'Thrust')).toBe(true);
+    const staggered = run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Stagger' || s.fighters[1]!.action.kind === 'Knockdown');
+    expect(staggered).toBeGreaterThan(0);
+    expect(run.states.slice(staggered).every((s) => !(s.fighters[1]!.action.kind === 'Whirlwind' && s.fighters[1]!.action.phase === 'Spin'))).toBe(true);
+  });
+
+  it('with whirlwindRead 0 it answers nothing: its Intents are those with the key absent', () => {
+    const { whirlwindRead: _d, ...without } = reads();
+    const track: Track = [...heldG('Left'), ...wait(200)];
+    const off = play(repo, reads({ whirlwindRead: 0 }), [{ x: 0, z: 1.2, team: 1 }], 200, undefined, [], track);
+    const absent = play(repo, without, [{ x: 0, z: 1.2, team: 1 }], 200, undefined, [], track);
+    expect(off.intents).toEqual(absent.intents);
+    expect(events(off.run, 'Hit').some((e) => e.attacker === 0)).toBe(false);
+  });
+
+  it('its memory round-trips through save()/load() mid-answer, and one that never met a Whirlwind has no whirlRead', () => {
+    const start = atSpin({ x: 0, z: 3.4 }, 'Left');
+    const { intents, snaps, states } = playOn(start, reads(), 60);
+    const mid = start.tick + 20;
+    const saved = snaps.get(mid) as Record<string, unknown>;
+    expect(saved.whirlRead).toBeDefined();
+    const again = createAiController(repo, reads());
+    again.load!(saved);
+    // The same Ticks from the same states give the same Intents.
+    for (let t = mid; t < mid + 30; t++) expect(again.intent(states.get(t)!, 0), `Tick ${t}`).toEqual(intents.get(t));
+    const calmRun = playOn(createInitialState(repo, 1, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 3 }, facing: Math.PI }], [], [0, 1]), reads(), 40);
+    for (const m of calmRun.snaps.values()) expect('whirlRead' in (m as object)).toBe(false);
   });
 });

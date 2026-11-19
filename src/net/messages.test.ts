@@ -815,3 +815,26 @@ describe("Peer message validation: a Run's Players, Inventories, pickups and Mod
     expect(parseNetMessage(intents([{ ...IDLE_INTENT, drop: { kind: 'weapon', slot: 99 } }]))).toBeNull();
   });
 });
+
+describe('Peer message validation: the AI memory of an answered Whirlwind (docs/plans/whirlwind.md, Stage 5)', () => {
+  /** A real Skilled AI's memory (no Whirlwind met, so no `whirlRead` key), as the host would send it. */
+  function memory(): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Skilled');
+    let m = createMatch(tuning, { bestOf: 1, teams: [0, 1], seed: 3 });
+    for (let t = 0; t < 40; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it('accepts a memory with no whirlRead, or a valid one, and refuses a bad phase or a non-boolean read', () => {
+    const good = memory();
+    expect('whirlRead' in good).toBe(false);
+    const read = { fighter: 0, phase: 'Spin', since: 12, read: true };
+    for (const ok of [good, { ...good, whirlRead: read }, { ...good, whirlRead: { ...read, phase: 'Wind-up', read: false } }]) {
+      const m = resync(matchState(), [null, ok]);
+      expect(parseNetMessage(m)).toEqual(m);
+    }
+    for (const bad of [{ ...read, phase: 'Recovery' }, { ...read, read: 1 }, { ...read, fighter: -1 }, { ...read, since: 1.5 }, { ...read, fighter: undefined }, null]) {
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlRead: bad }])), JSON.stringify(bad)).toBeNull();
+    }
+  });
+});
