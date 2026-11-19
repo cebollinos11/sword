@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type ArenaGeometry, type TuningData } from '../tuning';
+import { resolveContacts, type BladeContact, type KickContact } from './combat';
 import { createInitialState, hashState, IDLE_INTENT, step, teamPlacements, whirlwindTimings, type FighterState, type Intent, type Placement, type SimEvent, type SimState } from './index';
 
 const base = loadTuningData();
@@ -121,6 +122,21 @@ describe('Interrupting the spinner', () => {
     expect(spinner(fs[k]!.state).hp).toBeCloseTo(base.fighter.maxHp - base.kick.shoveDamage, 9);
     expect(spinner(fs[k]!.state).slide).toBeDefined();
     expect(endedAt(fs)).toBe(k);
+  });
+
+  it("a Kick's Shove does not turn a Knockdown that landed earlier on the same Tick into a Stagger", () => {
+    // A scripted repro is impractical (a Kick's outcome follows the spinner's own Intent, so two Kicks on it are both Knockdowns or both Shoves),
+    // so the contacts are resolved directly: a rival's Whirlwind blade knocks the spinner down, and then Fighter 1's Shove arrives.
+    const spun = run({ placements: [SPINNER, in1(3, 3, Math.PI), in1(-3, 3, Math.PI)], teams: [0, 1, 1], ticks: 3 }).at(-1)!.state.fighters;
+    const fighters = spun.map((f, i) => (i === 2 ? { ...f, action: spun[0]!.action } : i === 1 ? { ...f, action: { kind: 'Kick' as const, phase: 'Release' as const, landed: false } } : f));
+    const blade: BladeContact = { attacker: 2, defender: 0, direction: 'Right', point: { x: 0, y: 1, z: 0 }, bladeSpeed: 1, onHead: true, blade: { hilt: { x: 0, y: 1, z: 0 }, tip: { x: 0, y: 1, z: 1 } }, travel: { x: 1, y: 0, z: 0 }, whirlwind: true, turn: 0, blocked: false, zone: 'torso' };
+    const shove: KickContact = { kick: true, attacker: 1, defender: 0, zone: 'torso', point: { x: 0, y: 1, z: 0 } };
+    expect(fighters[0]!.action).toMatchObject({ kind: 'Whirlwind', phase: 'Spin' });
+    const emitted: SimEvent[] = [];
+    const out = resolveContacts(fighters, [blade, shove], [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT], tuning, (e) => emitted.push(e));
+    expect(emitted).toContainEqual(expect.objectContaining({ type: 'KickLanded', outcome: 'Shove', defender: 0 }));
+    expect(out[0]!.action.kind).toBe('Knockdown');
+    expect(emitted.some((e) => e.type === 'Stagger' && e.fighter === 0)).toBe(false);
   });
 
   it("a Kick's Shove on the Wind-up does not end the hold", () => {

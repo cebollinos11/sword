@@ -150,11 +150,14 @@ describe('Peer message validation', () => {
       (copy.duel.fighters[0]!.action as { met?: unknown }).met = met;
       return parseNetMessage(resync(copy));
     };
-    expect(bad({ turn: 1, fighters: [1] })).not.toBeNull();
-    expect(bad({ turn: 1, fighters: [1, 1] })).toBeNull();
-    expect(bad({ turn: 1, fighters: [-1] })).toBeNull();
+    const turn = (state.duel.fighters[0]!.action as { turn: number }).turn;
+    expect(bad({ turn, fighters: [1] })).not.toBeNull();
+    // The hit set belongs to a turn the Whirlwind has reached, never a later one.
+    expect(bad({ turn: turn + 1, fighters: [1] })).toBeNull();
+    expect(bad({ turn, fighters: [1, 1] })).toBeNull();
+    expect(bad({ turn, fighters: [-1] })).toBeNull();
     expect(bad({ turn: 1.5, fighters: [1] })).toBeNull();
-    expect(bad({ turn: 1, fighters: 1 })).toBeNull();
+    expect(bad({ turn, fighters: 1 })).toBeNull();
     expect(bad({ fighters: [1] })).toBeNull();
     expect(bad(3)).toBeNull();
   });
@@ -168,6 +171,13 @@ describe('Peer message validation', () => {
     };
     expect(parseNetMessage(withAction({ direction: 'Overhead' }))).toBeNull();
     expect(parseNetMessage(withAction({ phase: 'Release' }))).toBeNull();
+  });
+
+  it('refuses a Whirlwind hit set in the Wind-up, which has no turn to meet anyone in', () => {
+    const state = whirlingMatchState();
+    const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+    (copy.duel.fighters[0] as { action: unknown }).action = { ...copy.duel.fighters[0]!.action, phase: 'Wind-up', met: { turn: 0, fighters: [1] } };
+    expect(parseNetMessage(resync(copy))).toBeNull();
   });
 
   it('refuses an Intent whose throw is not a boolean', () => {

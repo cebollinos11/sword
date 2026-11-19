@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stages 1-2 done (the hold, the spin's motion); Stage 3 (contacts) in progress.
+> **Status:** Stages 1-3 done: the Whirlwind is playable (hold, spin, contacts). Stage 4 (feedback) next; Stage 5 (AI) after it.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -237,6 +237,14 @@ Settled here; a subagent makes no judgement call on these.
 1. Contacts: `whirlwindSweepLive`, `met`, the `findContacts` branch, `resolveWhirlwindContact` (Hit, Block, ally), events, net; tests of Hits, Blocks, allies, Walls, Crowd, height play.
 2. Interrupting: the Shove rule in `resolveKick`; tests of every interrupt, the Trade, the 4-a-side Duel and the Chain Knockdown.
 
+### Stage 3 result
+- **Built:** `whirlwindSweepLive`; `WhirlwindAction.met` (the per-turn hit set, keyed by the turn of the segment's start); the Whirlwind branch of `findContacts` (no Wall, no Chamber, the reference Blade Speed) and `resolveWhirlwindContact` (`combat.ts`): an enemy takes `hitDamage` at the reference speed × 0.5 and is knocked down 1.5 m away (pushed again if already down, chains follow); a mirrored Block takes no damage, a Block Impact and a 0.4 m push, and the spinner spins on; an ally is Staggered and pushed 0.5 m aside off the heading. A Kick's Shove on a Spin Staggers it (`resolveKick`). `Hit`/`Block` events carry `whirlwind: true`. ADR 0029 Accepted.
+- **Changed from the Design / found in review:** contacts carry their segment's `turn`. A Whirlwind push (Block or ally) drops a lying Fighter's old chain (`knockedBy`), as a Shove does. The felling blow (`fellingBlow`, `step.ts`) now skips zero-damage Hits, so a teammate's touch on the same Tick never takes the kill's ragdoll (a small fix for teammate swings too). `met` is refused in the Wind-up on the wire. Accepted as is: a defender exactly at a turn's boundary can be met on two Ticks in a row (the hit set is by Tick, not by blade angle); no Crowd test (Soldiers are not in the Fighter list, so they cannot be met); the head-damage case was replaced by legs (a level standing blade passes at the shoulders).
+- **Tests:** `whirlwindContact.test.ts` (16), `whirlwindInterrupt.test.ts` (9), cases in `messages.test.ts` and `death.test.ts`. Full suite 3246 passed; `test:slow` 52 passed. No recorded hash or AI golden moved.
+- **Looked at in the app** (sandbox, Whirlwind script): the first spin catches blue, knocks it down for 15 of 100 HP (half a normal Arming Sword Hit) and spins on over it.
+- **Numbers worth tuning:** at the reference speed no Weapon's Whirlwind breaks a Dagger's Block (the Sledge Hammer reaches 2.34 against `breakAt` 2.4). `knockdownSlide` 1.5 m against the 3 m/s drive: a victim knocked straight ahead is caught again by the next turn or two (the 2.5× case of the Balance notes).
+- **For Stage 4:** feedback reads the `WhirlwindPhase`/`WhirlwindArmed` events and the Action; a Whirlwind Hit is a `Hit` with `whirlwind: true` (Camera Shake for spinner and victim). **For Stage 5:** the AI's Block of a spin is the ordinary rule (mirrored side, facing the spinner); a spinner is interrupted by any damaging Hit, a dagger, or any Kick.
+
 ### Stage 4: Feedback
 - Render: the hold pose already reads (Stage 1); a whirl trail on every turn and the armed flash, both closed forms of the Tick and the action state (so scrubbing, Rollback and replay draw the same, ADR 0026).
 - Audio: an armed cue at `WhirlwindArmed`, a whoosh per turn (rising like the Flail's), the existing Hit/Block sounds.
@@ -255,7 +263,7 @@ Settled here; a subagent makes no judgement call on these.
 ## Progress
 - [x] Stage 1: Vocabulary, Intent and the hold
 - [x] Stage 2: The spin's motion
-- [ ] Stage 3: Contacts
+- [x] Stage 3: Contacts
 - [ ] Stage 4: Feedback
 - [ ] Stage 5: AI
 - [ ] Stage 6: The Flail

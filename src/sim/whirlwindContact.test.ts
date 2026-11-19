@@ -5,12 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, weaponByName, withWeapon, type ArenaGeometry, type TuningData, type WallSegment } from '../tuning';
 import { createInitialState, hashState, IDLE_INTENT, step, whirlwindTimings, type BlockEvent, type FighterState, type HitEvent, type Intent, type SimEvent, type SimState } from './index';
-import { hitDamage } from './combat';
+import { hitDamage, resolveContacts, type BladeContact } from './combat';
 import { startBlockImpact } from './actions';
 
 const base = loadTuningData();
 const t = whirlwindTimings(base);
 const corner = (x: number, z: number) => ({ x, y: 0, z });
+const point3 = (x: number, y: number, z: number) => ({ x, y, z });
 const floor = { id: 'floor', points: [corner(-20, -20), corner(-20, 20), corner(20, 20), corner(20, -20)] };
 const arenaWith = (walls: WallSegment[]): TuningData => ({ ...base, arenas: { ...base.arenas, pen: { name: 'pen', walk: [floor], walls, spawns: [] } as ArenaGeometry } });
 const wall = (id: string, ax: number, az: number, bx: number, bz: number): WallSegment => ({ id, a: { x: ax, z: az }, b: { x: bx, z: bz }, bottom: 0, top: 3 });
@@ -206,7 +207,7 @@ describe('Whirlwind contacts: Blocks', () => {
     const probe = spin([who], { weapon: attacker, tuning });
     const block = probe.blocks[0]!;
     const at = probe.seen.find((x) => x.state.events.includes(block))!.state;
-        expect(block.broken).toBe(true);
+    expect(block.broken).toBe(true);
     expect(at.fighters[1]!.action.kind).toBe('Knockdown');
     expect(at.fighters[1]!.hp).toBe(base.fighter.maxHp);
     expect(probe.hits).toEqual([]);
@@ -232,6 +233,30 @@ describe('Whirlwind contacts: allies, Walls, determinism', () => {
       expect(Math.abs(to.z - from.z)).toBeLessThan(0.05);
       expect(spinner(at).action).toMatchObject({ met: { fighters: [1] } });
     }
+  });
+
+  it('pushes an ally diagonally ahead of the spinner perpendicular to the heading, not along spinner to ally', () => {
+    const r = spin([{ x: 0.9, z: 0.3, team: 0 }], { tuning: arenaWith([NORTH]) });
+    const hit = r.hits[0]!;
+    expect(hit).toMatchObject({ attacker: 0, defender: 1, damage: 0, whirlwind: true });
+    const k = r.seen.findIndex((x) => x.state.events.includes(hit));
+    const from = r.seen[k]!.state.fighters[1]!.position;
+    const to = r.seen[k + base.whirlwind.allySlideTicks + 1]!.state.fighters[1]!.position;
+    // The heading is +z: aside is along +x (the ally stands on that side), whatever angle the ally is at from the spinner.
+    expect(to.x - from.x).toBeGreaterThan(base.whirlwind.allySlide * 0.8);
+    expect(Math.abs(to.z - from.z)).toBeLessThan(0.05);
+  });
+
+  it('an ally lying in a Knockdown, swept by its teammate\'s spin, no longer carries the chain it was in', () => {
+    // Resolved directly: a Fighter lying down loses its `knockedBy` between Ticks, so a scripted Spin never meets one that still carries it.
+    const spun = spin([{ x: 0.9, z: 0, team: 0 }, { x: 0, z: -3, team: 1 }], { tuning: arenaWith([NORTH]), ticks: 3 }).final.fighters;
+    const fighters = spun.map((f, i) => (i === 1 ? { ...f, action: { kind: 'Knockdown' as const, phase: 'Down' as const, ticks: 0, guard: null }, knockedBy: 2 } : f));
+    const point = point3(0.5, 1, 0);
+    const contact: BladeContact = { attacker: 0, defender: 1, direction: 'Right', point, bladeSpeed: ref().speed, onHead: true, blade: { hilt: point, tip: point3(0.5, 1, 1) }, travel: point3(1, 0, 0), whirlwind: true, turn: 0, blocked: false, zone: 'torso' };
+    const out = resolveContacts(fighters, [contact], fighters.map(() => IDLE_INTENT), base, () => undefined);
+    expect(out[1]!.action.kind).toBe('Knockdown');
+    expect(out[1]!.slide).toBeDefined();
+    expect(out[1]!.knockedBy).toBeUndefined();
   });
 
   it('is stopped by no Wall: a defender behind one within reach is Hit, and no WallStrike is emitted', () => {

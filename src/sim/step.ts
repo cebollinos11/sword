@@ -360,7 +360,8 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
       const { x, z } = fighters[e.thrower]!.position;
       return { point: e.point, bladeSpeed: tuning.dagger.speed, direction: 'Thrust', from: { x, z } };
     }
-    if (e.type !== 'Hit' || e.defender !== defender) continue;
+    // A teammate's harmless touch (damage 0, as a Whirlwind's blade gives) never felled anyone.
+    if (e.type !== 'Hit' || e.defender !== defender || e.damage <= 0) continue;
     const attacker = fighters[e.attacker]!;
     const { x, z } = attacker.position;
     const blow: DeathBlow = { point: e.point, bladeSpeed: e.bladeSpeed, direction: e.direction, from: { x, z } };

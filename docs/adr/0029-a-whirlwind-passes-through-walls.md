@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (docs/plans/whirlwind.md, Stage 3).
+Accepted (built in docs/plans/whirlwind.md, Stage 3).
 
 ## Context
 

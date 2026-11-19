@@ -51,6 +51,21 @@ describe('Death', () => {
   });
 });
 
+describe('Death: the felling blow', () => {
+  it("is never a teammate's harmless touch that lands after the killing blow on the same Tick", () => {
+    // Fighter 1 is struck from both sides at once: by Fighter 0 (an enemy, a killing blow) and then by its teammate Fighter 2 (no damage).
+    const placements: Placement[] = [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 1.3 }, facing: Math.PI }, { position: { x: 0, z: 2.6 }, facing: Math.PI }];
+    let s = createInitialState(tuning, 1, placements, [], [0, 1, 1]);
+    for (let i = 0; i < 2000 && !s.fighters[1]!.death; i++) s = step(s, [i % 2 === 0 ? attackIntent : IDLE_INTENT, IDLE_INTENT, i % 2 === 0 ? attackIntent : IDLE_INTENT], tuning);
+    const hits = s.events.filter((e): e is HitEvent => e.type === 'Hit' && e.defender === 1);
+    expect(hits.map((h) => h.attacker)).toEqual([0, 2]);
+    expect(hits[1]!.damage).toBe(0);
+    const blow = s.fighters[1]!.death!.blow!;
+    expect(blow.from).toEqual({ x: s.fighters[0]!.position.x, z: s.fighters[0]!.position.z });
+    expect(blow.point).toEqual(hits[0]!.point);
+  });
+});
+
 /** Every Weapon deals a killing blow, Head or shaft. */
 const deadly = Object.keys(tuning.weapons).reduce((t, name) => withWeapon(t, { damage: 10_000 }, name), tuning);
 

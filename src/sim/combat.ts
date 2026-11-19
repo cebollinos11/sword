@@ -198,11 +198,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
           : { ...at, blocked, zone: (c.capsule as HitCapsule).zone };
       found.push({ s: c.s, contact });
     });
-    // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
+    // A Whirlwind's blade passes through Walls (ADR 0029): only the Fighters it met count.
     if (whirl) {
       contacts.push(...found.map((f) => f.contact));
       return;
     }
+    // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
     const wall = wallContact(before.blade, attacker.blade, arena, samples);
     if (wall && found.every((f) => f.s > wall.s)) contacts.push({ wall: true, attacker: i, direction, point: wall.point, bladeSpeed: wall.bladeSpeed * spin });
     else contacts.push(...found.filter((f) => !wall || f.s <= wall.s).map((f) => f.contact));
@@ -493,6 +494,12 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit, mirrorDirection(direction)));
 }
 
+/** `f` without the chain it carries: a Fighter lying down and pushed by a short push knocks nobody else down. */
+function dropChain(f: FighterState): FighterState {
+  const { knockedBy: _chain, ...rest } = f;
+  return rest;
+}
+
 /**
  * A Whirlwind's blade meets a Fighter (ADR 0029). Blocked (the Block rule, as for a swing in the Whirlwind's Direction): no damage, the Block
  * Impact at the Weapon's reference speed (a Block Break as usual), else the defender is pushed back `whirlwind.blockSlide`; the spinner is not
@@ -516,7 +523,7 @@ function resolveWhirlwindContact(before: readonly FighterState[], out: FighterSt
     emit({ type: 'Block', attacker: a, defender: d, direction, point, bladeSpeed, heavy: false, ...(broken ? { broken } : {}), whirlwind: true });
     out[d] = broken
       ? pushDown(out[d]!, dx, dz, breakSlide, breakSlideTicks, a, tuning)
-      : push({ ...out[d]!, blockImpact: impact }, dx, dz, whirlwind.blockSlide, whirlwind.blockSlideTicks);
+      : push({ ...dropChain(out[d]!), blockImpact: impact }, dx, dz, whirlwind.blockSlide, whirlwind.blockSlideTicks);
   } else if (c.chambered) {
     return;
   } else if (attacker.team === defender.team) {
@@ -527,7 +534,7 @@ function resolveWhirlwindContact(before: readonly FighterState[], out: FighterSt
     const hx = Math.sin(heading);
     const hz = Math.cos(heading);
     const side = hz * (defender.position.x - attacker.position.x) - hx * (defender.position.z - attacker.position.z) < 0 ? -1 : 1;
-    const pushed = push(out[d]!, side * hz, -side * hx, whirlwind.allySlide, whirlwind.allySlideTicks);
+    const pushed = push(dropChain(out[d]!), side * hz, -side * hx, whirlwind.allySlide, whirlwind.allySlideTicks);
     out[d] = pushed.action.kind === 'Knockdown' ? pushed : staggerFighter(pushed, d, 'Hit', tuning, emit, mirrorDirection(direction));
   } else {
     const { zone, onHead: head } = c;
@@ -591,7 +598,8 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   // A Shove's short push knocks nobody else down: a Fighter lying down and Shoved stops carrying any chain it was in.
   if (!knocked) {
     const { knockedBy: _chain, ...shoved } = wounded;
-    const spinning = defender.action.kind === 'Whirlwind' && defender.action.phase === 'Spin';
+    // Judged on the state this Tick has made, not the one it began with: a Knockdown that landed earlier this Tick is not turned into a Stagger.
+    const spinning = shoved.action.kind === 'Whirlwind' && shoved.action.phase === 'Spin';
     out[c.defender] = spinning ? staggerFighter(shoved, c.defender, 'Hit', tuning, emit) : shoved;
     return;
   }
