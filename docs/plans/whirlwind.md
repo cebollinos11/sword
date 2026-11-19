@@ -83,6 +83,62 @@ Players want a move that hits many enemies at once. The goal is **spectacle**: f
 - `CONTEXT.md`: add Whirlwind to the **Action** list, and update **Whirlwind**'s entry from "planned".
 - Tests: arms at exactly `armSeconds`; early release cancels; hold walk speed; cannot start Sheathed; starts in a Jump and crouched; hash/snapshot/rollback round-trip.
 
+#### Design (Stage 1)
+Settled here; a subagent makes no judgement call on these.
+
+**Tuning Data `data/whirlwind.json`** → `TuningData.whirlwind: WhirlwindTuning` (`src/tuning/index.ts`, parsed like `parseKick`; every key required). All keys of the whole move are parsed now, even those used only from Stage 2 or 3, so the file and its type never change shape again:
+`armSeconds 1.0` (positive), `holdWalkFactor 0.4` (fraction), `turns 5` (whole, ≥1), `turnSeconds 0.3` (positive), `driveSpeed 3.0` (non-negative), `steerSpeed 90` (°/s, non-negative), `damageFactor 0.5` (non-negative), `knockdownSlide 1.5` (m), `knockdownSlideTicks 24` (whole), `blockSlide 0.4` (m), `blockSlideTicks 8` (whole), `allySlide 0.5` (m), `allySlideTicks 12` (whole), `recoverySeconds 0.5` (positive; an Attack's Recovery is 0.5 s), `unavailableWeapons ["Flail"]` (Weapon names that cannot Whirlwind yet; each must be a Weapon of the roster).
+- **Why `unavailableWeapons`:** every Motion falls back to the default (`weaponMotion`), so "a Weapon with no Whirlwind Motion" cannot be expressed by leaving a file out without touching the Flail's Weapon file. Stage 6 empties the list. `canWhirlwind(tuning, weapon): boolean` (exported from `src/tuning`) is the one test: not listed, and `weaponMotion` finds both hold Motions.
+- Ticks: `whirlwindTimings(tuning): { armTicks, turnTicks, spinTicks, recoveryTicks }` in `src/sim/actions/whirlwind.ts`, each `secondsToTicks` (`spinTicks = turns × turnTicks`): 60, 18, 90, 30 by default.
+
+**Intent** `whirlwind?: boolean`: G held this Tick (absent = not held). Like `attack`, a held value, not a press: pressing starts the hold, holding holds it, letting go releases. Not added to `IDLE_INTENT` (absent means not held, so no recorded Intent changes).
+
+**Action** (`state.ts`):
+```ts
+export const WHIRLWIND_PHASES = ['Wind-up', 'Spin', 'Recovery'] as const;
+export type WhirlwindPhase = (typeof WHIRLWIND_PHASES)[number];
+export type WhirlwindDirection = 'Left' | 'Right';
+export interface WhirlwindAction {
+  readonly kind: 'Whirlwind';
+  readonly phase: WhirlwindPhase;
+  readonly direction: WhirlwindDirection; // fixed when the hold starts
+  readonly ticks: number;   // Ticks since the phase began (the starting Tick of each phase is 0)
+  readonly armed: boolean;  // Wind-up: held armTicks; stays true through Spin and Recovery
+  readonly turn: number;    // Spin: floor(ticks / turnTicks), 0..turns-1; 0 in Wind-up, turns-1 kept in Recovery
+}
+```
+Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-turn hit set), each absent outside the Spin so the Stage 1 shape stays valid.
+
+**Starter** `startWhirlwind` (`src/sim/actions/whirlwind.ts`), in `STARTERS` after `startKick`: `[startSheathe, startKick, startWhirlwind, startThrow, startAttack, startBlock]`. Starts when `intent.whirlwind === true`, the Fighter is not `sheathed` (G does nothing while Sheathed: it does not Draw), and `canWhirlwind(tuning, f.weapon)`. Crouched is fine; in the air only in a Jump (`startAction`'s rule already). Emits `WhirlwindPhase {phase: 'Wind-up'}`. Returns `{kind:'Whirlwind', phase:'Wind-up', direction, ticks:0, armed:false, turn:0}` playing the hold Motion at tick 0.
+- **Direction (settled):** `whirlwindDirection(d: Direction): WhirlwindDirection`: Left → Left, Right → Right, Overhead or Thrust → **Right**. The Simulation keeps no memory of past Directions; the *Local Controller* remembers the last horizontal gesture and latches it into `intent.direction` when G is pressed, so a human always sends Left or Right. The fallback Right only applies to Controllers that send something else (the AI, touch).
+
+**Update** `updateWhirlwind` (`HANDLERS.Whirlwind`; ignores `attack`, `block`, `kick`, `throw`, `sheathe` and Q's Feint entirely, so none of them cancels it):
+- *Wind-up:* G held → `ticks + 1`; when it reaches `armTicks`, `armed = true` and emit `WhirlwindArmed {fighter}` (once, on that Tick). G not held → armed: enter Spin (`ticks 0`, `turn 0`, emit `WhirlwindPhase Spin`); not armed: Idle (`IDLE_ACTION`, `IDLE_MOTION`) and emit `WhirlwindPhase {phase:'Cancelled'}`. So holding from the starting Tick S, the Fighter is armed on Tick S + armTicks, and letting go on any later Tick spins; letting go on Tick S + armTicks - 1 or earlier cancels.
+- *Spin:* `ticks + 1`, `turn = floor((ticks+1) / turnTicks)`; when `ticks + 1 >= spinTicks` enter Recovery (`ticks 0`, turn kept at turns-1, emit `WhirlwindPhase Recovery`). In Stage 1 nothing else happens (no turning, drive or contact: Stage 2 and 3).
+- *Recovery:* `ticks + 1`; when `ticks + 1 >= recoveryTicks` → Idle (no event).
+- A Stagger, Knockdown or Fall ends it as it ends any Action (`staggerFighter`, ledge Fall after `fall.fallDelay`): nothing new.
+
+**Motions:** two default Motions, `WhirlwindHoldLeft` and `WhirlwindHoldRight` (`data/motions/whirlwindholdleft.json`, `whirlwindholdright.json`; `motionFileName` lower-cases), `loop: false`, no markers, about 0.5 s from the guard (first Pose Key links every channel to `"idle"` as `kick.json` does) into the coiled pose. `WhirlwindHoldRight` is the Right Attack's held Wind-up (`right.json` at `windUpEnd`) coiled further: torso twisted further toward the Weapon side, Weapon drawn back nearly level behind the hip, hips a little lower; `WhirlwindHoldLeft` is the same from `left.json`. The direction shows on the pose. Playback: Wind-up plays the hold Motion of its Direction, the playhead advancing to the Motion's last Tick and then held there; Spin (Stage 1 only) holds that last pose; Recovery plays `Idle` (the Motion Blend takes it back to guard). Stage 2 replaces the Spin's and Recovery's Motions.
+- `motionNames()` in the Editor lists both, so `src/editor/session.test.ts`'s Motion list gains them (an expected change), and the files must be written exactly as the Editor saves them (that test re-saves every Motion and compares).
+
+**Movement** (`step.ts`): during a Whirlwind Wind-up, `walk` multiplies the speed by `whirlwind.holdWalkFactor` (with crouch, Slow and backward as usual); turning, pitch and crouch as normal; `jumps()` unchanged (no Jump during the hold). Spin (Stage 1): `locked` (no walk), turning as normal. Recovery: walks normally. A hold carries on through a Jump it started in (as an Attack does); walking off a ledge Falls after `fall.fallDelay` (the hold is lost).
+
+**Events** (`events.ts`): `WhirlwindPhaseEvent {type:'WhirlwindPhase', fighter, phase: WhirlwindPhase | 'Cancelled'}` on entering each phase and on an early release; `WhirlwindArmedEvent {type:'WhirlwindArmed', fighter}`. Both in the `SimEvent` union and `src/sim/index.ts`'s exports. The Editor sandbox's event log may print them.
+
+**Net** (`messages.ts`): `isIntent` accepts `whirlwind` absent or boolean; `isAction` validates `Whirlwind` (phase in `WHIRLWIND_PHASES`, direction Left or Right, `isTick(ticks)`, `isBool(armed)`, `isTick(turn)`). `PROTOCOL_VERSION` 36 → 37.
+
+**Local Controller:** `WHIRLWIND_KEY = 'KeyG'`, `LocalButton` gains `'whirlwind'` (held and pressed like the others; sent as `whirlwind: true` while held or pressed since the last sample, absent otherwise). It keeps `horizontal: 'Left' | 'Right'` (default Right), updated whenever a gesture comes out Left or Right (mouse or `aim`); pressing G latches `latched = horizontal` unless attack or block is held. `releaseAll` lets G go.
+
+**Editor label:** `describeAction`: `Whirlwind · <phase> · <direction>` (+ ` · armed` in an armed Wind-up).
+
+**Hash and snapshot:** a Whirlwind lives only in `FighterState.action`: plain data, hashed and snapshotted with everything else. A Fighter that never presses G has exactly the state it had before; no recorded SimState hash or AI golden moves in Stage 1. The Tuning Data hash changes (new file, new Motions): expected; `src/tuning/hash.test.ts`'s key-order test and `tuning.test.ts`'s fixture gain `whirlwind`.
+
+**Tests** (`src/sim/whirlwind.test.ts`): arms on exactly Tick S + armTicks (event and flag); letting go one Tick earlier cancels (Idle, `Cancelled`); an armed release spins for spinTicks with `turn` counting 0..4, then Recovery for recoveryTicks, then Idle; walk speed during the hold is `holdWalkFactor` of the plain walk; attack, block, kick, throw and a changed Direction during the hold change nothing; Direction Left/Right kept, Overhead/Thrust give Right; cannot start Sheathed, nor with the Flail; starts in a Jump and crouched; a Hit Staggers a holder out of it; snapshot mid-hold → restore → identical hashes forward (Rollback round-trip); a Duel where nobody presses G hashes the same as with `whirlwind: false` sent. Plus `local.test.ts` (G held/pressed, the horizontal latch), `messages.test.ts` (Intent field, Action through a resync), `tuning.test.ts` (parse, defaults, rejections).
+
+#### Tasks (Stage 1)
+1. Simulation and Tuning Data: everything above but the Net and the Local Controller.
+2. Net and Local Controller: `messages.ts`, `local.ts` and their tests.
+
 ### Stage 2: The spin's motion
 - Spin phase: `turns × turnSeconds`. The body (not only the Weapon) turns a full 360° per turn the chosen way, so the Blade Sweep is real (ADR 0002). Hands and Weapon held out by a `WhirlwindSpin` Motion.
 - **Drive:** each ground Tick the Fighter moves `driveSpeed` along its heading; `intent.face` turns the heading by at most `steerSpeed`. Its spinning facing and its heading are separate state (the blade turns, the path arcs). Body collision and Walls still stop the body. **No ledge guard**: it can drive off an Abyss.
