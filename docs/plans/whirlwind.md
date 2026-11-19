@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stage 1 done (the hold); Stage 2 in progress.
+> **Status:** Stages 1-2 done (the hold, the spin's motion); Stage 3 (contacts) next.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -190,6 +190,14 @@ Settled here; a subagent makes no judgement call on these.
 1. Motions and height: the four Spin/Low Motion files, Spin playback in `whirlwind.ts`, the crouch blend in `pose.ts`, the Editor Motion list; tests of blade height and the sweep's sectors (with facing still frozen, a sector test waits for Task 2 — Task 1 tests heights only).
 2. Turning, drive, air and Gait: `heading`, `steerHeading`, `spinFacing`, `step.ts` (turn, drive, jumps, keepsOnFalling, take-off), `gait.ts` pivot, `messages.ts`; the remaining tests.
 
+### Stage 2 result
+- **Built:** `WhirlwindAction.heading` (Spin and Recovery); `spinSign`, `steerHeading`, `spinFacing` (`whirlwind.ts`): the body turns 20° a Tick about the heading (a closed form of the Spin's Tick, back on the heading at each turn's end and exactly on it as Recovery begins), the heading steered toward `face` at 90°/s. A grounded Spin drives at 3 m/s along the heading (`step.ts` `drive`), can Jump (taking the drive into the flight), keeps spinning off a ledge and through any flight, its flight keeping its speed (no air braking: a review decision, written into the Design). Feet pivot under the body (`gait.ts`). Motions `WhirlwindSpinLeft/Right` (blade level at 1.40 m) and `WhirlwindLowLeft/Right`; a Spin's pose is blended toward the low one by `crouch`, faded in and out over one Motion Blend so the hands never jump (crouched blade 0.30-0.44 m by Weapon and side). `canWhirlwind` needs all six Whirlwind Motions. Sandbox script **Whirlwind** (Editor → Duel sandbox): a Right spin, a crouched Left spin, a spinning Jump, a steered spin.
+- **Changed from the Design:** the spin poses' feet link to the guard; Space on the Spin's very last Tick does not Jump; a Spin ending in the air still closes its turn (`keepsOnFalling` keeps Recovery's first Tick).
+- **Tests:** `whirlwindSpin.test.ts` (55), `whirlwind.test.ts` (28), a `messages.test.ts` case. Full suite 3218 passed; `test:slow` 52 passed. No recorded hash or golden moved.
+- **Looked at in the app** (sandbox, orbit camera; Player vs AI with the G key, no errors): the standing sweep is a level disc at about shoulder height, the crouched one sweeps the shins. The coiled hold reads only from the front: from the side the Weapon is hidden behind the hips. Reshape `WhirlwindHoldLeft/Right` in the Editor if it does not read in play.
+- **For Stage 3:** the Blade Sweep is the recorded `blade` from last Tick to this one; at 20° a Tick the chord cuts about 2 cm inside the arc at a 1.5 m tip, so no sub-stepping is needed. A spinner's own facing is not where it looks: `roughlyFaces` checks against the attacker's position, not its facing, so a Block of a spin needs no change there (check). The low pose sweeps under a Jumping Fighter's feet only at the apex.
+- **To try in a playtest:** whether 20°/Tick reads as a blur or a spin; whether 3 m/s with a 90°/s steer is controllable; the low spin's height against a standing Fighter's shins.
+
 ### Stage 3: Contacts (needs ADR 0029)
 - `whirlwindSweepLive`: in Spin, every Tick. In `findContacts`, a Whirlwind's blade meets defenders like an Attack's, with a **per-turn hit set**: a Fighter met once in a turn is not met again until the next turn.
 - **Hit (enemy):** `hitDamage × damageFactor` (Hit Zones, `mods.damage` apply), and a Knockdown with `knockdownSlide` away from the spinner, standing or already down (a Hit on a Knockdown pushes it again without restarting it). A Fighter in the air is knocked down as for any Hit (ADR 0012). Chain Knockdowns follow (ADR 0027).
@@ -219,7 +227,7 @@ Settled here; a subagent makes no judgement call on these.
 
 ## Progress
 - [x] Stage 1: Vocabulary, Intent and the hold
-- [ ] Stage 2: The spin's motion
+- [x] Stage 2: The spin's motion
 - [ ] Stage 3: Contacts
 - [ ] Stage 4: Feedback
 - [ ] Stage 5: AI

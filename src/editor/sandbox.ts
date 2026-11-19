@@ -4,7 +4,7 @@
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
  * Movement, a Kill (yellow swings at blue until it falls, to see the Death Ragdoll and Dismemberment; Direction
- * and distance in the "Kill" folder), the Spin-up (a flail's whirl in each Direction), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
+ * and distance in the "Kill" folder), the Spin-up (a flail's whirl in each Direction), the Whirlwind (G: Right, a low Left, a spinning Jump, a steered Spin), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play yellow with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
@@ -213,6 +213,35 @@ function spinUpDuel(tuning: TuningData): SandboxRun {
 }
 
 /**
+ * The Whirlwind, to watch its hold, Spin and Recovery (docs/plans/whirlwind.md, Stages 1-2; any Weapon but the Flail): yellow, 3.0 m
+ * from blue (who stands Idle throughout), holds G 75 Ticks (armed at 60) and lets go, four times over:
+ *  - a Right Whirlwind (Spin 90 Ticks, then 30 Ticks of Recovery);
+ *  - a Left one held crouched from the release through the Spin: a low Whirlwind;
+ *  - a Right one with a Jump pressed 30 Ticks into the Spin and held 30 Ticks: a spinning Jump;
+ *  - a Right one steered 90° to the left of its starting facing during the Spin, to show the steer arc.
+ */
+function whirlwindDuel(tuning: TuningData): SandboxRun {
+  const gust = (direction: Direction): Track => hold(75, { whirlwind: true, direction });
+  const a: Track = [
+    ...wait(30),
+    ...gust('Right'),
+    ...wait(150),
+    ...gust('Left'),
+    ...hold(90, { crouch: true }),
+    ...wait(150),
+    ...gust('Right'),
+    ...wait(30),
+    ...hold(1, { jump: true, jumpHeld: true }),
+    ...hold(29, { jumpHeld: true }),
+    ...wait(200),
+    ...gust('Right'),
+    ...hold(90, { face: Math.PI / 2 }), // +π/2 is 90° to the left of the starting facing (+z)
+    ...wait(150),
+  ];
+  return scripted(tuning, 3, a, wait(1), trackLength(a));
+}
+
+/**
  * AI vs AI: a best-of-N Match between two AI Controllers. The scrub index is
  * the Match Tick; the Duel shown at each is `match.duel` (each new Duel restarts
  * its own Tick), and events are tagged with the Match Tick. The AI Controllers'
@@ -263,6 +292,7 @@ const SCRIPTS: Record<string, (tuning: TuningData, local: LocalController) => Sa
   Movement: movementDuel,
   Kill: killDuel,
   'Spin-up': spinUpDuel,
+  Whirlwind: whirlwindDuel,
   'AI vs AI Match': aiVsAiMatch,
   [PLAYER_VS_AI]: playerVsAiMatch,
 };
