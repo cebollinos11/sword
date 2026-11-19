@@ -36,6 +36,7 @@ export function shakeFor(events: readonly SimEvent[], me: number): number[] {
   const impulses: number[] = [];
   let whirlDealt = false;
   for (const e of events) {
+    // A Whirlwind's ally push is its only blow without damage (an enemy Hit dealing 0, from mods, would read as one: accepted).
     if (e.type === 'Hit' && e.whirlwind) {
       if (e.defender === me) impulses.push(e.damage > 0 ? WHIRL_TAKEN : WHIRL_NUDGED);
       else if (e.attacker === me && e.damage > 0 && !whirlDealt) {

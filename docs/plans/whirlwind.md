@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stages 1-3 done: the Whirlwind is playable (hold, spin, contacts). Stage 4 (feedback) next; Stage 5 (AI) after it.
+> **Status:** Stages 1-4 done: the Whirlwind is playable (hold, spin, contacts) and reads (trail, armed flash, sounds, shake). Stage 5 (AI) next.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -293,6 +293,13 @@ Settled here; a subagent makes no judgement call on these. Nothing in `src/sim` 
 1. Render: `whirlwindView.ts` (trail and flash), its wiring in `renderer.ts` and `sandbox.ts`, `whirlwindView.test.ts`.
 2. Audio, shake and help: `cues.ts`, `synth.ts`, `cameraShake.ts`, `menu.ts`, their tests. Disjoint from Task 1; the two may run at once.
 
+### Stage 4 result
+- **Built:** `src/render/whirlwindView.ts`: `whirlTrail`/`trailFan` (a 200° fan swept back behind the drawn blade about the Fighter's position, growing 20° a Tick, fading over Recovery's first 6 Ticks) and `armedFlash` (a glint at the blade tip and a floor ring expanding over 12 Ticks on arming, then a steady glint while held armed), drawn by `WhirlwindEffects` in the game's `Renderer` and the Editor sandbox. All closed forms of state, drawn Tick and drawn pose; nothing kept between frames. Audio cues `WhirlwindArmed` (a rising steel shimmer) and `WhirlwindTurn` (a whoosh on each turn's start, rising 0.8× to 1.3× in pitch over the five turns, lower for a heavier Weapon), read from state like the flail's whirl. Camera Shake: a Whirlwind Hit shakes its victim 0.6 (an ally pushed 0.25) and the spinner 0.25 once a Tick however many it hits. The controls help lists G and a Whirlwind tip.
+- **Changed from the Design / found in review:** a Fighter faded out (a Battle slot drawn as its impostor) shows no whirl effects; the glint texture is filtered linearly; `Renderer.dispose` frees the effects; a loop paused on one state (`prev = curr`) draws the trail for that state, not one Tick behind. Accepted: an enemy Whirlwind Hit dealing 0 damage (by mods) would shake as an ally push.
+- **Tests:** `whirlwindView.test.ts` (16), `cues.test.ts` (+5), `cameraShake.test.ts` (+2). Full suite 3269 passed. Nothing in `src/sim`, `src/net` or `src/controllers` changed, so no hash or golden moved (`test:slow` not needed for this Stage).
+- **Looked at in the app** (Editor sandbox, Whirlwind script, no console errors): the armed glint and ring read clearly at the arming Tick; the fan is a pale disc at shoulder height behind the blade in a standing Spin and at shin height in a low one. Not heard by ear (headless).
+- **To try in a playtest:** whether the fan's 200° and its opacity read as a spin or a disc (lower `TRAIL_ARC` or tip opacity if it hides the body); the armed cue's loudness against a Hit; whether the spinner's 0.25 shake helps or blurs steering.
+
 ### Stage 5: AI
 - `data/ai.json`: `whirlwindRate` (and a Style multiplier: Aggressive more, Defensive less). **0 for Beginner and for Easy/Normal/Hard**; set for Skilled and Expert, more up the ladder.
 - **Using it:** begin the hold when two or more enemies are within a few metres, or one is down or Staggered. Release when armed; steer toward the densest group of enemies, away from allies. Always standing (no height play, no mid-spin Jump in v1). Its usual check that a Jump is safe applies to its drive path: never drive toward a drop, Lava or Water.
@@ -351,6 +358,6 @@ It always spins standing: no crouch and no Jump in its own Whirlwind (v1).
 - [x] Stage 1: Vocabulary, Intent and the hold
 - [x] Stage 2: The spin's motion
 - [x] Stage 3: Contacts
-- [ ] Stage 4: Feedback
+- [x] Stage 4: Feedback
 - [ ] Stage 5: AI
 - [ ] Stage 6: The Flail

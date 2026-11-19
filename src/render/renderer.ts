@@ -153,6 +153,7 @@ export class Renderer {
 
   /** Take the canvas out of the page and let go of the WebGL context (see `Stage.dispose`). */
   dispose(): void {
+    this.whirls.dispose();
     this.warm?.dispose();
     this.stage.dispose();
   }
@@ -317,7 +318,8 @@ export class Renderer {
     this.impacts.update(seconds);
     // A flail's trail follows its drawn ball (on the simulated one through Release, so it traces what hits).
     this.trails.update(prev, curr, poses.map((p) => p && (p.flail ? { ...p.blade, tip: p.flail.ball } : p.blade)), seconds);
-    this.whirls.update(prev, curr, alpha, poses.map((p) => p?.blade), world.tuning);
+    // A Fighter hidden or faded out (a Battle's slot drawn as its impostor) shows no whirl either.
+    this.whirls.update(prev, curr, alpha, poses.map((p, i) => ((this.fades ? this.fades(i) : 1) > 0 ? p?.blade : undefined)), world.tuning);
     this.lastDraw = now;
     this.stage.draw();
   }

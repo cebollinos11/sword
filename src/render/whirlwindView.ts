@@ -39,13 +39,14 @@ export interface WhirlTrail {
  * Tick only moves out of the coil) up to `TRAIL_ARC`; in the first Ticks of the Recovery it holds that arc and fades as the body stops.
  * The Wind-up, later Recovery and a Fighter that is not in a Whirlwind or is dead have none.
  */
-export function whirlTrail(_prev: SimState, curr: SimState, i: number, alpha: number, tuning: TuningData): WhirlTrail | null {
+export function whirlTrail(prev: SimState, curr: SimState, i: number, alpha: number, tuning: TuningData): WhirlTrail | null {
   const f = curr.fighters[i];
   const a = f?.action;
   if (!f || f.death || a?.kind !== 'Whirlwind') return null;
   const sign = spinSign(a.direction);
   if (a.phase === 'Spin') {
-    const spun = Math.max(0, a.ticks - 1 + alpha);
+    // Drawn between the last Tick and this one; a loop paused on one state (prev = curr) draws that state itself.
+    const spun = Math.max(0, a.ticks - (prev.tick === curr.tick ? 0 : 1) + alpha);
     const arc = Math.min(TRAIL_ARC, (spun * 2 * Math.PI) / whirlwindTimings(tuning).turnTicks);
     return arc > 0 ? { arc, opacity: 1, sign } : null;
   }
@@ -106,6 +107,7 @@ function glintTexture(): THREE.DataTexture {
     }
   }
   const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  t.magFilter = t.minFilter = THREE.LinearFilter;
   t.needsUpdate = true;
   return t;
 }
