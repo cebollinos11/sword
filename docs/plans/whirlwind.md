@@ -2,7 +2,7 @@
 
 > Every stage first reads: this file, `CONTEXT.md` (**Whirlwind**, **Kick**, **Knockdown**, **Block**, **Stagger**), `docs/adr/` (0001, 0002, 0007, 0012, 0026, 0027, **0029**), and the files that stage names.
 > A stage ends only when `npm test` passes and the work is committed. Before finishing, tick the stage's box in **Progress** and add notes for later stages.
-> **Status:** Stages 1-4 done: the Whirlwind is playable (hold, spin, contacts) and reads (trail, armed flash, sounds, shake). Stage 5 (AI) next.
+> **Status:** Stages 1-5 done: the Whirlwind is playable, reads, and Skilled/Expert AIs use and answer it. Stage 6 (the Flail) needs its design interview first.
 > The **Agreed design** below came from the design interview. Do not re-litigate it; raise a conflict with the user instead.
 
 ## Why
@@ -358,6 +358,13 @@ It always spins standing: no crouch and no Jump in its own Whirlwind (v1).
 1. Using it: Tuning Data and `skillOf`, `pathIsSafe`, `spinMoment`, `ownWhirlwind`/`spinSteer`, the knob and using tests.
 2. Answering it: `answerWhirlwind`, `whirlRead` memory, `isAiMemory`, the answering and memory tests, the header.
 
+### Stage 5 result
+- **Built** (`src/controllers/ai.ts`): `whirlwindRate` (Skilled 0.03, Expert 0.05 per Tick when the moment is right; Aggressive ×1.6, Defensive ×0.4) and `whirlwindRead` (Skilled 0.7, Expert 0.9, rolled once per spinner per phase). Using it: `spinMoment` (two enemies within reach + 1.5 m, or the focus down or Staggered; no teammate along the 4.5 m drive; `pathIsSafe` along it), `ownWhirlwind` (committed hold, checked again every Tick, let go once armed; steered Spin, `spinSteer`, toward enemies and away from teammates, only on safe ground; always standing). Answering it: `answerWhirlwind` (a hold: hit first when its blow lands before arming, else back out to the spinner's reach + 1.5 m; a Spin: a Thrust or dagger that lands first, else a Block of the mirrored side, else step away; never Jump or Crouch). Memory `whirlReads` (omitted while empty), validated by `isAiMemory`.
+- **Changed from the Design / found in review:** an ally anywhere near the drive path (not only near the start) forbids a spin, and the spin's ally checks use every teammate seen, not the `teamwork`-gated list; a focus on its own spot is checked along its facing; the hold is re-checked every Tick (unarmed along the focus bearing: a failing drive cancels it; armed along its facing: it holds and turns to a clear bearing, letting go after `SPIN_WAIT` 60 Ticks at most); one `whirlwindRead` roll per spinner (`whirlReads`); the Thrust interrupt allows for its Reaction Time; its Attacks against a Whirlwind are `timed` (no Feint), respect its team's swing line, and a Sheathed AI does not answer. The three team-coordination tests "flank slots", "turns" and "target spread" run with `whirlwindRate 0` (a spin moves what they measure); "no friendly fire" passes with the spin on.
+- **Tests:** `aiWhirlwind.test.ts` (25), `messages.test.ts` (+2); the `ai.test.ts` ladder test destructures the two new knobs. Full suite 3295 passed; `test:slow` 52 passed. The AI golden (Easy, Normal, Hard) did not move and was not re-recorded; no SimState hash moved.
+- **Seen headless and in the sandbox:** in Expert-vs-Expert Matches (library, 3000-6000 Ticks) AIs begin a hold a few times a Match; 1 v 1 the Expert opponent breaks every hold before it arms (in the sandbox: a Thrust Staggers the holder); 2 v 2 they spin, Hit, and have turns Blocked on the mirrored side, with no teammate touched.
+- **To try in a playtest:** against Skilled and Expert, whether a hold is punished too reliably (the AI's answer makes the hold a liability 1 v 1, as the Balance notes intend); whether 0.03/0.05 a Tick makes the AI spin too often in team fights; Beginner as a free target.
+
 ### Stage 6: The Flail
 - A Flail Whirlwind: decide how the ball on its chain spins (rigid in the sim, ADR 0026) and whether its Spin-up adds anything. Own Motion override. Needs a short design interview first.
 
@@ -366,5 +373,5 @@ It always spins standing: no crouch and no Jump in its own Whirlwind (v1).
 - [x] Stage 2: The spin's motion
 - [x] Stage 3: Contacts
 - [x] Stage 4: Feedback
-- [ ] Stage 5: AI
+- [x] Stage 5: AI
 - [ ] Stage 6: The Flail
