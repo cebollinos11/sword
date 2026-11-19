@@ -1,10 +1,10 @@
-import { ATTACK_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
+import { ATTACK_PHASES, WHIRLWIND_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 36;
+export const PROTOCOL_VERSION = 37;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -157,6 +157,7 @@ type Obj = Record<string, unknown>;
 const REFUSE_REASONS: ReadonlySet<string> = new Set<RefuseReason>(['TuningDataMismatch', 'ProtocolMismatch']);
 const DIRECTION_SET: ReadonlySet<string> = new Set<string>(DIRECTIONS);
 const PHASE_SET: ReadonlySet<string> = new Set<string>(ATTACK_PHASES);
+const WHIRLWIND_PHASE_SET: ReadonlySet<string> = new Set<string>(WHIRLWIND_PHASES);
 const KNOCKDOWN_PHASES: ReadonlySet<string> = new Set<KnockdownPhase>(['Falling', 'Down', 'Rising']);
 const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered', 'Landed']);
 
@@ -243,7 +244,7 @@ const isSlot = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_INVENTORY_
 const isInventoryRef = (v: unknown): boolean => isObject(v) && (v.kind === 'weapon' || v.kind === 'relic') && isSlot(v.slot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop)) && (v.use === undefined || isInventoryRef(v.use)) && (v.troop === undefined || isInt(v.troop));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.whirlwind === undefined || isBool(v.whirlwind)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop)) && (v.use === undefined || isInventoryRef(v.use)) && (v.troop === undefined || isInt(v.troop));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
@@ -291,6 +292,8 @@ function isAction(v: unknown): boolean {
       return isDirection(v.direction);
     case 'Kick':
       return PHASE_SET.has(v.phase as string) && isBool(v.landed) && (v.whiff === undefined || isTick(v.whiff));
+    case 'Whirlwind':
+      return WHIRLWIND_PHASE_SET.has(v.phase as string) && (v.direction === 'Left' || v.direction === 'Right') && isTick(v.ticks) && isBool(v.armed) && isTick(v.turn);
     case 'Throw':
       return PHASE_SET.has(v.phase as string) && isTick(v.startTick) && (v.held === undefined || isTick(v.held));
     case 'Knockdown':

@@ -20,6 +20,14 @@ function kickingMatchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
+/** A Match state caught mid-Whirlwind, held until armed, as a host would send it. */
+function whirlingMatchState(): MatchState {
+  let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+  const held = Math.ceil(tuning.whirlwind.armSeconds * 60) + 4;
+  for (let t = 0; t < held; t++) m = stepMatch(m, [{ ...IDLE_INTENT, whirlwind: true }, IDLE_INTENT], tuning);
+  return JSON.parse(JSON.stringify(m)) as MatchState;
+}
+
 /** A Match state caught mid-Throw, with a dagger spent, as a host would send it. */
 function throwingMatchState(): MatchState {
   let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
@@ -96,6 +104,30 @@ describe('Peer message validation', () => {
     const state = kickingMatchState();
     expect(state.duel.fighters[0]!.action.kind).toBe('Kick');
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
+  });
+
+  it('refuses an Intent whose whirlwind is not a boolean, and accepts one that Whirlwinds', () => {
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, whirlwind: 1 }]))).toBeNull();
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, whirlwind: true }]))).toEqual(intents([{ ...IDLE_INTENT, whirlwind: true }]));
+  });
+
+  it('carries a Whirlwind Action held until armed through a resync', () => {
+    const state = whirlingMatchState();
+    const action = state.duel.fighters[0]!.action;
+    expect(action.kind).toBe('Whirlwind');
+    expect(action.kind === 'Whirlwind' && action.armed).toBe(true);
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+  });
+
+  it('refuses a Whirlwind Action with an Overhead direction or a bad phase', () => {
+    const state = whirlingMatchState();
+    const withAction = (patch: object): unknown => {
+      const copy = JSON.parse(JSON.stringify(state)) as MatchState;
+      (copy.duel.fighters[0] as { action: unknown }).action = { ...copy.duel.fighters[0]!.action, ...patch };
+      return resync(copy);
+    };
+    expect(parseNetMessage(withAction({ direction: 'Overhead' }))).toBeNull();
+    expect(parseNetMessage(withAction({ phase: 'Release' }))).toBeNull();
   });
 
   it('refuses an Intent whose throw is not a boolean', () => {
@@ -632,8 +664,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
       expect(parseNetMessage(resync(stock(bad), ai)), JSON.stringify(bad)).toBeNull();
   });
 
-  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 36', () => {
-    expect(PROTOCOL_VERSION).toBe(36);
+  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 37', () => {
+    expect(PROTOCOL_VERSION).toBe(37);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);

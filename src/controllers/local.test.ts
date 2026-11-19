@@ -334,6 +334,71 @@ describe('Local Controller: Kick', () => {
   });
 });
 
+describe('Local Controller: Whirlwind', () => {
+  it('G sends whirlwind on every Tick it is held, and nothing once let go', () => {
+    const c = new LocalController();
+    expect(c.sample().whirlwind).toBeUndefined();
+    c.keyDown('KeyG');
+    expect(c.sample().whirlwind).toBe(true);
+    expect(c.sample().whirlwind).toBe(true);
+    c.keyUp('KeyG');
+    const idle = c.sample();
+    expect(idle.whirlwind).toBeUndefined();
+    expect('whirlwind' in idle).toBe(false);
+  });
+
+  it('a tap shorter than a Tick still reaches one sample', () => {
+    const c = new LocalController();
+    c.keyDown('KeyG');
+    c.keyUp('KeyG');
+    expect(c.sample().whirlwind).toBe(true);
+    expect(c.sample().whirlwind).toBeUndefined();
+  });
+
+  it('coils to the side of the latest horizontal gesture, ignoring a later vertical one', () => {
+    const c = new LocalController();
+    c.mouseMove(-200, 0);
+    c.mouseMove(0, -200);
+    c.keyDown('KeyG');
+    expect(c.sample().direction).toBe('Left');
+  });
+
+  it('coils to the Right when the mouse never made a horizontal gesture', () => {
+    const c = new LocalController();
+    c.keyDown('KeyG');
+    expect(c.sample().direction).toBe('Right');
+  });
+
+  it('a swipe aimed Left or Right sets the side too', () => {
+    const c = new LocalController();
+    c.aim('Left');
+    c.keyDown('KeyG');
+    expect(c.sample().direction).toBe('Left');
+  });
+
+  it('does not latch while attack is held, and leaves the next Attack gesture alone', () => {
+    const c = new LocalController();
+    c.mouseMove(0, -200);
+    c.buttonDown('attack');
+    c.mouseMove(-200, 0);
+    c.keyDown('KeyG');
+    expect(c.sample().direction).toBe('Overhead');
+    c.buttonUp('attack');
+    c.keyUp('KeyG');
+    c.sample();
+    c.buttonDown('attack');
+    expect(c.sample().direction).toBe('Left');
+  });
+
+  it('releaseAll lets G go', () => {
+    const c = new LocalController();
+    c.keyDown('KeyG');
+    c.sample();
+    c.releaseAll();
+    expect(c.sample().whirlwind).toBeUndefined();
+  });
+});
+
 describe('Local Controller: Sheathe', () => {
   it('R Sheathes (or Draws) once per press, on one Tick, however long it is held', () => {
     const c = new LocalController();
