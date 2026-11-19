@@ -131,14 +131,15 @@ describe('Whirlwind hold', () => {
     expect(me(s).motion.name).toBe('Idle');
   });
 
-  it('holds the coiled pose through the Spin and plays Idle in Recovery', () => {
+  it('holds the coil through the Wind-up, plays the Spin Motion through the Spin and Idle in Recovery', () => {
     const lastTick = Math.round(tuning.motions.WhirlwindHoldRight!.duration * 60);
     const states = held(t.armTicks);
     const playing = (s: SimState) => ({ name: me(s).motion.name, tick: me(s).motion.tick });
     expect(playing(states[5]!)).toEqual({ name: 'WhirlwindHoldRight', tick: 5 });
     expect(playing(states.at(-1)!)).toEqual({ name: 'WhirlwindHoldRight', tick: lastTick });
     const spinning = tick(states.at(-1)!, {});
-    expect(playing(spinning)).toEqual({ name: 'WhirlwindHoldRight', tick: lastTick });
+    const spinLast = Math.round(tuning.motions.WhirlwindSpinRight!.duration * 60);
+    expect(playing(spinning)).toEqual({ name: 'WhirlwindSpinRight', tick: spinLast });
     const recovering = ticks(spinning, t.spinTicks); // the Tick that enters Recovery: Idle at its Tick 0
     expect(playing(recovering)).toEqual({ name: 'Idle', tick: 0 });
     expect(playing(tick(recovering, {}))).toEqual({ name: 'Idle', tick: 1 });

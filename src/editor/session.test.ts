@@ -38,6 +38,10 @@ describe('EditorSession', () => {
       'Thrust',
       'WhirlwindHoldLeft',
       'WhirlwindHoldRight',
+      'WhirlwindLowLeft',
+      'WhirlwindLowRight',
+      'WhirlwindSpinLeft',
+      'WhirlwindSpinRight',
     ]);
   });
 

@@ -1,7 +1,7 @@
 import { defaultWeaponName, sizedTuning, weaponByName, type TuningData } from '../tuning';
-import { applyBlockImpact, applyGuard, offHandFree } from './actions';
+import { applyBlockImpact, applyGuard, offHandFree, whirlwindLastTick, whirlwindLowMotion } from './actions';
 import { footPitch, footPose, hipShift, toLocal } from './gait';
-import { motionTargets, playbackTargets, type PoseTargets } from './motion';
+import { lerpTargets, motionTargets, playbackTargets, type PoseTargets } from './motion';
 import { kickLegOf, NO_GAIT, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState, MotionPlayback } from './state';
 
@@ -84,9 +84,21 @@ export function withPose(f: FighterState, tuning: TuningData): FighterState {
  */
 const solvedPoses = new WeakMap<FighterState, { readonly tuning: TuningData; readonly pose: SkeletonPose }>();
 
+/**
+ * The Motion targets a Fighter plays: its playback, and for a Whirlwind Spin blended toward the low Spin Motion's pose (its last Tick) by
+ * the Fighter's `crouch`, so the blade sweeps high standing and low crouched, and rises and falls as Crouch is let go or held.
+ */
+function playedTargets(f: FighterState, tuning: TuningData): PoseTargets {
+  const targets = playbackTargets(tuning, f.weapon, f.motion);
+  const a = f.action;
+  if (a.kind !== 'Whirlwind' || a.phase !== 'Spin' || f.crouch === 0) return targets;
+  const low = whirlwindLowMotion(a.direction);
+  return lerpTargets(targets, motionTargets(tuning, f.weapon, low, whirlwindLastTick(tuning, f.weapon, low)), f.crouch, tuning.skeleton.ankleHeight);
+}
+
 function solveFighter(f: FighterState, standard: TuningData): SkeletonPose {
   const tuning = sizedTuning(standard, f.size);
-  const moving = applyLook(applyCrouch(playbackTargets(tuning, f.weapon, f.motion), f.crouch, tuning), f.pitch, tuning);
+  const moving = applyLook(applyCrouch(playedTargets(f, tuning), f.crouch, tuning), f.pitch, tuning);
   // A Knockdown holding a guard holds its hands as that Block does, on top of the lying body.
   const guard = f.action.kind === 'Knockdown' ? f.action.guard : null;
   const played = guard ? applyGuard(moving, guard, tuning, f.weapon) : moving;

@@ -1,6 +1,6 @@
 /**
  * The Whirlwind Action (Stage 1: the hold). The Fighter holds the Whirlwind button to coil (Wind-up), which arms after
- * `whirlwind.armSeconds`; letting go armed Spins it (the Spin's motion, drive and contacts are later Stages), letting go earlier cancels. After
+ * `whirlwind.armSeconds`; letting go armed Spins it (its pose is the Spin Motion, high or low by the Fighter's crouch; drive and contacts are later), letting go earlier cancels. After
  * the Spin comes a Recovery. It is committed: attack, block, kick, throw, sheathe, Feint and Direction changes do nothing.
  */
 import { canWhirlwind, weaponMotion, type TuningData } from '../../tuning';
@@ -18,6 +18,24 @@ export const WHIRLWIND_HOLD_MOTIONS: Readonly<Record<WhirlwindDirection, string>
 
 /** The hold Motion of a Whirlwind coiled to `direction`. */
 export const whirlwindHoldMotion = (direction: WhirlwindDirection): string => WHIRLWIND_HOLD_MOTIONS[direction];
+
+/** The Motions that hold a Spin's blade out level and high (a standing spinner), by the side the blow comes from. */
+export const WHIRLWIND_SPIN_MOTIONS: Readonly<Record<WhirlwindDirection, string>> = {
+  Left: 'WhirlwindSpinLeft',
+  Right: 'WhirlwindSpinRight',
+};
+
+/** The Motions that hold a Spin's blade out level and low (a fully crouched spinner, before the crouch's own drop), by side. */
+export const WHIRLWIND_LOW_MOTIONS: Readonly<Record<WhirlwindDirection, string>> = {
+  Left: 'WhirlwindLowLeft',
+  Right: 'WhirlwindLowRight',
+};
+
+/** The high Spin Motion of a Whirlwind to `direction`. */
+export const whirlwindSpinMotion = (direction: WhirlwindDirection): string => WHIRLWIND_SPIN_MOTIONS[direction];
+
+/** The low Spin Motion of a Whirlwind to `direction`: the pose the high one is blended toward by the Fighter's `crouch`. */
+export const whirlwindLowMotion = (direction: WhirlwindDirection): string => WHIRLWIND_LOW_MOTIONS[direction];
 
 /** Phase lengths of a Whirlwind, in Ticks. */
 export interface WhirlwindTimings {
@@ -50,6 +68,19 @@ function holdEnd(tuning: TuningData, weapon: string, direction: WhirlwindDirecti
   return secondsToTicks(motion.duration);
 }
 
+/** The last playhead Tick of the named Motion as `weapon` plays it: the pose a held Motion stays at. */
+export function lastTick(tuning: TuningData, weapon: string, name: string): number {
+  const motion = weaponMotion(tuning, weapon, name);
+  if (!motion) throw new Error(`No Motion "${name}" for the Whirlwind`);
+  return secondsToTicks(motion.duration);
+}
+
+/** The high Spin Motion of a Whirlwind, held at its last Tick (the Motion Blend from the coil carries it in). */
+function playSpin(a: WhirlwindAction, tuning: TuningData, weapon: string): ActionUpdate {
+  const name = whirlwindSpinMotion(a.direction);
+  return { action: a, motion: { name, tick: lastTick(tuning, weapon, name) } };
+}
+
 /** The hold Motion at `tick` (held at its last Tick). */
 function playHold(a: WhirlwindAction, tick: number, tuning: TuningData, weapon: string): ActionUpdate {
   return { action: a, motion: { name: whirlwindHoldMotion(a.direction), tick: Math.min(tick, holdEnd(tuning, weapon, a.direction)) } };
@@ -74,7 +105,6 @@ function enter(a: WhirlwindAction, phase: WhirlwindPhase, ctx: ActionContext): W
 export const updateWhirlwind: ActionHandler<WhirlwindAction> = (f, intent, ctx) => {
   const a = f.action;
   const t = whirlwindTimings(ctx.tuning);
-  const end = holdEnd(ctx.tuning, f.weapon, a.direction);
   switch (a.phase) {
     case 'Wind-up': {
       if (intent.whirlwind === true) {
@@ -83,14 +113,14 @@ export const updateWhirlwind: ActionHandler<WhirlwindAction> = (f, intent, ctx) 
         if (arms) ctx.emit({ type: 'WhirlwindArmed', fighter: ctx.fighter });
         return playHold({ ...a, ticks, armed: a.armed || arms }, ticks, ctx.tuning, f.weapon);
       }
-      if (a.armed) return playHold({ ...enter(a, 'Spin', ctx), turn: 0 }, end, ctx.tuning, f.weapon);
+      if (a.armed) return playSpin({ ...enter(a, 'Spin', ctx), turn: 0 }, ctx.tuning, f.weapon);
       ctx.emit({ type: 'WhirlwindPhase', fighter: ctx.fighter, phase: 'Cancelled' });
       return { action: IDLE_ACTION, motion: IDLE_MOTION };
     }
     case 'Spin': {
       const ticks = a.ticks + 1;
       if (ticks >= t.spinTicks) return { action: { ...enter(a, 'Recovery', ctx), turn: ctx.tuning.whirlwind.turns - 1 }, motion: IDLE_MOTION };
-      return playHold({ ...a, ticks, turn: Math.floor(ticks / t.turnTicks) }, end, ctx.tuning, f.weapon);
+      return playSpin({ ...a, ticks, turn: Math.floor(ticks / t.turnTicks) }, ctx.tuning, f.weapon);
     }
     case 'Recovery': {
       const ticks = a.ticks + 1;

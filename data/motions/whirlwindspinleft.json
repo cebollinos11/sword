@@ -1,0 +1,75 @@
+{
+  "name": "WhirlwindSpinLeft",
+  "duration": 0.1,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": -0.5,
+          "y": 1.4,
+          "z": 0.05
+        },
+        "rotation": {
+          "x": 0,
+          "y": -90,
+          "z": 90
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.25,
+          "y": 1.3499999999999999,
+          "z": 0.1
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 0
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.92,
+        "z": 0
+      },
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.1,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": -0.5,
+          "y": 1.4,
+          "z": 0.05
+        },
+        "rotation": {
+          "x": 0,
+          "y": -90,
+          "z": 90
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.25,
+          "y": 1.3499999999999999,
+          "z": 0.1
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 0
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.92,
+        "z": 0
+      },
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    }
+  ]
+}
