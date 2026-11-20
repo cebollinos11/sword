@@ -272,6 +272,10 @@ _Avoid_: Death animation, death Motion
 When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome. In a Run it plays on the party's wipe (a Defeat).
 _Avoid_: Kill cam
 
+**Damage Numbers**:
+The damage a Fighter takes, floated up over where it landed for about a second and fading: red when the hurt Fighter is the local Player's, gold for anyone else. Every blow that deals damage counts (Hit, Dagger Hit, Kick, Chain Knockdown, a hurting Landing); a blow that deals none (a Block, a teammate) shows nothing. The player's **Damage Numbers** setting (in-game and title menu, on by default, remembered) turns them off. Render-only, read from each Tick's events: peers may differ.
+_Avoid_: Damage popups, floating text
+
 **Camera Shake**:
 A short jolt of the player's own camera (third-person, or the orbit camera once fallen): hard when its Fighter is Hit, lightly when it lands a Hit, harder still for a Heavy Blow either way, and hard when it is knocked down by a Kick or hurt by a Landing. It dies away in well under a second, scaled by `camera.shake` (0 turns it off), and never shakes the Final Blow Shot. Render only, like the bursts of red where a Hit lands (bigger and brighter for a Heavy Blow): it follows the Simulation's events, never changes an outcome, and always shakes the same way for the same events.
 _Avoid_: Screen shake, hit shake

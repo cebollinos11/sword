@@ -15,6 +15,7 @@ import type { BattleScreen } from './play/battleScreen';
 import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
 import { PlayerTags } from './play/playerTags';
+import { DamageNumbers } from './play/damageNumbers';
 import { partyMarkers } from './render/minimap';
 import { devAutopilot, devBattlePilot, devDelverStart, devImmortal, devMode, devSpeed, devRunRelics } from './devMode';
 import { bindLocalInput } from './play/input';
@@ -181,6 +182,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** An online Delver Run's name tags over the party's other Players (docs/plans/delver.md, Stage 8), in Team 0's army colour; hidden in any other Match. */
   const partyTags = new PlayerTags(container, tuning.battle.soldier.colours, []);
   partyTags.root.hidden = true;
+  /** Floating damage over a hurt Fighter (the Damage Numbers setting). */
+  const damageNumbers = new DamageNumbers(container);
 
   const weapons = Object.keys(tuning.weapons);
   const arenas = pickableArenas(tuning);
@@ -656,6 +659,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       audio.seek(start ? start.tick - 1 : -1);
       renderer.impacts.seek(start?.tick ?? 0, true);
       shake.seek(start?.tick ?? 0);
+      damageNumbers.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;
         present(start, d.localFighter);
@@ -851,6 +855,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
     shake.seek(curr.tick);
+    damageNumbers.seek(curr.tick);
   }
 
   function aimAtDuelStart(match: MatchState): void {
@@ -1069,11 +1074,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         audio.setSpeed(tuning.camera.finalBlowSpeed);
         renderer.impacts.seek(finalBlow.startTick!);
         shake.seek(curr.tick);
+        damageNumbers.seek(curr.tick);
       }
       if (!inShot) {
         audio.onMatchTick(curr);
         renderer.impacts.onTick(curr.tick, curr.duel);
         shake.onTick(curr.tick, curr.duel.events, d.localFighter);
+        damageNumbers.onTick(curr.tick, curr.duel, d.localFighter);
       }
       if (battleOn) {
         presentBattle(curr, d.localFighter);
@@ -1174,8 +1181,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const watching = traitor && !shot ? traitorWatchLine(curr, me) : null;
       if (watching) hud.announce(watching, 0.3);
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
+      damageNumbers.root.hidden = shot !== null;
+      damageNumbers.update(frozen ? 0 : elapsed, (p) => renderer.toScreen(p));
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, delverContext(curr));
     } else {
+      damageNumbers.clear();
       partyTags.root.hidden = true;
       renderer.setPickups([]);
       const { match, me, bodies: chosen } = previewMatch();
