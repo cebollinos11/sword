@@ -16,7 +16,7 @@ const MAX_LIVE = 24;
 
 export const DAMAGE_NUMBERS_CSS = `
 .damage-numbers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.damage-number { position: absolute; left: 0; top: 0; font-family: var(--font-body); font-size: 1.6rem; line-height: 1; color: #ffd24a; text-shadow: var(--px) var(--px) 0 #000, calc(var(--px) * -1) var(--px) 0 #000; will-change: transform, opacity; }
+.damage-number { position: absolute; left: 0; top: 0; font-family: var(--font-body); font-size: 2.6rem; line-height: 1; color: #ffd24a; text-shadow: var(--px) var(--px) 0 #000, calc(var(--px) * -1) var(--px) 0 #000; will-change: transform, opacity; }
 .damage-number.mine { color: #ff4a3d; }
 `;
 
