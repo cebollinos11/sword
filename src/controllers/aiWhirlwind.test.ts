@@ -339,7 +339,7 @@ describe('AI Whirlwind: answering it', () => {
 
   it('with a Thrust reaching past the spinner\'s blade it Thrusts and the Spin ends', () => {
     // A Halberd against an Arming Sword's spinner, the spinner standing in its Thrust reach (but out of the sword's), driving off to the side.
-    const start = atSpin({ x: 0, z: 2.1 }, 'Left', ['Halberd', 'Arming Sword'], -Math.PI / 2);
+    const start = atSpin({ x: 0, z: 1.8 }, 'Left', ['Halberd', 'Arming Sword'], -Math.PI / 2);
     const { run, intents } = playOn(start, reads(), 90);
     expect([...intents.values()].some((i) => i.attack && i.direction === 'Thrust')).toBe(true);
     const staggered = run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Stagger' || s.fighters[1]!.action.kind === 'Knockdown');
