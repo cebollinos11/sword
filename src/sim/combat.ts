@@ -477,12 +477,14 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { damage: dealt, heavyDamage } = modsOf(attacker);
   const damage = blow * dealt * (heavy ? heavyDamage : 1) * modsOf(defender).damageTaken;
   const current = out[c.attacker]!;
-  // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
-  if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
   const hurt = out[c.defender]!;
+  const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+  // A killing blow does not lodge the Weapon: the swing carries on without pausing.
+  const killed = hurt.hp > 0 && wounded.hp <= 0;
+  // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
+  if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, ...(killed ? {} : { lodge: LODGE_TICKS }) } };
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head, blade, travel } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage, blade, travel });
-  const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
   rewardKill(out, c.attacker, hurt.hp, wounded.hp, tuning);
   if (heavy) {
     out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, c.attacker, tuning);
