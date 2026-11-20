@@ -71,7 +71,7 @@ const thrower = (k: number): Scene => ({
   give: (at) => [{}, { throw: at === k, face: Math.PI }],
 });
 /** A kicker (Fighter 1) the spinner drives onto; it kicks on Spin Tick 5, before the blade has reached it. */
-const kicker = (steer?: Partial<Intent>): Scene => ({ placements: [SPINNER, in1(0, 2.8, Math.PI)], teams: [0, 1], steer, give: (at) => [{}, { kick: at === 5 }] });
+const kicker = (steer?: Partial<Intent>): Scene => ({ placements: [SPINNER, in1(0, 3.0, Math.PI)], teams: [0, 1], steer, give: (at) => [{}, { kick: at === 5 }] });
 
 describe('Interrupting the spinner', () => {
   it('a Thrust landing on the spinner mid-Spin Staggers it, ending the Whirlwind', () => {
@@ -159,7 +159,7 @@ describe('Interrupting the spinner', () => {
 
   it('a Trade of the spinner\'s blade and a Thrust on one Tick lands both, and the Spin ends', () => {
     const fs = run({
-      placements: [SPINNER, in1(0, 2.3, Math.PI)],
+      placements: [SPINNER, in1(0, 2.0, Math.PI)],
       weapons: ['Dagger', 'Halberd'],
       teams: [0, 1],
       give: (at) => [{}, { direction: 'Thrust', attack: at < 12 }],
