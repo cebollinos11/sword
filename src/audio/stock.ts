@@ -106,6 +106,9 @@ export function stockFor(cue: SoundCue): StockPlay | null {
     case 'CrowdBlow':
       // A Soldier's blow rings off steel or lands in a body, a little different every time.
       return play(pickOf(CROWD_BLOW_CLIPS), 0.7, { rate: 0.88 + Math.random() * 0.24, wet: 0.3 });
+    case 'WhirlwindCry':
+      // Letting go into the Spin: one of the Crowd's war cries, any of them, a touch louder than the din's.
+      return play('shout', 1.1, { rate: 0.95 + Math.random() * 0.1, wet: 0.3 });
     case 'CrowdFall':
       // The cry of a falling Soldier, pitched a little so a Crowd of them are not all one man.
       return play('death', 0.75, { rate: 0.88 + Math.random() * 0.24, wet: 0.5 });

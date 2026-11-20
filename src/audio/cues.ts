@@ -57,6 +57,12 @@ export interface WhirlwindArmedCue extends Placed {
   readonly fighter: number;
 }
 
+/** A Whirlwind's hold was let go and its Spin began: the Fighter's battle cry (one of the Crowd's war cries, at random). */
+export interface WhirlwindCryCue extends Placed {
+  readonly sound: 'WhirlwindCry';
+  readonly fighter: number;
+}
+
 /**
  * A Whirlwind's Spin began a turn (its entering Tick, then each turn's start): one whoosh. `turn` is 0..`of`-1 and `of` the turns of the Spin: the whoosh
  * rises in pitch and level turn by turn. `weight` is 0 (a light sword) to 1 (a polearm), as for a Swing: a heavier Weapon sounds lower.
@@ -241,6 +247,7 @@ export type SoundCue =
   | BlockCue
   | WhirlCue
   | WhirlwindArmedCue
+  | WhirlwindCryCue
   | WhirlwindTurnCue
   | HitCue
   | ChamberCue
@@ -402,6 +409,9 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
         break;
       case 'WhirlwindArmed':
         cues.push({ sound: 'WhirlwindArmed', fighter: e.fighter, at: body(e.fighter) });
+        break;
+      case 'WhirlwindPhase':
+        if (e.phase === 'Spin') cues.push({ sound: 'WhirlwindCry', fighter: e.fighter, at: body(e.fighter) });
         break;
       case 'DuelEnd':
         cues.push({ sound: 'DuelEnd', winner: e.winner });

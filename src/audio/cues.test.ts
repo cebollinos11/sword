@@ -385,6 +385,19 @@ describe('the Whirlwind’s sounds (docs/plans/whirlwind.md, Stage 4)', () => {
     expect(states.flatMap((s) => soundCues(s.events, s, tuning)).some((c) => c.sound === 'Swing')).toBe(false);
   });
 
+  it('letting go into the Spin cries out once, on the Tick the Spin begins, with a random battle cry', () => {
+    const states = run(t.armTicks + 1, t.spinTicks + t.recoveryTicks + 10);
+    const cries = cuesOf(states).flatMap((cs, k) => cs.filter((c) => c.sound === 'WhirlwindCry').map((c) => ({ ...c, k })));
+    const enter = states.findIndex((s) => s.fighters[0]!.action.kind === 'Whirlwind' && s.fighters[0]!.action.phase === 'Spin');
+    expect(cries).toHaveLength(1);
+    expect(cries[0]).toMatchObject({ sound: 'WhirlwindCry', fighter: 0, k: enter, at: expect.any(Object) });
+    const clip = stockFor(cries[0]!);
+    expect(clip).toMatchObject({ clip: 'shout' });
+    expect(clip!.variant).toBeUndefined();
+    // A hold let go before it arms is no Spin, and no cry.
+    expect(cuesOf(run(t.armTicks - 5, 30)).flat().some((c) => c.sound === 'WhirlwindCry')).toBe(false);
+  });
+
   it('a longer Weapon whooshes heavier; without the Tuning Data there are no turn whooshes', () => {
     const w = (weapon: string) => turns(run(t.armTicks + 1, 10, weapon))[0]!.weight;
     expect(w('Halberd')).toBeGreaterThan(w('Arming Sword'));
@@ -403,6 +416,6 @@ describe('the Whirlwind’s sounds (docs/plans/whirlwind.md, Stage 4)', () => {
     const r = runDuel(tuning, { distance: 1.3, a: [...attack('Overhead', 40), ...wait(40)], b: hold(60, { block: true, direction: 'Overhead' }) });
     const all = r.states.flatMap((s) => soundCues(s.events, s, tuning));
     expect(all.length).toBeGreaterThan(0);
-    expect(all.some((c) => c.sound === 'WhirlwindArmed' || c.sound === 'WhirlwindTurn')).toBe(false);
+    expect(all.some((c) => c.sound === 'WhirlwindArmed' || c.sound === 'WhirlwindCry' || c.sound === 'WhirlwindTurn')).toBe(false);
   });
 });
