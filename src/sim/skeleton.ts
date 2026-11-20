@@ -203,6 +203,11 @@ export interface GaitOffsets {
    */
   readonly aim?: number;
   /**
+   * The compass bearing (radians from forward, + toward the Fighter's right) of the vertical plane `aim` swings the hands and Weapon in; 0
+   * (or absent) is straight ahead, the plane of a Thrust. A Whirlwind sets it to where its blade points, so the aim lifts or drops the sweep.
+   */
+  readonly aimAzimuth?: number;
+  /**
    * 0..1: how far the off hand has let go of a two-handed Weapon's Off-hand Grip to follow its own Pose Key (a Throw, ADR 0004). 0 (or absent)
    * holds the grip and pulls the Weapon in to reach it; 1 follows the Pose Key and leaves the Weapon where the sword hand's target puts it.
    */
@@ -258,6 +263,24 @@ function handTurned(x: number, y: number, z: number, cr: number, sr: number, cp:
   outZ = -x1 * sy + z2 * cy;
 }
 
+/**
+ * `v` swung up or down by the aim (cosine `ca`, sine `sa` of the rotation, positive downward) in the vertical plane at the bearing whose
+ * sine and cosine are `sf` and `cf` (0 and 1: straight ahead): left in `out*`.
+ */
+function aimed(x: number, y: number, z: number, sf: number, cf: number, ca: number, sa: number): void {
+  if (sf === 0 && cf === 1) {
+    outX = x;
+    outY = y * ca - z * sa;
+    outZ = y * sa + z * ca;
+    return;
+  }
+  const h = x * sf + z * cf;
+  const h2 = y * sa + h * ca;
+  outX = x + (h2 - h) * sf;
+  outY = y * ca - h * sa;
+  outZ = z + (h2 - h) * cf;
+}
+
 /** `offHandSpot` on plain numbers: left in `out*`. */
 function spot(hx: number, hy: number, hz: number, ax: number, ay: number, az: number, ex: number, ey: number, ez: number, grip: OffHandGrip): void {
   const a = (grip.around * Math.PI) / 180;
@@ -310,6 +333,8 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const pivotZ = hip.z + 0;
   const ca = Math.cos(aimDeg * DEG);
   const sa = Math.sin(aimDeg * DEG);
+  const sf = Math.sin(gait.aimAzimuth ?? 0);
+  const cf = Math.cos(gait.aimAzimuth ?? 0);
   // The Weapon's axis and edge: the sword hand's rotation, then the aim.
   const rotation = targets.rightHand.rotation;
   const cr = Math.cos(rotation.z * DEG);
@@ -319,13 +344,15 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const cy = Math.cos(rotation.y * DEG);
   const sy = Math.sin(rotation.y * DEG);
   handTurned(0, 0, 1, cr, sr, cp, sp, cy, sy);
+  if (aiming) aimed(outX, outY, outZ, sf, cf, ca, sa);
   const bladeX = outX;
-  const bladeY = aiming ? outY * ca - outZ * sa : outY;
-  const bladeZ = aiming ? outY * sa + outZ * ca : outZ;
+  const bladeY = outY;
+  const bladeZ = outZ;
   handTurned(0, -1, 0, cr, sr, cp, sp, cy, sy);
+  if (aiming) aimed(outX, outY, outZ, sf, cf, ca, sa);
   const edgeX = outX;
-  const edgeY = aiming ? outY * ca - outZ * sa : outY;
-  const edgeZ = aiming ? outY * sa + outZ * ca : outZ;
+  const edgeY = outY;
+  const edgeZ = outZ;
   // The hands are where the Motion puts them, reached from the Motion's own hip target: the chest, head and shoulders on that pelvis...
   spine(0, s.spine, 0, cl, sl, ct, st);
   let chestX = hip.x + outX;
@@ -351,11 +378,10 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   let rightTargetY = right.y;
   let rightTargetZ = right.z;
   if (aiming) {
-    const dy = right.y - pivotY;
-    const dz = right.z - pivotZ;
-    rightTargetX = pivotX + (right.x - pivotX);
-    rightTargetY = pivotY + (dy * ca - dz * sa);
-    rightTargetZ = pivotZ + (dy * sa + dz * ca);
+    aimed(right.x - pivotX, right.y - pivotY, right.z - pivotZ, sf, cf, ca, sa);
+    rightTargetX = pivotX + outX;
+    rightTargetY = pivotY + outY;
+    rightTargetZ = pivotZ + outZ;
   }
   if (grip) {
     // ...except that a two-handed Weapon yields to the off hand's reach (`offHandPull`: straight toward the off shoulder, by however far the spot is out of reach).
@@ -388,11 +414,10 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     leftTargetY = left.y;
     leftTargetZ = left.z;
     if (aiming) {
-      const dy = left.y - pivotY;
-      const dz = left.z - pivotZ;
-      leftTargetX = pivotX + (left.x - pivotX);
-      leftTargetY = pivotY + (dy * ca - dz * sa);
-      leftTargetZ = pivotZ + (dy * sa + dz * ca);
+      aimed(left.x - pivotX, left.y - pivotY, left.z - pivotZ, sf, cf, ca, sa);
+      leftTargetX = pivotX + outX;
+      leftTargetY = pivotY + outY;
+      leftTargetZ = pivotZ + outZ;
     }
   }
   if (grip) {

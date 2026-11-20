@@ -101,6 +101,17 @@ function playedTargets(f: FighterState, tuning: TuningData): PoseTargets {
   return lerpTargets(targets, motionTargets(tuning, f.weapon, low, whirlwindLastTick(tuning, f.weapon, low)), f.crouch * ramp, tuning.skeleton.ankleHeight);
 }
 
+/**
+ * The bearing the aim swings in: straight ahead (0), except in a Whirlwind, where it is the way the sword hand reaches from the hips, so the
+ * pitch lifts or drops the blade's sweep (a Spin's blade points out to the side, where a swing about the body's own axis would do nothing).
+ */
+function aimAzimuth(f: FighterState, targets: PoseTargets): number {
+  if (f.action.kind !== 'Whirlwind') return 0;
+  const dx = targets.rightHand.position.x - targets.hip.x;
+  const dz = targets.rightHand.position.z - targets.hip.z;
+  return dx * dx + dz * dz < 1e-4 ? 0 : Math.atan2(dx, dz);
+}
+
 function solveFighter(f: FighterState, standard: TuningData): SkeletonPose {
   const tuning = sizedTuning(standard, f.size);
   const moving = applyLook(applyCrouch(playedTargets(f, tuning), f.crouch, tuning), f.pitch, tuning);
@@ -116,6 +127,6 @@ function solveFighter(f: FighterState, standard: TuningData): SkeletonPose {
     tuning.skeleton,
     weaponByName(tuning, f.weapon),
     f,
-    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, { left: targets.leftFoot, right: targets.kickFoot ?? targets.rightFoot }, tuning), aim: f.pitch, offHandFree: offHandFree(f, tuning), ground: { left: left.y - f.y, right: right.y - f.y }, pitch: { left: footPitch(f.gait.left, f, tuning), right: targets.kickFoot ? 0 : footPitch(f.gait.right, f, tuning) } },
+    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, { left: targets.leftFoot, right: targets.kickFoot ?? targets.rightFoot }, tuning), aim: f.pitch, aimAzimuth: aimAzimuth(f, targets), offHandFree: offHandFree(f, tuning), ground: { left: left.y - f.y, right: right.y - f.y }, pitch: { left: footPitch(f.gait.left, f, tuning), right: targets.kickFoot ? 0 : footPitch(f.gait.right, f, tuning) } },
   );
 }

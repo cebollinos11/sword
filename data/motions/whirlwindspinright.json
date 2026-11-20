@@ -8,13 +8,13 @@
       "ease": "linear",
       "rightHand": {
         "position": {
-          "x": 0.5,
+          "x": 0.62,
           "y": 1.4,
-          "z": 0.05
+          "z": -0.23
         },
         "rotation": {
           "x": 0,
-          "y": 90,
+          "y": 135.6,
           "z": -90
         }
       },
@@ -26,8 +26,8 @@
         }
       },
       "torso": {
-        "twist": 0,
-        "lean": 0
+        "twist": 84,
+        "lean": 8.6
       },
       "hip": {
         "x": 0,
@@ -42,13 +42,13 @@
       "ease": "linear",
       "rightHand": {
         "position": {
-          "x": 0.5,
+          "x": 0.62,
           "y": 1.4,
-          "z": 0.05
+          "z": -0.23
         },
         "rotation": {
           "x": 0,
-          "y": 90,
+          "y": 135.6,
           "z": -90
         }
       },
@@ -60,16 +60,22 @@
         }
       },
       "torso": {
-        "twist": 0,
-        "lean": 0
+        "twist": 84,
+        "lean": 8.6
       },
       "hip": {
         "x": 0,
         "y": 0.92,
         "z": 0
       },
-      "leftFoot": "idle",
-      "rightFoot": "idle"
+      "leftFoot": {
+        "x": -0.12,
+        "z": 0.12
+      },
+      "rightFoot": {
+        "x": 0.14,
+        "z": -0.12
+      }
     }
   ]
 }

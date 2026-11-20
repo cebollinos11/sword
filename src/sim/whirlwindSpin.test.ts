@@ -33,6 +33,24 @@ const heights = (f: FighterState): { low: number; high: number } => {
 };
 
 describe('Whirlwind Spin pose', () => {
+  for (const direction of ['Right', 'Left'] as const) {
+    it.each(WEAPONS)(`looking up or down lifts or drops the ${direction} blade's sweep (%s)`, (weapon) => {
+      const mean = (pitch: number): number => {
+        let s = ticks(spinning(weapon, direction, false), 20, { pitch });
+        let sum = 0;
+        for (let n = 0; n < t.turnTicks; n++) {
+          s = tick(s, { pitch });
+          const b = me(s).blade;
+          sum += (b.hilt.y + b.tip.y) / 2;
+        }
+        return sum / t.turnTicks;
+      };
+      const level = mean(0);
+      expect(mean(0.6)).toBeGreaterThan(level + 0.1);
+      expect(mean(-0.6)).toBeLessThan(level - 0.1);
+    });
+  }
+
   it('plays WhirlwindSpinRight or WhirlwindSpinLeft, held at its last Tick, once released', () => {
     for (const direction of ['Right', 'Left'] as const) {
       const s = spinning(WEAPONS[0]!, direction, false);
