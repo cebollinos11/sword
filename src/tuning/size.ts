@@ -10,7 +10,7 @@ export interface Size {
   readonly thick: number;
 }
 
-export const MIN_SIZE = 0.6;
+export const MIN_SIZE = 0.70;
 export const MAX_SIZE = 1.4;
 /** Sizes are multiples of this, so they cross the wire and hash exactly. */
 export const SIZE_STEP = 0.05;
