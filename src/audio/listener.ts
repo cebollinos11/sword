@@ -1,6 +1,6 @@
 import type { CrowdState, MatchState, SimEvent, SimState, Vec3 } from '../sim';
 import type { TuningData } from '../tuning';
-import { crowdCues, crowdFighting, matchCues, soundCues, type SoundCue } from './cues';
+import { crowdCues, crowdFighting, equipCues, inventoryMarks, matchCues, soundCues, type InventoryMark, type SoundCue } from './cues';
 import type { Ears } from './spatial';
 
 /** Something that can make a sound for a cue (WebAudio in the browser, a recorder in tests). */
@@ -30,6 +30,8 @@ export class SimAudio {
   private lastTick = -Infinity;
   /** The Crowd as of the last Tick played, to hear its blows and falls against (undefined after a seek, or outside a Battle). */
   private lastCrowd: CrowdState | undefined;
+  /** Every Fighter's inventory as of the last Tick played, to hear pickups and equips against (undefined after a seek). */
+  private lastInventories: (InventoryMark | undefined)[] | undefined;
 
   /**
    * `tuning`: the Tuning Data the Simulation runs on, so the sounds tell the Weapons apart by their look (a flail's whirl and blows);
@@ -44,6 +46,7 @@ export class SimAudio {
   onTick(tick: number, events: readonly SimEvent[], state?: SimState, tuning: TuningData | undefined = this.tuning): void {
     if (!this.reach(tick)) return;
     this.play(soundCues(events, state, tuning));
+    if (state) this.hearInventories(state);
   }
 
   /** For a loop driving a Match: the Match Tick keeps counting across Duels, the Duel's own Tick does not. */
@@ -56,6 +59,7 @@ export class SimAudio {
     if (won.length > 0) cues = cues.filter((c) => c.sound !== 'DuelEnd');
     this.play([...own.filter((c) => c.sound !== 'MatchEnd'), ...cues, ...won]);
     this.hearCrowd(match.duel.crowd);
+    this.hearInventories(match.duel);
   }
 
   /** A Battle's Crowd this Tick: its blows and falls since the last Tick played, and where it fights now. */
@@ -64,6 +68,12 @@ export class SimAudio {
     this.play(crowdCues(this.lastCrowd, crowd));
     this.player.setCrowd?.(this.muted ? [] : crowdFighting(crowd));
     this.lastCrowd = crowd;
+  }
+
+  /** The Fighters' inventories this Tick: a pickup or an equip since the last Tick played rustles. */
+  private hearInventories(state: SimState): void {
+    this.play(equipCues(this.lastInventories, state));
+    this.lastInventories = inventoryMarks(state);
   }
 
   /** Plays a sound that comes from outside the Simulation's events (e.g. a Renderer-only effect), unless muted. */
@@ -75,6 +85,7 @@ export class SimAudio {
   seek(tick: number): void {
     this.lastTick = tick;
     this.lastCrowd = undefined;
+    this.lastInventories = undefined;
   }
 
   /** How fast time runs (1 = real time, below 1 = slow motion, e.g. the Final Blow Shot). */

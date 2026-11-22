@@ -7,11 +7,32 @@ import { STOCK_CLIPS, stockFile, stockFor, type StockClip } from './stock';
 const publicFile = (file: string) => resolve(__dirname, '../../public', file);
 
 describe('stockFor', () => {
-  it('a heavier Weapon swings with a lower whoosh', () => {
-    const swing = (weight: number): SoundCue => ({ sound: 'Swing', fighter: 0, direction: 'Left', weight });
-    expect(stockFor(swing(0))?.variant).toBe(2);
-    expect(stockFor(swing(0.5))?.variant).toBe(1);
-    expect(stockFor(swing(1))?.variant).toBe(0);
+  it('a heavier blunt Weapon swings with a lower whoosh, and a blade with a swish of its own', () => {
+    const swing = (weight: number, blunt = false): SoundCue => ({ sound: 'Swing', fighter: 0, direction: 'Left', weight, ...(blunt ? { blunt: true as const } : {}) });
+    expect(stockFor(swing(0, true))?.variant).toBe(2);
+    expect(stockFor(swing(0.5, true))?.variant).toBe(1);
+    expect(stockFor(swing(1, true))?.variant).toBe(0);
+    for (let i = 0; i < 50; i++) expect(stockFor(swing(0.5))!.variant).toBeGreaterThanOrEqual(3);
+    expect(stockFor(swing(1))!.rate).toBeLessThan(stockFor(swing(0))!.rate);
+  });
+
+  it('a blunt Weapon never rings steel: its Block, Chamber and Wall strike knock, and its Hit thumps', () => {
+    const point = { x: 0, y: 1, z: 0 };
+    expect(stockFor({ sound: 'Block', defender: 1, strength: 1, weight: 0.5 })?.clip).toBe('clang');
+    expect(stockFor({ sound: 'Block', defender: 1, strength: 1, weight: 0.5, blunt: true })?.clip).toBe('blunt-hit');
+    expect(stockFor({ sound: 'Chamber', chamberer: 1 })?.clip).toBe('parry');
+    expect(stockFor({ sound: 'Chamber', chamberer: 1, blunt: true })?.clip).toBe('blunt-hit');
+    expect(stockFor({ sound: 'WallStrike', strength: 1, surface: 'stone', at: point })?.clip).toBe('armor');
+    expect(stockFor({ sound: 'WallStrike', strength: 1, surface: 'stone', at: point, blunt: true })?.clip).toBe('blunt-hit');
+    const hit = (by: 'Edge' | 'Ball' | 'Dagger', blunt = false): SoundCue => ({ sound: 'Hit', defender: 1, zone: 'torso', strength: 1, by, ...(blunt ? { blunt: true as const } : {}) });
+    expect(stockFor(hit('Edge'))?.clip).toBe('hit');
+    expect(stockFor(hit('Ball'))?.clip).toBe('hit');
+    expect(stockFor(hit('Dagger'))?.clip).toBe('hit');
+    expect(stockFor(hit('Edge', true))?.clip).toBe('heavy-hit');
+  });
+
+  it('an equip or a pickup plays the equip sound', () => {
+    expect(stockFor({ sound: 'Equip', fighter: 0 })?.clip).toBe('equip');
   });
 
   it('a harder Hit plays louder, and a blade cuts where a shaft or a Kick thumps', () => {

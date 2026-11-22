@@ -96,7 +96,7 @@ describe('SimAudio', () => {
   it("hears a Battle's Crowd: its blows since the last Tick played, and where it fights, but not across a seek", () => {
     const crowd = createCrowd(tuning.battle, 3);
     const hurt = { ...crowd, hp: crowd.hp.map((h, i) => (i === 4 ? h - 10 : h)), target: crowd.target.map((t, i) => (i === 4 ? 7 : t)) };
-    const at = (tick: number, c: CrowdState) => ({ tick, events: [], duel: { events: [], crowd: c } }) as unknown as MatchState;
+    const at = (tick: number, c: CrowdState) => ({ tick, events: [], duel: { events: [], fighters: [], crowd: c } }) as unknown as MatchState;
     const played: SoundCue['sound'][] = [];
     const fighting: number[] = [];
     const audio = new SimAudio({ play: (cue) => played.push(cue.sound), setCrowd: (f) => fighting.push(f.length) });

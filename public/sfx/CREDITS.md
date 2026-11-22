@@ -86,3 +86,24 @@ blood spray strikes the floor or a Wall.
 |---|---|---|
 | `splatter-0` | blood-splatter-122253 | Universfield |
 | `splatter-1` | swing_blood_splatter-88039 | freesound_community |
+
+Also from Pixabay: the blade and blunt sound effects supplied by the game's
+author (`newsounds/`), cut into single clips by `tools/split-sfx/split.sh`
+(mono MP3, a short fade-out, peak-normalised; nothing else was changed). Files
+that hold many sounds in one recording were split at their silent gaps.
+
+| Files | Original | Uploader |
+|---|---|---|
+| `swing-3`…`swing-9` | sword-swipes-7174 (seven swipes) | freesound_community |
+| `swing-10` | sword-swing-sfx-407574 | oxidvideos |
+| `swing-11` | video-game-sword-swing-sfx-409364 | oxidvideos |
+| `clang-4` | sword-clashhit-393837 | dragon-studio |
+| `clang-5` | sword-clash-241729 | u_fe12rqkbth |
+| `parry-1` | sword-schwing-40520 | freesound_community |
+| `hit-9` | violent-sword-slice-393839 | dragon-studio |
+| `hit-10` | violent-sword-slice-393848 | dragon-studio |
+| `hit-11` | violent-sword-slice-2-393841 | dragon-studio |
+| `hit-12` | sword-slice-2-393845 | dragon-studio |
+| `heavy-hit-5` | htf-flesh-impact-1-480118 | ragecore29 |
+| `blunt-hit-0`…`blunt-hit-6` | wood-hit-wood-metal-twang-36783 (seven hits) | freesound_community |
+| `equip-0` | item-equip-6904 | freesound_community |
