@@ -12,6 +12,7 @@ import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { battlefieldSetting, DUSK, lookSetting, type BattlefieldLook } from './battlefieldView';
+import { animateLava } from './lavaMaterial';
 import { texturedModel } from './triplanar';
 import { abyss, battleGreybox, greybox, isGreybox } from './greybox';
 import { hasBattleModel } from './battleModels';
@@ -634,6 +635,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     animate: (seconds, camera) => {
       torches?.update(camera, seconds);
       lava?.update(camera, seconds);
+      animateLava(seconds);
       if (clutter) clutter.visible = clutterEnabled();
     },
     far: () => (skyless ? setting.fog.far + PAST_FOG : undefined),
