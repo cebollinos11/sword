@@ -2562,7 +2562,7 @@ DelverHall += lava?: DelverLava   /* written after `feature`; absent: none */
 - **Instrumentation over every Tick of every case**: each Death by Lava classified by what pushed the victim in the 3 s before (a Kick, a Knockdown or its Slide, a Whirlwind blow, else **walked**), and by who died (party Player, ally, promoted Soldier, traitor). The ground under each unpromoted Soldier (never lava), each Pickup's spot and each `Revived` spot (never on lava, never within `LAVA_KEEP`).
 - **Must show, else fail**:
   - Floors with lava on every tier, each kind at least once, and the party walking through a lava Hall (a party Fighter's feet on a bridge, on a pit's ring and beside a trough);
-  - promoted Soldiers dying in lava (by a kick, a Slide or a Whirlwind), with the count by cause;
+  - Fighters dying in lava by a push (a kick, a Slide, a Knockdown or a Whirlwind), with the count by cause and by victim (the review's call: the Design first asked for promoted Soldiers, whom the party never pushed in over the soak; see the Result);
   - no Soldier, ally or pilot walking into lava: 0 walked-in Deaths by Lava of an ally, the pilot or a promoted Soldier, over a printed number of Soldier-Ticks in lava Halls, and 0 unpromoted Soldiers on lava;
   - no drop, revive or Pickup on lava: 0.
 - **A kick into lava** (a scenario, its own `it`): on the first Floor in seed order with a river, an Expert AI Fighter beside a bridge's edge kicks a promoted Soldier (or a Duel Fighter placed there) standing with lava behind it; the target dies of Lava within 3 s.

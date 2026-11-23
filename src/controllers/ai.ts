@@ -474,7 +474,7 @@ const SAFETY_PROBE = 0.8;
 /** ...and this far (m) to either side of where it looks. */
 const SAFETY_MARGIN = 0.1;
 /**
- * On a Delver Floor with Lava (`edgeKeep`) it walks no closer than this (m) to deadly ground (Lava, or no ground at all): the outward part of
+ * On a Delver Floor with Lava (`edgeKeep`) it walks no closer than this (m) to Lava: the outward part of
  * its move is dropped (a walk may still slide along the edge)...
  */
 const EDGE_KEEP = 0.5;
@@ -1705,7 +1705,7 @@ class RuleAi implements AiController {
     const { radius } = this.tuning.battle.ring;
     const to = { x: player.position.x + from.x * radius - self.position.x, z: player.position.z + from.z * radius - self.position.z };
     const face = Math.atan2(player.position.x - self.position.x, player.position.z - self.position.z);
-    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? this.safeMove(state, self, unit(to)) : ZERO };
+    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? (hasLava(this.world(state).arena) ? this.safeMove(state, self, unit(to)) : unit(to)) : ZERO };
   }
 
   /** Idle life for its next while of circling (`idleLife`, rolled with the side): a spacing of its own, maybe no circling, maybe a short pause first. */
@@ -2197,7 +2197,7 @@ class RuleAi implements AiController {
   /**
    * `intent` with the last guard against Lava, on a Delver Floor that has some, for every path that returns a raw walk (a step in on
    * its target, a route's corner, the waiting ring) and against what moves a body that gives no move at all (the other Fighters'
-   * capsules push it apart): on the ground, within EDGE_KEEP of deadly ground its move loses the part that goes toward it, and
+   * capsules push it apart): on the ground, within EDGE_KEEP of Lava its move loses the part that goes toward it, and
    * within EDGE_NEAR it steps inboard. Not in the air or in the run-up of a jump Link. Elsewhere (a Battle, a Duel, a Floor with no Lava) the
    * intent is returned as it is: a Duel's edges are the fight.
    */
@@ -2208,7 +2208,7 @@ class RuleAi implements AiController {
     const { stepUp } = tn.fall;
     const deadlyAt = (x: number, z: number): boolean => {
       const g = groundBelow(arena, x, z, self.y + stepUp);
-      return g === null || deadlyGround(arena, x, z, g.y) !== null;
+      return g !== null && deadlyGround(arena, x, z, g.y) === 'Lava';
     };
     const ring = (r: number): Vec2 | null => {
       let hx = 0;
@@ -2984,7 +2984,7 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
     return g !== null && from - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
   };
   let from = y;
-  for (const k of [0.25, 0.5, 1]) {
+  for (const k of hasLava(arena) ? [0.25, 0.5, 1] : [0.5, 1]) {
     const x = at.x + dir.x * SAFETY_PROBE * k;
     const z = at.z + dir.z * SAFETY_PROBE * k;
     const g = solid(x, z, from);

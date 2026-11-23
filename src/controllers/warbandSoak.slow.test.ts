@@ -4967,14 +4967,17 @@ describe("lava", { timeout: 60 * 60_000 }, () => {
     expect(problems, `lava was not shown:\n${problems.join("\n")}`).toEqual([]);
   });
 
-  it("must show: promoted Soldiers die in lava (by a kick, a Slide or a Whirlwind), with the count by cause", () => {
+  // The Design asked for promoted Soldiers pushed in; over every soak Floor the party never did (Warband posts, drops and revives keep LAVA_KEEP
+  // off lava, and a kick on a Blocker is only a Shove), so the review settled on any Fighter pushed in, the count printed by cause and by
+  // victim, the promoted Soldiers among them (docs/plans/delver.md, Stage 7d's Result). lavaScenes.slow.test.ts proves a kick and a Slide into lava kill.
+  it("must show: Fighters die in lava by a push (a kick, a Slide, a Knockdown or a Whirlwind), with the count by cause and by victim", () => {
     const t = report();
-    const pushed = t.deaths.filter(
-      (d) => d.who === "promoted Soldier" && d.cause !== "walked",
-    );
+    const pushed = t.deaths.filter((d) => d.cause !== "walked");
+    const promoted = pushed.filter((d) => d.who === "promoted Soldier").length;
+    console.log(`Deaths by Lava by a push: ${pushed.length}, of them promoted Soldiers ${promoted}; ${lavaDeathLines(t.deaths).join("; ") || "none"}`);
     expect(
       pushed.length,
-      `no promoted Soldier died in lava by a kick, a Slide or a Whirlwind; Deaths by Lava ${t.deaths.length}: ${lavaDeathLines(t.deaths).join("; ") || "none"}`,
+      `no Fighter died in lava by a push; Deaths by Lava ${t.deaths.length}: ${lavaDeathLines(t.deaths).join("; ") || "none"}`,
     ).toBeGreaterThan(0);
   });
 

@@ -1613,7 +1613,10 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const runs = gaps(floor, lo, hi);
         if (runs.length === 0) return null;
         const across = (a: number, b: number): Rect => (d % 2 === 0 ? { x0: a, z0: b0, x1: b, z1: b1 } : { x0: b0, z0: a, x1: b1, z1: b });
-        return { rects: runs.map(([a, b]) => across(a, b)).sort(byZX), bridges: floor.filter(([a, b]) => (a > lo && b < hi) || doorways.some(([d0, d1]) => a <= d0 && b >= d1)).map(([a, b]) => across(a, b)).sort(byZX) };
+        const bridges = floor.filter(([a, b]) => (a > lo && b < hi) || doorways.some(([d0, d1]) => a <= d0 && b >= d1)).map(([a, b]) => across(a, b)).sort(byZX);
+        // Every river has a crossing: with none the Hall stays plain.
+        if (bridges.length === 0) return null;
+        return { rects: runs.map(([a, b]) => across(a, b)).sort(byZX), bridges };
       };
       /** A pit with its centre band on side `d`: one rect, the bands `LAVA_BAND` but the centre side's `2 * LAVA_CENTRE`; null when an extent is under `PIT_MIN`. */
       const pit = (d: number): Rect | null => {
