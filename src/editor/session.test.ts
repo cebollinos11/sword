@@ -112,8 +112,8 @@ describe('EditorSession Motion overrides', () => {
 
   it('saves an unchanged override as the default it was copied from', () => {
     const session = new EditorSession(tuning);
-    session.createOverride('Longsword', 'Overhead');
-    expect(session.motionFile('Overhead', 'Longsword').text).toBe(session.motionFile('Overhead').text);
+    session.createOverride('Halberd', 'Right');
+    expect(session.motionFile('Right', 'Halberd').text).toBe(session.motionFile('Right').text);
   });
 
   it('refuses to save an override that drops a marker its Action needs', () => {
