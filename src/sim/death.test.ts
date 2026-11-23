@@ -172,3 +172,27 @@ describe('Death: the cut', () => {
     expect(blow).not.toHaveProperty('cut');
   });
 });
+
+describe('Lodge', () => {
+  /** Fighter 0 swings once at a victim; returns fighter 0's Attack action on the Tick of the Hit. */
+  function hitAction(t: TuningData) {
+    let s = createInitialState(t, 1, duelPlacements(1.3));
+    for (let i = 0; i < 2000; i++) {
+      s = step(s, [i === 0 ? attackIntent : IDLE_INTENT, IDLE_INTENT], t);
+      if (s.events.some((e) => e.type === 'Hit')) return s.fighters[0]!.action;
+    }
+    throw new Error('no Hit');
+  }
+
+  it('does not lodge the Weapon on a killing blow', () => {
+    const action = hitAction(tuning);
+    expect(action.kind).toBe('Attack');
+    expect(action).toMatchObject({ landed: true });
+    expect((action as { lodge?: number }).lodge).toBeUndefined();
+  });
+
+  it('still lodges the Weapon on a non-lethal Hit', () => {
+    const action = hitAction(loadTuningData());
+    expect((action as { lodge?: number }).lodge).toBeGreaterThan(0);
+  });
+});
