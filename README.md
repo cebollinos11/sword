@@ -30,6 +30,26 @@ Attack or Block while Sheathed Draws the Weapon first.
 - Jump, Throw and Sheathe pads: tap. The Sheathe pad reads Draw while you are Sheathed; tap it again to Draw.
 - ☰ opens the menu.
 
+### Gamepad (DualShock / Xbox, Standard mapping)
+
+| Input | Does |
+|---|---|
+| Left stick | Walk |
+| Right stick | Look; a hard flick aims Attack/Block Direction (and Feints a held Attack) |
+| R2 | Attack (hold = Wind-up, release = swing) |
+| L2 | Block |
+| ✕ / A | Jump |
+| □ / X | Kick |
+| ○ / B | Throw (hold) |
+| △ / Y | Sheathe / Draw |
+| L1 / LB | Feint |
+| R1 / RB | Whirlwind (hold to coil) |
+| L3 | Crouch |
+| D-pad | Aim Direction |
+| Options / Start | Pause menu |
+
+Use the keyboard for inventory (`I`) and the Floor map (`M`).
+
 ## Tests
 
 | Command | Runs | About |
