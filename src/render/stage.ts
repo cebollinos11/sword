@@ -4,6 +4,7 @@ import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, 
 import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
 import { sconceMeshes, sconcesOf, TorchLights, type Flame } from './delverTorches';
+import { LavaLights, lavaPointsOf, type LavaPoint } from './delverLava';
 import { CLUTTER, CLUTTER_SHADE, clutterEnabled, clutterModel, clutterOf } from './delverClutter';
 import { mapModel } from './mapModel';
 import { SEAM_SHADE, seamShadeMaterial } from './seamShade';
@@ -571,6 +572,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     return setting;
   }
   let torches: TorchLights | undefined;
+  let lava: LavaLights | undefined;
   /** A Delver Floor's clutter, shown or hidden each frame as the menu's setting says. */
   let clutter: THREE.Object3D | undefined;
   /** Whether the map's look has no sky, so its haze hides all past the fog (see `Setting.far`). */
@@ -604,6 +606,13 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
         torches = new TorchLights(flames);
         setting.root.add(torches.group);
       }
+      // A Delver Floor's lava glows: a pair of warm lights that follow the camera over the lava Halls (`delverLava`); a Floor with none keeps the pair, dark,
+      // so the number of lights never changes from Floor to Floor and no shader is recompiled.
+      const lavaPoints = model.userData.lava as readonly LavaPoint[] | undefined;
+      if (lavaPoints) {
+        lava = new LavaLights(lavaPoints);
+        setting.root.add(lava.group);
+      }
       // The look's dust, if it has any, is lit by the flames: a Delver Floor's that follow the camera, else the map's own torches.
       const dust = setting.root.children.find((o): o is Dustfall => o instanceof Dustfall);
       if (dust) {
@@ -624,6 +633,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     loaded,
     animate: (seconds, camera) => {
       torches?.update(camera, seconds);
+      lava?.update(camera, seconds);
       if (clutter) clutter.visible = clutterEnabled();
     },
     far: () => (skyless ? setting.fog.far + PAST_FOG : undefined),
@@ -666,6 +676,7 @@ function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
       if (o instanceof THREE.PointLight) fires.push({ x: o.position.x, y: o.position.y, z: o.position.z, colour: o.color.getHex() });
     });
     drawn.userData.flames = [...sconces, ...fires];
+    drawn.userData.lava = lavaPointsOf(floor.plan);
     // Its clutter (rubble, bones, cobwebs, chains, cracked tiles), its webs lit by those flames.
     drawn.add(clutterModel(clutterOf(floor.plan, draft.arena, { fireRadius: tuning.delver.fireRadius, flames: drawn.userData.flames as Flame[] })));
     model = drawnMapModel(drawn);

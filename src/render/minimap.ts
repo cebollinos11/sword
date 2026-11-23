@@ -15,6 +15,7 @@
 import { ATTACK, inDuel, presentPlayers, RESPAWN, traitorOf, type MapObjective, type MatchConfig, type SimState } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { objectiveLetter } from './objectiveMarks';
+import { LAVA_MAP_COLOUR } from './delverLava';
 import { delverDoorStubs, delverMapMarks, markLabel, type DelverMapStatus } from './delverMapMarks';
 import { ALLY, ENEMY, INK, INK_FADED, ME, paintArrow, paintPlan, paintStub, paintText, paperSheet, type PixelRect } from './parchment';
 import { isRevealed } from '../sim/delver/reveal';
@@ -170,6 +171,15 @@ export class Minimap {
       plan.passages.flatMap((p, i) => (isRevealed(revealed, plan.halls.length + i) ? p.pieces.map((piece) => box(piece.rect)) : [])),
       plan.halls.flatMap((h, i) => (isRevealed(revealed, i) ? h.rects.map((rect) => ({ ...box(rect), kind: h.kind })) : [])),
     );
+    // The revealed Halls' lava, orange over their floor (Stage 7d).
+    ctx.fillStyle = LAVA_MAP_COLOUR;
+    for (const h of plan.halls.filter((_, i) => isRevealed(revealed, i)))
+      for (const r of h.lava?.rects ?? []) {
+        const q = box(r);
+        const x = Math.round(Math.min(q.x0, q.x1));
+        const y = Math.round(Math.min(q.y0, q.y1));
+        ctx.fillRect(x, y, Math.max(1, Math.round(Math.max(q.x0, q.x1)) - x), Math.max(1, Math.round(Math.max(q.y0, q.y1)) - y));
+      }
     // Over the plan, so each opens its Hall's outline. On the minimap +z is up and +x left, so a stub against its Hall on side n fades downward
     // from its top, on e rightward from its left.
     for (const d of delverDoorStubs(plan, revealed)) paintStub(ctx, box(d.rect), STUB_EDGE[d.toward]);

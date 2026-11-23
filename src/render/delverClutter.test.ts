@@ -4,14 +4,11 @@ import { loadTuningData } from '../tuning';
 import { arenaOf } from '../sim/arena';
 import { arenaTuning, floorArenaName, floorOf } from '../sim/delver';
 import type { Rect } from '../mapEditor/source';
-import { noLava } from '../sim/delver/flat.testdata';
 import { hallBase } from '../sim/delver/plan';
 import { CLUTTER, CLUTTER_SHADE, clutterEnabled, clutterModel, clutterOf, setClutterEnabled, type Clutter } from './delverClutter';
 import { sconcesOf } from './delverTorches';
 
-// Stage 7d (Task 3): on `noLava`, the Floors these cases were written on. With lava on, clutter stands on the lava's surface (a heap at the lava's height, 4 m under its Hall's floor);
-// the render of lava (Task 6) must keep clutter off it, and then this runs on the shipped data again.
-const tuning = noLava(loadTuningData());
+const tuning = loadTuningData();
 const fireRadius = tuning.delver.fireRadius;
 
 const inside = (r: Rect, x: number, z: number, pad = 0): boolean => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;
@@ -102,6 +99,30 @@ describe('clutterOf', () => {
     }
     const mean = (k: string) => per.get(k)!.reduce((a, b) => a + b, 0) / per.get(k)!.length;
     expect(mean('busy')).toBeGreaterThan(mean('entrance') * 2);
+  });
+});
+
+describe('clutter and lava (Stage 7d)', () => {
+  it('keeps every heap, crack, chain and cobweb off lava and a metre clear of it, over a scan of shipped lava Floors', { timeout: 120_000 }, () => {
+    let lavaHalls = 0;
+    let items = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      for (const n of [1, 4, 7, 9]) {
+        const { plan, clutter } = floor(seed, n);
+        const rects = plan.halls.flatMap((h) => h.lava?.rects ?? []);
+        lavaHalls += plan.halls.filter((h) => h.lava).length;
+        const points = [
+          ...discs(clutter).map((d) => ({ x: d.x, z: d.z, pad: 1 + d.r })),
+          ...clutter.chains.map((c) => ({ x: c.x + c.nx * 0.5, z: c.z + c.nz * 0.5, pad: 1 })),
+          ...clutter.webs.map((w) => ({ x: w.hub.x, z: w.hub.z, pad: 0 })),
+        ];
+        items += points.length;
+        for (const p of points) for (const r of rects) expect(inside(r, p.x, p.z, p.pad), `seed ${seed} Floor ${n}: (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) by lava`).toBe(false);
+      }
+    }
+    // The scan met lava (else it proves nothing).
+    expect(lavaHalls).toBeGreaterThan(5);
+    expect(items).toBeGreaterThan(500);
   });
 });
 

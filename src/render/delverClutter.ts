@@ -5,7 +5,7 @@
  * the plan), so every peer draws the same.
  *
  * It keeps off the walking lines: only corners and wall bases, never a doorway, a Ramp, a gallery's Deck, a pit, a dais, round the Rest fire's
- * heal ring, the Treasure pedestals, the Stairs, the spawns or a Warband's post, and in a Passage only along its walls. How much there is goes
+ * heal ring, the Treasure pedestals, the Stairs, the spawns or a Warband's post, nor on or within a metre of a Hall's lava, and in a Passage only along its walls. How much there is goes
  * by the Hall's kind: most in Empty and Fight Halls, little in the Entrance.
  *
  * Cheap to draw (`clutterModel`): at most four draw calls a Floor. Stones, bones and chains are merged by material (`MeshBuckets`, low-poly
@@ -134,6 +134,8 @@ const BOSS_CLEAR = 2.5;
 const FIRE_CLEAR = 0.8;
 /** No chain within this (m) of a flame (a sconce's bracket). */
 const FLAME_CLEAR = 2;
+/** No clutter within this (m) of a Hall's lava (Stage 7d), nor a cobweb over it: a heap stands on floor, not on a Hole's rim, and a chain's foot never hangs over lava. */
+const LAVA_CLEAR = 1;
 /** Heights this close (m) are one floor. */
 const EPS = 0.04;
 
@@ -248,7 +250,7 @@ export function clutterOf(plan: FloorPlan, arena: ArenaGeometry, context: Clutte
           const yy = flatFloor(hx, hz, 0.9, below);
           if (yy !== null) heaps.push({ x: hx, y: yy, z: hz, r: 0.95 + 0.5 * v(2), dx: dx! * Math.SQRT1_2, dz: dz! * Math.SQRT1_2, bones: v(3) < 0.5 ? 1 + Math.floor(v(4) * 2) : 0, skull: v(5) < 0.25, id: `${h.id}:${ri}:c${ci}` });
         }
-        if (y !== null && v(6) < CHANCE.cornerWeb * density) {
+        if (y !== null && v(6) < CHANCE.cornerWeb * density && !(h.lava?.rects ?? []).some((q) => inside(q, hx, hz, 0.5))) {
           const top = ceilingAt(hx, hz, y, h.top);
           web(cornerWeb({ x: cx!, y: top, z: cz! }, { x: dx!, z: 0 }, { x: 0, z: dz! }, 1.3 + 1.1 * v(7)));
         }
@@ -305,6 +307,7 @@ export function clutterOf(plan: FloorPlan, arena: ArenaGeometry, context: Clutte
             for (const off of pair ? [-0.3, 0.3] : [0]) {
               const cx = px + tx * off;
               const cz = pz + tz * off;
+              if ((h.lava?.rects ?? []).some((q) => inside(q, cx + s.nx * 0.5, cz + s.nz * 0.5, LAVA_CLEAR))) continue;
               if (flames.some((f) => Math.hypot(f.x - cx, f.z - cz) < FLAME_CLEAR && Math.abs(f.y - top) < 2)) continue;
               chains.push({ x: cx, y: top, z: cz, nx: s.nx, nz: s.nz, links: 5 + Math.floor(v(off > 0 ? 3 : 4) * 4), shackle: v(5) < 0.7 });
             }
@@ -386,6 +389,8 @@ function keepOuts(h: DelverHall, hi: number, plan: FloorPlan, fireRadius: number
     if (f.kind === 'pit') add(f.pit);
     if (f.kind === 'dais') add(f.rect);
   }
+  // Lava (Stage 7d) is a Hole in the floor with the Hazard 4 m under it: nothing stands on or over it, nor within `LAVA_CLEAR` of it.
+  for (const q of h.lava?.rects ?? []) add(q, LAVA_CLEAR);
   const m = plan.markers;
   if (m.stairs.hall === hi) add(m.stairs.zone, 1);
   const discs: { x: number; z: number; r: number }[] = [];
