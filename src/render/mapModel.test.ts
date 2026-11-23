@@ -275,12 +275,16 @@ describe('the model of a Map Editor map', () => {
 describe('a Wall over lava (Delver, Stage 7d)', () => {
   // A pit (seed 10), a river (16) and a trough (3) on the first Floor: the Hall's Enclosure Wall stands from a metre under its floor.
   it.each([
-    [10, 'pit'],
-    [16, 'river'],
-    [3, 'trough'],
-  ] as const)('draws a Hall Wall down to the lava beside it (seed %i, a %s)', (seed, kind) => {
+    [10, 1, 'pit'],
+    [16, 1, 'river'],
+    [3, 1, 'trough'],
+    // A Hall with a roof (Floor 3's Boss Hall, a two-wall trough; Floor 5's river): the roof, a walk surface at the Wall's top, is no floor
+    // for the Wall to stand on, so the Wall still reaches the lava (it once stopped a metre under the Hall's floor, a black slot over the lava).
+    [10, 3, 'trough'],
+    [10, 5, 'river'],
+  ] as const)('draws a Hall Wall down to the lava beside it (seed %i, Floor %i, a %s)', (seed, n, kind) => {
     const tuning = loadTuningData();
-    const floor = floorOf(tuning, floorArenaName(seed, 1))!;
+    const floor = floorOf(tuning, floorArenaName(seed, n))!;
     const hall = floor.plan.halls.find((h) => h.lava?.kind === kind)!;
     expect(hall).toBeDefined();
     const root = mapModel(floor.source, compileDraft(floor.source, floor.battle));

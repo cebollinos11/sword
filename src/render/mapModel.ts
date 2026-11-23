@@ -203,6 +203,8 @@ function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number
       // The highest floor under the Wall's top there: if it is lava below the foot, the Wall stands over lava.
       let best: { y: number; lava: boolean } | null = null;
       for (const j of surfacesAt(arena, x, z)) {
+        // Not a roof (the Hall's own ceiling, which lies over the lava at the Wall's top and is no floor to stand on).
+        if (map.walk[j]!.roof) continue;
         const y = surfaceHeight(arena, j, x, z);
         if (y <= top + LEVEL_EPS && (best === null || y > best.y)) best = { y, lava: !!map.walk[j]!.lava };
       }
