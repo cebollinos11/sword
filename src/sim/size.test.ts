@@ -8,8 +8,8 @@ const duel = (...sizes: ({ height: number; thick: number } | undefined)[]): SimS
   createInitialState(tuning, 1, [{ position: { x: 0, z: -1 }, facing: 0 }, { position: { x: 0, z: 1 }, facing: Math.PI }], [], [], undefined, sizes);
 
 describe('Size', () => {
-  it('clamps to 0.6..1.4 in 0.05 steps and stores nothing for the standard body', () => {
-    expect(clampSize({ height: 3, thick: 0.1 })).toEqual({ height: 1.4, thick: 0.6 });
+  it('clamps to 0.7..1.4 in 0.05 steps and stores nothing for the standard body', () => {
+    expect(clampSize({ height: 3, thick: 0.1 })).toEqual({ height: 1.4, thick: 0.7 });
     expect(clampSize({ height: 1.03, thick: 0.97 })).toEqual({ height: 1.05, thick: 0.95 });
     expect(storedSize({ height: 1, thick: 1 })).toBeUndefined();
   });
@@ -20,17 +20,17 @@ describe('Size', () => {
   });
 
   it('stretches the Skeleton with height and widens it with thickness', () => {
-    const s = duel({ height: 1.4, thick: 0.6 }, undefined);
+    const s = duel({ height: 1.4, thick: 0.7 }, undefined);
     const tall = fighterPose(s.fighters[0]!, tuning);
     const std = fighterPose(s.fighters[1]!, tuning);
     expect(tall.joints.head.y / std.joints.head.y).toBeCloseTo(1.4, 1);
     const width = (p: typeof tall) => p.joints.rightShoulder.x - p.joints.leftShoulder.x;
-    expect(Math.abs(width(tall) / width(std))).toBeCloseTo(0.6, 1);
+    expect(Math.abs(width(tall) / width(std))).toBeCloseTo(0.7, 1);
   });
 
   it('makes a Fighter exactly as tall and armed as its height says, whatever its thickness', () => {
-    const slim = fighterPose(duel({ height: 0.6, thick: 0.6 }).fighters[0]!, tuning);
-    const wide = fighterPose(duel({ height: 0.6, thick: 1.4 }).fighters[0]!, tuning);
+    const slim = fighterPose(duel({ height: 0.7, thick: 0.7 }).fighters[0]!, tuning);
+    const wide = fighterPose(duel({ height: 0.7, thick: 1.4 }).fighters[0]!, tuning);
     expect(wide.joints.head.y).toBeCloseTo(slim.joints.head.y, 9);
     expect(wide.blade.tip.y).toBeCloseTo(slim.blade.tip.y, 9);
   });
@@ -72,7 +72,7 @@ describe('Size in a fight', () => {
     let far = 1.3;
     while (hit(far, [undefined, undefined])) far += 0.05;
     expect(hit(far, [{ height: 1.4, thick: 1 }, undefined])).toBe(true);
-    expect(hit(far - 0.05, [{ height: 0.6, thick: 1 }, undefined])).toBe(false);
+    expect(hit(far - 0.05, [{ height: 0.7, thick: 1 }, undefined])).toBe(false);
   });
 
   it('keeps the Fighter fighting normally with a stat-neutral build', () => {
