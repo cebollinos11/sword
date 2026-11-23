@@ -1,3 +1,4 @@
+import { applyLava } from './lavaMaterial';
 import * as THREE from 'three';
 import type { ArenaGeometry } from '../tuning';
 import { walkFans } from './colliderView';
@@ -142,6 +143,7 @@ export function battleGreybox(arena: ArenaGeometry): THREE.Group {
     const surfaces = arena.walk.filter((s) => s[kind]);
     if (surfaces.length === 0) continue;
     const material = new THREE.MeshLambertMaterial({ color, emissive: kind === 'lava' ? color : 0, emissiveIntensity: 0.6, side: THREE.DoubleSide });
+    if (kind === 'lava') applyLava(material);
     root.add(fanMesh(`greybox-${kind}`, walkFans(surfaces, 0.01), material));
   }
   const pit = abyss(arena);

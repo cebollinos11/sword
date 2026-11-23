@@ -7,6 +7,7 @@
  * keeps its colour (and a vertex colour its tint), times the slot's `tint`. Render-only. Textures are CC0 (public/textures/battle/CREDITS.txt).
  */
 import * as THREE from 'three';
+import { applyLava, isLava } from './lavaMaterial';
 
 /** A texture (public/textures/battle/<name>.png) and how many times it repeats per metre. */
 const TEXTURES = {
@@ -291,7 +292,9 @@ export function texturedModel(root: THREE.Object3D): void {
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-      const surface = surfaceOf((m as THREE.Material).name);
+      const name = (m as THREE.Material).name;
+      if (isLava(name)) applyLava(m as THREE.Material);
+      const surface = surfaceOf(name);
       if (surface) applyTriplanar(m as THREE.Material, surface);
     }
   });
