@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { flatFloors } from './delver/flat.testdata';
+import { LAVA_KEEP } from './delver/plan';
+import { flatFloors, noLava } from './delver/flat.testdata';
 import { arenaOf, deadly, surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { delverFloor } from './delver';
@@ -358,5 +359,96 @@ describe('dropSpots round pillars and in a shaped Hall (Stage 7b)', () => {
     const q = hall.pillars[0]!;
     const spots = dropSpots(f.plan, f.field.arena, lv, (q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2, 0, 2);
     expect(spots).toHaveLength(2);
+  });
+});
+
+describe('dropSpots and lava (Stage 7d)', () => {
+  const shipped = loadTuningData();
+  const KEEP2 = LAVA_KEEP * LAVA_KEEP;
+  /** Found by scanning seeds 1 to 40: Floors with a pit (10, 1), a river with one bridge (16, 1), a river with two (10, 5), a trough on one wall (1, 3) and on two (10, 3). */
+  const FLOORS = [[10, 1, 'pit'], [16, 1, 'river'], [10, 5, 'river'], [1, 3, 'trough'], [10, 3, 'trough']] as const;
+  const loaded = FLOORS.map(([seed, f, kind]) => {
+    const name = floorArenaName(seed, f);
+    const t = arenaTuning(shipped, name);
+    const plan = floorOf(shipped, name)!.plan;
+    return { kind, plan, t, arena: arenaOf(t, name), k: plan.halls.findIndex((h) => h.lava?.kind === kind) };
+  });
+  /** The squared ground distance (m) from (x, z) to the lava rect `q` seen from above, 0 over it. */
+  const lavaGap2 = (q: { x0: number; z0: number; x1: number; z1: number }, x: number, z: number) => {
+    const dx = x - Math.min(q.x1, Math.max(q.x0, x));
+    const dz = z - Math.min(q.z1, Math.max(q.z0, z));
+    return dx * dx + dz * dz;
+  };
+
+  it('has the kinds the Floors were found for', () => {
+    expect(loaded.map((c) => c.k >= 0)).toEqual([true, true, true, true, true]);
+  });
+
+  it('lays every spot at least LAVA_KEEP from the Hall\'s lava, on the Hall\'s floor, for a fall at the middle of each lava rect (count 1, 3 and 8)', () => {
+    for (const { plan, t, arena, k, kind } of loaded) {
+      const h = plan.halls[k]!;
+      const lava = h.lava!;
+      for (const q of lava.rects) {
+        for (const count of [1, 3, 8]) {
+          const spots = dropSpots(plan, arena, t.battle.levels, (q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2, lava.y, count);
+          expect(spots).toHaveLength(count);
+          for (const s of spots) {
+            for (const r of lava.rects) expect(lavaGap2(r, s.x, s.z), `${kind} ${h.id}`).toBeGreaterThanOrEqual(KEEP2 - 1e-9);
+            const ground = floorNear(arena, s.x, s.z, h.y);
+            expect(ground, `${kind} ${h.id} at ${s.x}, ${s.z}`).toBeGreaterThanOrEqual(0);
+            expect(deadly(arena.walk[ground]!)).toBeFalsy();
+            expect(s.y).toBeCloseTo(surfaceHeight(arena, ground, s.x, s.z), 9);
+            expect(s.y).toBeCloseTo(h.y, 9);
+            expect(h.rects.some((r) => s.x >= r.x0 && s.x <= r.x1 && s.z >= r.z0 && s.z <= r.z1)).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('is pure: the same fall gives the same spots', () => {
+    const { plan, t, arena, k } = loaded[1]!;
+    const q = plan.halls[k]!.lava!.rects[0]!;
+    const at = (x: number) => dropSpots(plan, arena, t.battle.levels, x, (q.z0 + q.z1) / 2, plan.halls[k]!.lava!.y, 5);
+    expect(at(q.x0 + 1)).toEqual(at(q.x0 + 1));
+  });
+
+  it('lays spots in a lava Floor\'s Hall without lava, and on its Passages, as before: inside the rect, the first the point clamped in', () => {
+    for (const { plan, t, arena } of loaded) {
+      const k = plan.halls.findIndex((h, i) => i !== plan.entrance && !h.lava && h.rects.length === 1 && h.pillars.length === 0 && h.feature === undefined);
+      const h = plan.halls[k]!;
+      const r = h.rects[0]!;
+      const spots = dropSpots(plan, arena, t.battle.levels, h.cx, h.cz, h.y, 3);
+      expect(spots[0]).toEqual({ x: Math.min(r.x1 - DROP_MARGIN, Math.max(r.x0 + DROP_MARGIN, h.cx)), y: expect.any(Number), z: Math.min(r.z1 - DROP_MARGIN, Math.max(r.z0 + DROP_MARGIN, h.cz)) });
+      for (const s of spots) expect(s.x >= r.x0 + DROP_MARGIN && s.x <= r.x1 - DROP_MARGIN && s.z >= r.z0 + DROP_MARGIN && s.z <= r.z1 - DROP_MARGIN).toBe(true);
+      const piece = plan.passages[0]!.pieces[Math.floor(plan.passages[0]!.pieces.length / 2)]!.rect;
+      const inPass = dropSpots(plan, arena, t.battle.levels, (piece.x0 + piece.x1) / 2, (piece.z0 + piece.z1) / 2, 0, 2);
+      expect(inPass).toHaveLength(2);
+    }
+  });
+
+  it('gives the same spots on a Floor without lava as the rect alone does', () => {
+    const flat = noLava(shipped);
+    const name = floorArenaName(10, 1);
+    const f = floorOf(flat, name)!;
+    const arena = arenaOf(arenaTuning(flat, name), name);
+    const h = f.plan.halls.find((q) => q.rects.length === 1 && q.pillars.length === 0)!;
+    const r = h.rects[0]!;
+    const spots = dropSpots(f.plan, arena, flat.battle.levels, r.x0 - 3, h.cz, h.y, 1);
+    expect(spots[0]!.x).toBeGreaterThanOrEqual(r.x0 + DROP_MARGIN);
+  });
+
+  it('warbandDrops lays a fall on lava off it', () => {
+    const { crowd, t } = floor(1);
+    const q = crowd.warbands!.rank.indexOf(ELITE);
+    const { plan, arena, k } = loaded[0]!;
+    const h = plan.halls[k]!;
+    const r = h.lava!.rects[0]!;
+    const drops = warbandDrops(t, config, plan, arena, crowd, q, { x: (r.x0 + r.x1) / 2, y: h.lava!.y, z: (r.z0 + r.z1) / 2 }, SEED, 1, 0);
+    expect(drops.length).toBeGreaterThan(0);
+    for (const d of drops) {
+      expect(lavaGap2(r, d.at.x, d.at.z)).toBeGreaterThanOrEqual(KEEP2 - 1e-9);
+      expect(d.at.y).toBeCloseTo(h.y, 9);
+    }
   });
 });

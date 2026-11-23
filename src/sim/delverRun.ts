@@ -20,7 +20,8 @@ import { deployWarbands, warbandHomes } from './delver/warbands';
 import { isBossFloor } from './delver/troops';
 import { emptyReveal, fullReveal, revealPlace, withReveal } from './delver/reveal';
 import { BOSS, warbandBrain } from './warband';
-import type { FloorPlan } from './delver/plan';
+import { LAVA_KEEP, lavaDry, type FloorPlan } from './delver/plan';
+import type { Rect } from '../mapEditor/source';
 import { runSeed } from './dungeon';
 import { inDuel } from './duel';
 import { stairsCounters, stairsTicksNeeded, presentPlayers, runPlayers, standsWithin, ZONE_HEIGHT } from './party';
@@ -200,11 +201,11 @@ function reviveFallen(
   };
 }
 
-/** The Hall rect or Passage piece of `plan` that holds (x, z), or undefined (a doorway's seam, a solid). Halls first, as the Reveal finds a place. */
-function placeRect(plan: FloorPlan, x: number, z: number): { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number } | undefined {
-  const holds = (r: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
-  for (const hall of plan.halls) for (const r of hall.rects) if (holds(r)) return r;
-  for (const pass of plan.passages) for (const piece of pass.pieces) if (holds(piece.rect)) return piece.rect;
+/** The Hall rect or Passage piece of `plan` that holds (x, z) and the index of its Hall (-1 for a Passage piece), or undefined (a doorway's seam, a solid). Halls first, as the Reveal finds a place. */
+function placeRect(plan: FloorPlan, x: number, z: number): { readonly rect: Rect; readonly hall: number } | undefined {
+  const holds = (r: Rect) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+  for (const [k, hall] of plan.halls.entries()) for (const r of hall.rects) if (holds(r)) return { rect: r, hall: k };
+  for (const pass of plan.passages) for (const piece of pass.pieces) if (holds(piece.rect)) return { rect: piece.rect, hall: -1 };
   return undefined;
 }
 
@@ -214,7 +215,7 @@ function placeRect(plan: FloorPlan, x: number, z: number): { readonly x0: number
  * and `ItemUsed`. A use that would do nothing is refused and keeps the item: a Health Potion at full HP, a Map on a Floor all revealed, a Resurrection Stone
  * with no Team 0 Fighter fallen. `healFull` heals its user to its max HP; `revealFloor` reveals the whole Floor for the party (`fullReveal`);
  * `reviveFallen` brings every fallen Team 0 Fighter back round its user at `dungeon.revive` of max HP, each kept inside its user's Hall rect or Passage
- * piece (REVIVE_MARGIN from the edges). Pure; the same Duel and Run when nothing is used.
+ * piece (REVIVE_MARGIN from the edges); in a Hall with lava, inside the rect of the Hall's floor at least `LAVA_KEEP` from its lava (`lavaDry`) nearest the spot (the first on a tie) instead, so no one rises on or beside lava. Pure; the same Duel and Run when nothing is used.
  */
 export function useConsumables(
   duel: SimState,
@@ -242,10 +243,18 @@ export function useConsumables(
     events.push({ type: 'ItemUsed', fighter: i, item: spent.item, effect });
     if (full) next = { ...next, revealed: full };
     if (effect === 'reviveFallen') {
-      const r = placeRect(plan, f.position.x, f.position.z);
+      const placed = placeRect(plan, f.position.x, f.position.z);
       const clamp = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
-      const fit = (at: { readonly x: number; readonly z: number }) =>
-        r ? { x: clamp(at.x, r.x0 + REVIVE_MARGIN, r.x1 - REVIVE_MARGIN), z: clamp(at.z, r.z0 + REVIVE_MARGIN, r.z1 - REVIVE_MARGIN) } : at;
+      const dry = placed && placed.hall >= 0 && plan.halls[placed.hall]!.lava ? lavaDry(plan.halls[placed.hall]!, LAVA_KEEP) : null;
+      const gap2 = (b: Rect, x: number, z: number) => (x - Math.min(b.x1, Math.max(b.x0, x))) ** 2 + (z - Math.min(b.z1, Math.max(b.z0, z))) ** 2;
+      const fit = (at: { readonly x: number; readonly z: number }) => {
+        let r: Rect | undefined = placed?.rect;
+        if (dry && dry.length > 0) {
+          r = dry[0]!;
+          for (const e of dry) if (gap2(e, at.x, at.z) < gap2(r, at.x, at.z)) r = e;
+        }
+        return r ? { x: clamp(at.x, r.x0 + REVIVE_MARGIN, r.x1 - REVIVE_MARGIN), z: clamp(at.z, r.z0 + REVIVE_MARGIN, r.z1 - REVIVE_MARGIN) } : at;
+      };
       duel = reviveFallen(duel, t, arena, { x: f.position.x, y: f.y, z: f.position.z }, t.dungeon.revive, STONE_REVIVE, events, fit);
     }
   }

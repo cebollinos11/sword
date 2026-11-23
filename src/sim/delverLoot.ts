@@ -6,7 +6,7 @@
  */
 import { carriedRarity, type ArenaGeometry, type LevelsTuning, type TuningData } from '../tuning';
 import type { CrowdState } from './crowd';
-import type { FloorPlan } from './delver/plan';
+import { LAVA_KEEP, lavaDry, type FloorPlan } from './delver/plan';
 import { surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { tierOf } from './delver/troops';
@@ -117,14 +117,23 @@ function rectOf(plan: FloorPlan, x: number, z: number): Chosen {
 
 /**
  * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the rect of a Hall's `rects` holding the point (so a fall in an L's arm lays its spots in that arm), else the rect of the Passage piece (leg or corner) holding it, else
- * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. A candidate within `DROP_MARGIN` of a pillar of the Hall R belongs to
+ * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. In a Hall with lava, R is instead the rect of the Hall's floor at least `LAVA_KEEP` from its lava (`lavaDry`) nearest the fall point (the first on a tie), so every spot lies at least `LAVA_KEEP` + `DROP_MARGIN` from the lava, and the floor is looked up at the Hall's own height (the fall's `y` is the lava's when a Fighter fell in). A candidate within `DROP_MARGIN` of a pillar of the Hall R belongs to
  * (nearer than it, or inside it) is skipped, as one too near a taken spot is; if no candidate is left, the one spot is the fall point clamped into R (the first candidate), so there is always one. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
  * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the floor nearest the fall's height `y` (`floorNear` of the Floor's `arena`: neither deadly nor a roof, above or below `y`; so a fall on a Deck lies on the Deck, one beside it on the floor, one on a Ramp on the Ramp), at `y` itself where there is none. Pure.
  */
 export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuning, x: number, z: number, y: number, count: number): PickupAt[] {
   if (count <= 0) return [];
-  const { rect: r, hall } = rectOf(plan, x, z);
+  const chosen = rectOf(plan, x, z);
+  const hall = chosen.hall;
+  const lava = hall >= 0 && plan.halls[hall]!.lava !== undefined;
+  let r: Box = chosen.rect;
+  if (lava) {
+    const dry = lavaDry(plan.halls[hall]!, LAVA_KEEP);
+    r = dry[0] ?? r;
+    for (const e of dry) if (gap2(e, x, z) < gap2(r, x, z)) r = e;
+    y = plan.halls[hall]!.y;
+  }
   const pillars = hall >= 0 ? plan.halls[hall]!.pillars : [];
   // A rect narrower than twice the margin shrinks to its middle line.
   const span = (lo: number, hi: number): [number, number] => (lo + DROP_MARGIN > hi - DROP_MARGIN ? [(lo + hi) / 2, (lo + hi) / 2] : [lo + DROP_MARGIN, hi - DROP_MARGIN]);
