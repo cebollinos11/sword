@@ -2540,7 +2540,7 @@ DelverHall += lava?: DelverLava   /* written after `feature`; absent: none */
 
 **8. The render** (Task 6, render only, never an outcome):
 - **Walls over lava**: in `mapModel.ts`, a Wall whose foot stands over lava (a Hall Wall above a trough's or a river's end) is drawn down to the lava's height, so no gap shows under it.
-- **Light**: one warm point light per lava Hall (colour 0xff5a18, as the chamber's `LIGHT_lava`), 1 m over the centre of its largest lava rect; only the 4 nearest the camera are on in a frame.
+- **Light**: one warm point light per lava Hall (colour 0xff5a18, as the chamber's `LIGHT_lava`), 1 m over the centre of its largest lava rect; only the 2 nearest the camera are on in a frame (Task 6 and the review: a fixed pool of 2, `LAVA_POOL`, on every Delver Floor, so a Floor's light count, and with it three.js's shader programs, is the same with lava or without; 4 was the first plan).
 - **Maps**: the minimap (`Minimap.drawDelver`) and the Floor Map (`delverMapLayout`, `floorMapView`) draw a revealed Hall's lava rects in lava orange over its floor.
 
 **9. Existing tests this sub-stage rewrites** (only these):
