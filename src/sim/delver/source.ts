@@ -21,6 +21,10 @@ export const pieceId = (p: Pick<DelverPassage, 'id' | 'pieces'>, k: number): str
 /** The Brush id of Hall `hall`'s step `n` (a split's, a pit's or a dais's Ramp, from 0 in the feature's order). */
 export const stepId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-step${n}`;
 
+/** The Brush ids of Hall `hall`'s lava rect `n` (Stage 7d): the Hole in its floor and the lava Hazard under it. */
+export const holeId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-hole${n}`;
+export const lavaId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-lava${n}`;
+
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
 export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
 
@@ -40,7 +44,7 @@ const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's']
 
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
- * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims or a dais, then its step Ramps), a Ramp along each sloped leg, then (Stage 7b) each Hall's
+ * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims or a dais, then its step Ramps), then (Stage 7d) each lava Hall's lava (for each lava rect, a Hole in the Hall's floor and then a lava Hazard `LAVA_DEPTH` under it, so every lava edge is an open ledge), a Ramp along each sloped leg, then (Stage 7b) each Hall's
  * Blocks (its solids, which cut its shape out of its rect, and then its pillars), each from the Hall's floor to its ceiling, and the markers for the eye. A Hall with no solid or pillar writes no Block. Levels stand at every height a
  * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery or a feature asks for shortcut jump Links. A Hall's Enclosure stands at `hallBase` (a split's lowest tier).
  */
@@ -69,6 +73,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     if (f?.kind === 'split') for (const t of f.tiers) heights.add(t.y);
     else if (f?.kind === 'pit') heights.add(f.rim);
     else if (f?.kind === 'dais') heights.add(f.y);
+    if (h.lava) heights.add(h.lava.y);
   }
   for (const sp of spans) {
     heights.add(sp.lo);
@@ -99,6 +104,14 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     if (f.kind === 'pit') return [...f.rims.map((rect, n): Brush => ({ kind: 'platform', id: `${h.id}-rim${n}`, rect, top: f.rim, material: HALL_MATERIAL[h.kind] })), ...steps];
     return [{ kind: 'platform', id: `${h.id}-dais`, rect: f.rect, top: f.y, material: 'stone' }, ...steps];
   });
+  // Each lava Hall's lava (Stage 7d) in index order: for each rect n, a Hole in the Hall's floor (`<hall>-hole<n>`, at the Hall's height, which takes the floor away from the Enclosure
+  // and the Brushes before it) and then the lava Hazard under it (`<hall>-lava<n>`). Soldiers never drop that far, so no field joins the lava; a Fighter over the edge dies in it.
+  const lava: Brush[] = plan.halls.flatMap((h): Brush[] =>
+    (h.lava?.rects ?? []).flatMap((rect, n): Brush[] => [
+      { kind: 'hole', id: holeId(h, n), rect, y: h.y },
+      { kind: 'hazard', id: lavaId(h, n), rect, y: h.lava!.y, hazard: 'lava' },
+    ]),
+  );
   const slopes: Brush[] = spans.flatMap(({ q, id, lo, hi }): Brush[] =>
     lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
   );
@@ -131,7 +144,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     size: fieldSize,
     grid: { step: 0.5, cell: 2 },
     levels,
-    brushes: [abyss, ...halls, ...passages, ...galleries, ...features, ...slopes, ...blocks],
+    brushes: [abyss, ...halls, ...passages, ...galleries, ...features, ...lava, ...slopes, ...blocks],
     objectives: [
       { id: 'D', x: entrance.cx, z: entrance.cz, ...(entrance.y === 0 ? {} : { y: entrance.y }), weight: 1, owner: 0, spawn: true },
       { id: 'E', x: stairs.cx, z: stairs.cz, ...(stairs.y === 0 ? {} : { y: stairs.y }), weight: 1, owner: 1, spawn: true },

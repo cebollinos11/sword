@@ -1,9 +1,16 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
-import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
+import { buildFloor, delverFloor, floorName, holeId, isFloorName, lavaId, pieceId, planFloor, floorSource, type BuiltFloor, type DelverFloor, type DelverHall, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, fullFloors, plainHalls } from './flat.testdata';
+import { flatHalls, flatRooms, fullFloors, lava7d, noLava, plainHalls } from './flat.testdata';
+import { floorTuningOf, isBossFloor, tierOf } from './troops';
+import { deadly, groundBelow } from '../arena';
+import { groundNear, trace, walled, walkCheck } from '../levels';
+import { navMesh } from '../nav';
+import { fieldAt } from './judge';
+import { nodeIn, cellAt } from '../destinations';
+import { LAVA_DEPTH } from './plan';
 import { HALL_STOREY, hallBase, PASSAGE_STOREY } from './plan';
 
 describe('isFloorName', () => {
@@ -303,4 +310,209 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
     }
   }, 300_000);
+});
+
+import { distanceTo } from '../destinations';
+const distToCentre = (b: BuiltFloor, x: number, z: number, s: number) => distanceTo(b.fields, x, z, s);
+
+describe('a Floor\'s source with lava (Stage 7d)', () => {
+  const bundled = loadTuningData();
+  const on = lava7d(bundled);
+  const planOf = (tuning: typeof on, seed: number, floor: number) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+  // Found by scanning seeds 1 to 60, Floors 1 to 9: a trough Hall (one wall, then two), a pit, a river with one bridge and one with two.
+  const PAIRS = [[1, 1, 'trough'], [3, 1, 'trough'], [1, 7, 'pit'], [1, 8, 'river'], [1, 9, 'river']] as const;
+  const floors = PAIRS.map(([seed, floor, kind]) => ({ seed, floor, kind, plan: planOf(on, seed, floor) }));
+  let built: BuiltFloor[];
+  beforeAll(() => {
+    built = floors.map((f) => buildFloor(on, f.plan));
+  }, 120_000);
+  const lavaHalls = (b: BuiltFloor): DelverHall[] => b.plan.halls.filter((h) => h.lava);
+  
+  it('has a pit, a river with two bridges, a river with one and troughs among its Floors', () => {
+    const kinds = floors.flatMap((f) => f.plan.halls.flatMap((h) => (h.lava ? [h.lava.kind + (h.lava.kind === 'river' ? h.lava.bridges.length : '')] : [])));
+    for (const k of ['pit', 'river1', 'river2', 'trough']) expect(kinds).toContain(k);
+  });
+
+  it('writes a Hole at the Hall\'s height then a lava Hazard LAVA_DEPTH under it for each lava rect, after the features and before the slopes, and `levels` holds the lava\'s y', () => {
+    for (const b of built) {
+      const ids = b.source.brushes.map((br) => br.id);
+      const expected: Brush[] = b.plan.halls.flatMap((h) =>
+        (h.lava?.rects ?? []).flatMap((rect, n): Brush[] => [
+          { kind: 'hole', id: holeId(h, n), rect, y: h.y },
+          { kind: 'hazard', id: lavaId(h, n), rect, y: h.lava!.y, hazard: 'lava' },
+        ]),
+      );
+      expect(expected.length).toBeGreaterThan(0);
+      const first = ids.indexOf(expected[0]!.id);
+      expect(b.source.brushes.slice(first, first + expected.length)).toEqual(expected);
+      expect(b.source.brushes.filter((br) => br.id.includes('-hole') || br.id.includes('-lava'))).toHaveLength(expected.length);
+      // After the last feature Brush and gallery, before the first slope Ramp and the first Block.
+      const featureAt = ids.reduce((m, id, i) => (/-(tier|rim\d|dais|step\d|deck\d*|ramp)$/.test(id) && !id.includes('pass') ? i : m), -1);
+      expect(first).toBeGreaterThan(featureAt);
+      const slopeAt = b.source.brushes.findIndex((br) => br.id.endsWith('-ramp') && br.id.startsWith('pass'));
+      if (slopeAt >= 0) expect(first + expected.length).toBeLessThanOrEqual(slopeAt);
+      const blockAt = b.source.brushes.findIndex((br) => br.kind === 'block');
+      if (blockAt >= 0) expect(first + expected.length).toBeLessThanOrEqual(blockAt);
+      for (const h of lavaHalls(b)) {
+        expect(h.lava!.y).toBe(h.y - LAVA_DEPTH);
+        expect(b.source.levels).toContain(h.lava!.y);
+      }
+      expect(b.source.levels).toEqual([...new Set(b.source.levels)].sort((x, y) => x - y));
+      expect(b.source.shortcuts === true).toBe(b.plan.halls.some((h) => h.gallery || h.feature));
+    }
+  });
+
+  it('compiles (its walk check included) and passes `walkCheck`', () => {
+    for (const b of built) expect(walkCheck(b.field.arena, b.battle.levels)).toBeNull();
+  });
+
+  it('puts lava ground 4 m under the floor at each lava rect\'s centre', () => {
+    for (const b of built)
+      for (const h of lavaHalls(b))
+        for (const r of h.lava!.rects) {
+          const x = (r.x0 + r.x1) / 2;
+          const z = (r.z0 + r.z1) / 2;
+          const g = groundBelow(b.field.arena, x, z, h.y + b.battle.levels.stepUp);
+          expect(g, `${h.id} ${JSON.stringify(r)}`).not.toBeNull();
+          expect(deadly(b.field.arena.walk[g!.surface]!)).toBe('Lava');
+          expect(g!.y).toBe(h.y - LAVA_DEPTH);
+        }
+  });
+
+  it('stands no Wall along a lava edge that lies inside the Hall (an open ledge)', () => {
+    let edges = 0;
+    for (const b of built) {
+      const { arena } = b.field;
+      const lv = b.battle.levels;
+      for (const h of lavaHalls(b))
+        for (const r of h.lava!.rects) {
+          const sides = [
+            { on: r.z0 > h.rect.z0, at: (t: number) => [[t, r.z0 - 0.5], [t, r.z0 + 0.5]], lo: r.x0, hi: r.x1 },
+            { on: r.z1 < h.rect.z1, at: (t: number) => [[t, r.z1 + 0.5], [t, r.z1 - 0.5]], lo: r.x0, hi: r.x1 },
+            { on: r.x0 > h.rect.x0, at: (t: number) => [[r.x0 - 0.5, t], [r.x0 + 0.5, t]], lo: r.z0, hi: r.z1 },
+            { on: r.x1 < h.rect.x1, at: (t: number) => [[r.x1 + 0.5, t], [r.x1 - 0.5, t]], lo: r.z0, hi: r.z1 },
+          ];
+          for (const sd of sides) {
+            if (!sd.on) continue;
+            for (let t = sd.lo + 0.5; t < sd.hi; t += 0.5) {
+              const [[px, pz], [qx, qz]] = sd.at(t) as [[number, number], [number, number]];
+              expect(walled(arena, lv, px!, pz!, qx!, qz!, h.y), `${h.id} edge at ${px},${pz}`).toBe(false);
+              edges++;
+            }
+          }
+        }
+    }
+    expect(edges).toBeGreaterThan(0);
+  });
+
+  it('refuses a Soldier\'s walk from the floor onto lava, and allows one across a river\'s bridge', () => {
+    let tried = 0;
+    let bridges = 0;
+    for (const b of built) {
+      const { arena } = b.field;
+      const lv = b.battle.levels;
+      for (const h of lavaHalls(b))
+        for (const r of h.lava!.rects) {
+          const cx = (r.x0 + r.x1) / 2;
+          const cz = (r.z0 + r.z1) / 2;
+          // A point 1 m off the middle of each side that stands on the Hall's floor.
+          const outs = [[cx, r.z0 - 1], [cx, r.z1 + 1], [r.x0 - 1, cz], [r.x1 + 1, cz]] as const;
+          let any = false;
+          for (const [x, z] of outs) {
+            const s = groundNear(arena, lv, x, z, h.y);
+            if (s < 0 || deadly(arena.walk[s]!)) continue;
+            const g = groundBelow(arena, x, z, h.y + lv.stepUp);
+            if (!g || Math.abs(g.y - h.y) > 1e-6 || h.rect.x0 > x || x > h.rect.x1 || h.rect.z0 > z || z > h.rect.z1) continue;
+            any = true;
+            tried++;
+            expect(trace(arena, lv, s, x, z, cx, cz, true), `${h.id} onto ${JSON.stringify(r)}`).toBe(-1);
+          }
+          expect(any, `${h.id} ${JSON.stringify(r)} has a floor beside it`).toBe(true);
+        }
+      for (const h of lavaHalls(b))
+        for (const br of h.lava!.bridges) {
+          const acrossZ = h.lava!.walls[0] === 'n' || h.lava!.walls[0] === 's';
+          const mx = (br.x0 + br.x1) / 2;
+          const mz = (br.z0 + br.z1) / 2;
+          const [ax, az, bx, bz] = acrossZ ? [mx, br.z0 - 1, mx, br.z1 + 1] : [br.x0 - 1, mz, br.x1 + 1, mz];
+          const s = groundNear(arena, lv, ax, az, h.y);
+          expect(s).toBeGreaterThanOrEqual(0);
+          expect(trace(arena, lv, s, ax, az, bx, bz, true), `${h.id} across its bridge`).toBeGreaterThanOrEqual(0);
+          bridges++;
+        }
+    }
+    expect(tried).toBeGreaterThan(0);
+    expect(bridges).toBeGreaterThan(0);
+  });
+
+  it('joins no floor node to a lava node in the destination fields, and reaches each bridge', () => {
+    let lavaNodes = 0;
+    for (const b of built) {
+      const { arena } = b.field;
+      const { fields } = b;
+      for (const h of lavaHalls(b)) {
+        const cs = groundNear(arena, b.battle.levels, h.cx, h.cz, h.y);
+        const d = distToCentre(b, h.cx, h.cz, cs);
+        expect(fieldAt(fields, d, h.cx, h.cz, cs)).toBeGreaterThanOrEqual(0);
+        for (const r of h.lava!.rects)
+          for (let x = 2 * Math.ceil(r.x0 / 2); x <= r.x1; x += 2)
+            for (let z = 2 * Math.ceil(r.z0 / 2); z <= r.z1; z += 2) {
+              if (x <= r.x0 || x >= r.x1 || z <= r.z0 || z >= r.z1) continue;
+              const g = groundBelow(arena, x, z, h.y - LAVA_DEPTH + 0.1)!;
+              const node = nodeIn(fields, cellAt(fields, x, z), g.surface);
+              expect(node).toBeGreaterThanOrEqual(0);
+              expect(d[node]!, `${h.id} lava node at ${x},${z}`).toBe(-1);
+              lavaNodes++;
+            }
+        for (const br of h.lava!.bridges) {
+          const x = (br.x0 + br.x1) / 2;
+          const z = (br.z0 + br.z1) / 2;
+          const s = groundNear(arena, b.battle.levels, x, z, h.y);
+          expect(fieldAt(fields, d, x, z, s), `${h.id} bridge centre`).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+    expect(lavaNodes).toBeGreaterThan(0);
+  });
+
+  it('gives the navmesh no Link onto or off lava and no jump Link that takes off or lands in a lava rect', () => {
+    for (const b of built) {
+      const { arena } = b.field;
+      const mesh = navMesh(arena, on);
+      const bad = mesh.links.filter((l) => arena.walk[l.from]!.lava || arena.walk[l.to]!.lava);
+      expect(bad).toHaveLength(0);
+      const rects = lavaHalls(b).flatMap((h) => h.lava!.rects);
+      const inside = (x: number, z: number) => rects.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1);
+      const jumps = mesh.links.filter((l) => l.kind === 'jump' && (inside(l.takeoff.x, l.takeoff.z) || inside(l.lands.x, l.lands.z)));
+      expect(jumps.length, `jump Links in lava rects: ${jumps.length}; near lava: ${mesh.links.filter((l) => l.kind === 'jump').length} jumps in all`).toBe(0);
+    }
+  }, 120_000);
+
+  it('puts no Wall on a 2 m destination-field cell centre (checkMap)', () => {
+    const at2 = { ...on, battle: { ...on.battle, crowd: { ...on.battle.crowd, flowCell: 2 } } };
+    for (const b of built) expect(checkMap(b.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+  }, 120_000);
+
+  it('writes today\'s source, byte for byte, with lava off', () => {
+    const off = noLava(bundled);
+    for (const t of [bundled, off])
+      for (const [seed, floor] of [[1, 1], [3, 1], [1, 7], [1, 8], [1, 9], [2, 4]] as const) {
+        const plan = planOf(t, seed, floor);
+        expect(plan.halls.some((h) => h.lava)).toBe(false);
+        const source = floorSource(plan, t.battle.field.size);
+        expect(source.brushes.some((br) => br.id.includes('-hole') || br.id.includes('-lava'))).toBe(false);
+        const bare = { ...plan, halls: plan.halls.map(({ lava: _l, ...h }) => h as DelverHall) };
+        expect(JSON.stringify(source)).toBe(JSON.stringify(floorSource(bare, t.battle.field.size)));
+      }
+  });
+
+  it('is a lava-free Floor\'s source plus the lava Brushes and levels when the same plan keeps its lava', () => {
+    for (const b of built) {
+      const bare = { ...b.plan, halls: b.plan.halls.map(({ lava: _l, ...h }) => h as DelverHall) };
+      const without = floorSource(bare, on.battle.field.size);
+      const stripped = b.source.brushes.filter((br) => !/-(hole|lava)\d+$/.test(br.id));
+      expect(stripped).toEqual(without.brushes);
+    }
+  });
 });
