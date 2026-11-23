@@ -65,6 +65,27 @@ export interface DelverHall {
   readonly gallery?: DelverGallery;
   /** A split, a pit or a dais (Stage 7c); absent: none. A Hall has at most one of a gallery and a feature. */
   readonly feature?: DelverFeature;
+  /** Lava (Stage 7d): a pit, a river or troughs; absent: none. A Hall with lava has no gallery, feature, shape or pillars. */
+  readonly lava?: DelverLava;
+}
+
+/** What a Hall's lava is (docs/plans/delver.md, Stage 7d): one rect in its middle ringed by floor, a band from wall to wall cut by bridges, or strips along one or two walls. */
+export type LavaKind = 'pit' | 'river' | 'trough';
+
+/**
+ * A Hall's lava (Stage 7d): the kit's `lava` Hazard `LAVA_DEPTH` under the Hall's floor, a Death by Lava for anyone who walks, falls or is knocked
+ * over its edge. Each rect is a Hole in the floor with the Hazard under it; the Hall's `rects` (its floor less solids) still hold them.
+ */
+export interface DelverLava {
+  readonly kind: LavaKind;
+  /** A pit: [the side of the band holding the Hall's centre]; a river: [its bank wall]; troughs: their walls, one or two, in pick order. */
+  readonly walls: readonly Side[];
+  /** The lava seen from above, ascending z then x: each a Hole in the Hall's floor and a lava Hazard `LAVA_DEPTH` under it. */
+  readonly rects: readonly Rect[];
+  /** Its height (m): the Hall's `y` - `LAVA_DEPTH`. */
+  readonly y: number;
+  /** A river's bridges (the floor between its rects, across the whole band), ascending along the river; [] for a pit or troughs. */
+  readonly bridges: readonly Rect[];
 }
 
 /** A feature's Ramp (Stage 7c): on the lower floor, its high end against the higher floor's edge, rising toward `up`. A step is walled to the roof on its open sides; `rails` are its long sides. */
@@ -256,6 +277,7 @@ export const SALT = {
   galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
   galleryStair: 60, galleryWrap: 61, galleryU: 62,
   feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70, dais: 71, daisSide: 72,
+  lava: 73, lavaKind: 74, lavaSide: 75, lavaWide: 76, lavaTwo: 77,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -325,6 +347,29 @@ export const DAIS_DEPTH = 6;
 /** A dais's step's length (m) from the dais's inner edge, and its half width along the wall. */
 export const DAIS_STEP = 2;
 export const DAIS_STEP_HALF = 3;
+/** Lava lies this far (m) under its Hall's floor, as the Cavern's river lies under its ledges: more than a Soldier steps down (`levels.drop`, 3), so the Crowd never walks in. */
+export const LAVA_DEPTH = 4;
+/** No marker, drop spot or revive spot comes nearer lava than this (m): a Knockdown's longest Slide (1.5) and 1 m more. */
+export const LAVA_KEEP = 2.5;
+/** No lava lies inside the square Hall centre +- this (m): every marker at the centre (at most 3 m off it) then keeps 3 m, more than `LAVA_KEEP`. */
+export const LAVA_CENTRE = 6;
+/** Lava keeps this far (m) from every held slot's lane (the lane of `DOOR_LANE` and `DOOR_SIDE`), but a river's lanes on its bank wall, which cross a bridge. */
+export const LAVA_LANE = 1;
+/** A lava rect's least extent (m). */
+export const LAVA_MIN = 2;
+/** A river's bridge's least width (m): two Fighters abreast, as a Formation files through. */
+export const BRIDGE_MIN = 4;
+/** The floor (m) between a river and its bank wall: wide enough to walk off any bridge and along the wall. */
+export const RIVER_BANK = 4;
+/** A pit's band (m) of floor on each side but its centre side (which is `2 * LAVA_CENTRE`: the Hall's centre moves into it). */
+export const LAVA_BAND = 8;
+/** A lava pit's least extent (m) on each axis. */
+export const PIT_MIN = 4;
+/** A trough segment's least length (m) along its wall. */
+export const TROUGH_MIN = 4;
+/** The odd metre at most / at least `v`: every lava edge lies on one (a Hall's walls do), off the fields' 2 m dots. */
+export const oddDown = (v: number): number => 2 * Math.floor((v - 1) / 2) + 1;
+export const oddUp = (v: number): number => 2 * Math.ceil((v - 1) / 2) + 1;
 /** The Stairs zone's half side (m). */
 export const STAIRS_HALF = 2;
 /** The metres between a Treasure Hall's three pedestals. */
@@ -486,6 +531,16 @@ export function floorRects(rect: Rect, solids: readonly Rect[]): Rect[] {
   return bands.flatMap((b) => b.runs.map(([x0, x1]) => ({ x0, z0: b.z0, x1, z1: b.z1 })));
 }
 
+/**
+ * A Hall's floor at least `keep` m from its lava (Stage 7d), in band order: `floorRects` of the rect less its solids and each lava rect grown by `keep`
+ * on every side and clipped to the rect. Callers test `hall.lava` first (with none it is the Hall's `rects`).
+ */
+export function lavaDry(hall: DelverHall, keep: number): Rect[] {
+  const r = hall.rect;
+  const grown = (hall.lava?.rects ?? []).map((q): Rect => ({ x0: Math.max(r.x0, q.x0 - keep), z0: Math.max(r.z0, q.z0 - keep), x1: Math.min(r.x1, q.x1 + keep), z1: Math.min(r.z1, q.z1 + keep) }));
+  return floorRects(r, [...hall.solids, ...grown]);
+}
+
 /** Where a Passage may leave a Hall: a side, the lattice cell it is on, and the centre line it runs on (an x for n or s, a z for e or w). */
 interface Slot {
   readonly d: number;
@@ -555,7 +610,7 @@ interface Turn {
  * the Hall does not list, and step 7 cuts them from the final rect; `tier` (the Run tier) is read only by `features.deepPercent`, and with `percent` 0 no pick
  * is made and the plan is 7b's. With `features.daisPercent` above 0 a Boss or Treasure Hall with no feature may take a dais (7c'): a 1 m Platform against a wall
  * no Passage leaves by, clear of every doorway's lane and the centre square, with a step Ramp; the Boss Hall's throne and the Treasure Hall's altar (its three pedestals) stand on it,
- * and with `daisPercent` 0 no pick is made. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
+ * and with `daisPercent` 0 no pick is made. With `lava.percent` (per Run `tier`) above 0 a Fight, Empty, Boss or Stairs Hall with no gallery and no feature may hold lava (7d'): a pit, a river with bridges or troughs along its walls, and with it 0 no pick is made (7c's plan, with no `lava` field). If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall (grown to the
  * most the gaps allow, unless great halls are wanted: then Hall 0 is a great hall and the Boss Hall), and adds `markers.boss`; with it false the plan has no Boss key anywhere.
  */
@@ -1443,8 +1498,167 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     });
   }
 
+  // 7d'. Lava (docs/plans/delver.md, Stage 7d), after the kinds, the Boss Hall's growth and the daises, so the rects are final, and before 7c: a lava Hall is
+  // neither shaped nor pillared. A Fight, Empty, Boss or Stairs Hall with no gallery and no feature (a dais included) may hold lava; it is picked with the
+  // tier's `lava.percent` (with 0, no pick at all is made). The kind is a weighted pick; a kind that does not fit leaves the Hall plain (no other is tried).
+  // Sides (the pit's centre band, the river's bank wall, the trough's wall) are tried in turn from a picked one (n, e, s, w, wrapping), the first that fits
+  // taken. Written for wall d, with `toRect` mapping a span along the wall and a span across it (metres in from the wall) to a rect. Every lava edge is on an
+  // odd metre. The walk is never cut: a trough lies beyond the centre square and leaves each lane (`LAVA_LANE`) clear; a river lies beyond it too, so the
+  // centre and every wall across it are on the centre's side, every lane off the bank wall keeps clear of the band and every lane on the bank wall crosses
+  // its door bridge, the bank behind it being at least `RIVER_BANK` and reached by every bridge; a pit's bands are wider than a lane, and the centre moves
+  // into the centre band, as a ring's does.
+  const lavaOf = new Array<DelverLava | undefined>(n).fill(undefined);
+  const lavaP = t.lava.percent[Math.min(tier, t.lava.percent.length) - 1]!;
+  if (lavaP > 0) {
+    halls.forEach((hall, h) => {
+      const hk = kind[h];
+      if ((hk !== 'Fight' && hk !== 'Empty' && hk !== 'Boss' && hk !== 'Stairs') || galleryOf[h] || featureOf[h] || pick(h, SALT.lava, 100) >= lavaP) return;
+      const want = (['pit', 'river', 'trough'] as const)[byWeight(h, SALT.lavaKind, [t.lava.weights.pit, t.lava.weights.river, t.lava.weights.trough])]!;
+      const r = hall.rect;
+      const wide = [2, 4][pick(h, SALT.lavaWide, 2)]!;
+      const two = pick(h, SALT.lavaTwo, 100) < t.lava.twoPercent;
+      const y = hy(h) - LAVA_DEPTH;
+      const lanes = hall.slots
+        .filter((sl) => sl.p !== -1)
+        .map((sl) => {
+          const lo = sl.line - half - DOOR_SIDE;
+          const hi = sl.line + half + DOOR_SIDE;
+          const rect: Rect =
+            sl.d === 0 ? { x0: lo, z0: r.z1 - DOOR_LANE, x1: hi, z1: r.z1 }
+            : sl.d === 2 ? { x0: lo, z0: r.z0, x1: hi, z1: r.z0 + DOOR_LANE }
+            : sl.d === 1 ? { x0: r.x1 - DOOR_LANE, z0: lo, x1: r.x1, z1: hi }
+            : { x0: r.x0, z0: lo, x1: r.x0 + DOOR_LANE, z1: hi };
+          return { d: sl.d, line: sl.line, rect };
+        });
+      const toRect = (d: number, a0: number, a1: number, c0: number, c1: number): Rect =>
+        d === 0 ? { x0: a0, z0: r.z1 - c1, x1: a1, z1: r.z1 - c0 }
+        : d === 2 ? { x0: a0, z0: r.z0 + c0, x1: a1, z1: r.z0 + c1 }
+        : d === 1 ? { x0: r.x1 - c1, z0: a0, x1: r.x1 - c0, z1: a1 }
+        : { x0: r.x0 + c0, z0: a0, x1: r.x0 + c1, z1: a1 };
+      /** The wall's extent along it, and how far (m) the Hall's centre stands in from it. */
+      const along = (d: number): [number, number] => (d % 2 === 0 ? [r.x0, r.x1] : [r.z0, r.z1]);
+      const centreIn = (d: number): number => (d === 0 ? r.z1 - hall.cz : d === 2 ? hall.cz - r.z0 : d === 1 ? r.x1 - hall.cx : hall.cx - r.x0);
+      const overlaps = (p: Rect, q: Rect): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
+      const grow1 = (q: Rect): Rect => ({ x0: q.x0 - LAVA_LANE, z0: q.z0 - LAVA_LANE, x1: q.x1 + LAVA_LANE, z1: q.z1 + LAVA_LANE });
+      /** Sorted, merged spans `[a, b]` (touching ones join). */
+      const merged = (spans: readonly (readonly [number, number])[]): [number, number][] => {
+        const out: [number, number][] = [];
+        for (const sp of [...spans].sort((p, q) => p[0] - q[0] || p[1] - q[1])) {
+          const last = out[out.length - 1];
+          if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1]);
+          else out.push([sp[0], sp[1]]);
+        }
+        return out;
+      };
+      /** What `lo` to `hi` has left after taking `spans` (merged) away: the runs, ascending, of positive length. */
+      const gaps = (spans: readonly (readonly [number, number])[], lo: number, hi: number): [number, number][] => {
+        const out: [number, number][] = [];
+        let at = lo;
+        for (const sp of spans) {
+          if (sp[0] > at) out.push([at, Math.min(sp[0], hi)]);
+          at = Math.max(at, sp[1]);
+        }
+        if (at < hi) out.push([at, hi]);
+        return out;
+      };
+      const byZX = (p: Rect, q: Rect): number => p.z0 - q.z0 || p.x0 - q.x0;
+
+      /** The troughs along wall `d`, depth `tt`: the strip cut round every lane that comes within `LAVA_LANE` of it, the runs of at least `TROUGH_MIN`. */
+      const troughs = (d: number, tt: number): Rect[] => {
+        if (centreIn(d) - tt < LAVA_CENTRE) return [];
+        const [lo, hi] = along(d);
+        const strip = toRect(d, lo, hi, 0, tt);
+        const cuts = lanes
+          .filter((ln) => overlaps(grow1(ln.rect), strip))
+          .map((ln): [number, number] => (d % 2 === 0 ? [oddDown(ln.rect.x0 - 1), oddUp(ln.rect.x1 + 1)] : [oddDown(ln.rect.z0 - 1), oddUp(ln.rect.z1 + 1)]));
+        return gaps(merged(cuts), lo, hi)
+          .filter(([a, b]) => b - a >= TROUGH_MIN)
+          .map(([a, b]) => toRect(d, a, b, 0, tt));
+      };
+      /** A river with bank wall `d`: its lava rects and bridges, or null when it does not fit. */
+      const river = (d: number): { rects: Rect[]; bridges: Rect[] } | null => {
+        const [lo, hi] = along(d);
+        const wallAt = d === 0 ? r.z1 : d === 2 ? r.z0 : d === 1 ? r.x1 : r.x0;
+        const c = d % 2 === 0 ? hall.cz : hall.cx;
+        let b0: number;
+        let b1: number;
+        if (d === 0 || d === 1) {
+          b0 = oddUp(c + LAVA_CENTRE);
+          b1 = b0 + wide;
+          if (wallAt - b1 < RIVER_BANK) return null;
+        } else {
+          b1 = oddDown(c - LAVA_CENTRE);
+          b0 = b1 - wide;
+          if (b0 - wallAt < RIVER_BANK) return null;
+        }
+        const band: Rect = d % 2 === 0 ? { x0: r.x0, z0: b0, x1: r.x1, z1: b1 } : { x0: b0, z0: r.z0, x1: b1, z1: r.z1 };
+        if (lanes.some((ln) => ln.d !== d && overlaps(grow1(ln.rect), band))) return null;
+        // The bridges along the river: a door bridge for each held slot on the bank wall, then free ones up to the wanted count.
+        let floor = merged(lanes.filter((ln) => ln.d === d).map((ln): [number, number] => [Math.max(lo, oddDown(ln.line - 2)), Math.min(hi, oddUp(ln.line + 2))]));
+        // A floor gap against a wall's end is a bridge only when it holds a bank-wall doorway (a wall-end door bridge); else it is floor.
+        const doorways = lanes.filter((ln) => ln.d === d).map((ln): [number, number] => [ln.line - half, ln.line + half]);
+        const wanted = two ? 2 : 1;
+        while (floor.length < wanted) {
+          const runs = gaps(floor, lo, hi);
+          let best = -1;
+          for (let k = 0; k < runs.length; k++) if (best < 0 || runs[k]![1] - runs[k]![0] > runs[best]![1] - runs[best]![0]) best = k;
+          if (best < 0) break;
+          const [r0, r1] = runs[best]!;
+          const m = oddDown((r0 + r1) / 2);
+          if (m - 2 - r0 < LAVA_MIN || r1 - (m + 2) < LAVA_MIN) break;
+          floor = merged([...floor, [m - 2, m + 2]]);
+        }
+        // A lava run shorter than `LAVA_MIN` becomes floor.
+        floor = merged([...floor, ...gaps(floor, lo, hi).filter(([a, b]) => b - a < LAVA_MIN)]);
+        const runs = gaps(floor, lo, hi);
+        if (runs.length === 0) return null;
+        const across = (a: number, b: number): Rect => (d % 2 === 0 ? { x0: a, z0: b0, x1: b, z1: b1 } : { x0: b0, z0: a, x1: b1, z1: b });
+        const bridges = floor.filter(([a, b]) => (a > lo && b < hi) || doorways.some(([d0, d1]) => a <= d0 && b >= d1)).map(([a, b]) => across(a, b)).sort(byZX);
+        // Every river has a crossing: with none the Hall stays plain.
+        if (bridges.length === 0) return null;
+        return { rects: runs.map(([a, b]) => across(a, b)).sort(byZX), bridges };
+      };
+      /** A pit with its centre band on side `d`: one rect, the bands `LAVA_BAND` but the centre side's `2 * LAVA_CENTRE`; null when an extent is under `PIT_MIN`. */
+      const pit = (d: number): Rect | null => {
+        const p: Rect = {
+          x0: r.x0 + (d === 3 ? 2 * LAVA_CENTRE : LAVA_BAND),
+          z0: r.z0 + (d === 2 ? 2 * LAVA_CENTRE : LAVA_BAND),
+          x1: r.x1 - (d === 1 ? 2 * LAVA_CENTRE : LAVA_BAND),
+          z1: r.z1 - (d === 0 ? 2 * LAVA_CENTRE : LAVA_BAND),
+        };
+        return p.x1 - p.x0 >= PIT_MIN && p.z1 - p.z0 >= PIT_MIN ? p : null;
+      };
+
+      const k0 = pick(h, SALT.lavaSide, 4);
+      for (let i = 0; i < 4; i++) {
+        const d = (k0 + i) % 4;
+        if (want === 'trough') {
+          const first = troughs(d, wide);
+          if (first.length === 0) continue;
+          const second = two ? troughs(opposite(d), wide) : [];
+          const walls = second.length > 0 ? [SIDES[d]!, SIDES[opposite(d)]!] : [SIDES[d]!];
+          lavaOf[h] = { kind: 'trough', walls, rects: [...first, ...second].sort(byZX), y, bridges: [] };
+        } else if (want === 'river') {
+          const rv = river(d);
+          if (!rv) continue;
+          lavaOf[h] = { kind: 'river', walls: [SIDES[d]!], rects: rv.rects, y, bridges: rv.bridges };
+        } else {
+          const p = pit(d);
+          if (!p) continue;
+          lavaOf[h] = { kind: 'pit', walls: [SIDES[d]!], rects: [p], y, bridges: [] };
+          // The centre moves into the centre band's middle, as a ring's does.
+          if (d === 0) hall.cz = r.z1 - LAVA_CENTRE;
+          else if (d === 2) hall.cz = r.z0 + LAVA_CENTRE;
+          else if (d === 1) hall.cx = r.x1 - LAVA_CENTRE;
+          else hall.cx = r.x0 + LAVA_CENTRE;
+        }
+        break;
+      }
+    });
+  }
+
   // 7c. Shapes and pillars (docs/plans/delver.md, Stage 7b), after the kinds so the patrol points and markers read the final centres. A Hall with a
-  // gallery or a feature (a split, a pit or a dais) is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
+  // gallery, a feature (a split, a pit or a dais) or lava is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
   const hallShape = new Array<HallShape>(n).fill('rect');
   const hallSolids: Rect[][] = halls.map(() => []);
   const hallPillars: Rect[][] = halls.map(() => []);
@@ -1455,7 +1669,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const evenDown = (v: number): number => 2 * Math.floor(v / 2);
   const evenUp = (v: number): number => 2 * Math.ceil(v / 2);
   halls.forEach((hall, h) => {
-    if (galleryOf[h] || featureOf[h]) return;
+    if (galleryOf[h] || featureOf[h] || lavaOf[h]) return;
     const r = hall.rect;
     const hw = (r.x1 - r.x0) / 2;
     const hd = (r.z1 - r.z0) / 2;
@@ -1639,11 +1853,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     for (const side of ['n', 'e', 's', 'w'] as const) if (d[side] !== undefined) ordered[side] = d[side];
     const gallery = galleryOf[k];
     const feature = featureOf[k];
+    const lava = lavaOf[k];
     return {
       id: `hall${k}`, i: h.i, j: h.j, cells: h.cells, great: h.great, cx: h.cx, cz: h.cz, rect: h.rect, shape: hallShape[k]!, rects: floorRects(h.rect, hallSolids[k]!),
       solids: hallSolids[k]!, pillars: hallPillars[k]!, ...(hallLayout[k] ? { layout: hallLayout[k] } : {}), doors: ordered, kind: kind[k]!, depth: depth[k]!,
       level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : feature?.kind === 'pit' ? feature.depth + HALL_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
       ...(feature ? { feature } : {}),
+      ...(lava ? { lava } : {}),
     };
   });
   return { seed, floor, attempt, halls: outHalls, passages: plannedPassages, entrance, stairs, mainPath, inLine, markers };

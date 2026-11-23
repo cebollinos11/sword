@@ -29,6 +29,12 @@
  * on more of tier 3's Floors than of tier 1's), thrones and altars, L and U wraps, stairwells on at least 1 gallery in 3, a share of Halls with a feature of 22 to 28 %, and shortcut
  * Links onto a tier, a rim and a dais.
  *
+ * Stage 7d (lava): the judge's `lava` and `lavaWalk` rules run, and `judgePlan` is given the Battle Tuning (the Warband homes' reach). Per Run tier and per kind the Halls with lava are counted against the
+ * Halls that may hold it (a Fight, Empty, Boss or Stairs Hall with no gallery and no feature) and against all Halls; rivers by their bridges (1, 2) and the bridges by width (4, 6 m); trough Halls by
+ * walls (1, 2) and depth (2, 4 m); pits; the lava rects a Floor. On the navmesh Floors the jump Links that take off or land within `LAVA_KEEP` of lava, or pass over it, and every Link onto or from a lava
+ * Walk Surface are counted (none may exist). The test fails unless it exercised each kind on every tier, a river with two bridges, a 6 m bridge, a two-wall trough, lava in a Boss Hall, a Stairs Hall and a
+ * great hall, the share of Halls that may hold lava which hold it on each tier (14 to 20 %, 22 to 28 % and 30 to 36 %: about 1 in 6, 1 in 4 and 1 in 3), and no Link onto lava.
+ *
  * Stage 6 (levels): per Floor the Hall levels, galleries (balconies and stairwells), sloped Passages and Deck posts are counted, and the
  * rerolls by rule printed; on the 20 navmesh Floors every Deck must hold a shortcut jump Link onto it from its Hall's floor and no other
  * jump Link may exist. The budgets of the Design: the passing attempt's plan, build and judge average at most 600 ms and none passes 2 s;
@@ -39,10 +45,11 @@ import { describe, expect, it } from 'vitest';
 import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
-import { surfaceHeight } from '../arena';
+import { deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { runPick } from '../dungeon';
 import { flatRooms } from './flat.testdata';
+import { LAVA_KEEP } from './plan';
 import { floorTuningOf, tierOf } from './troops';
 import { buildFloor, delverFloor, isBossFloor, judgeFields, judgePlan, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
@@ -52,7 +59,7 @@ const PAIRS = 500;
 const SAMPLE_EVERY = 25;
 const NAV_FLOORS = 20;
 const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight', 'Empty'];
-const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries', 'features', 'tiers'];
+const RULES = ['rooms', 'levels', 'layout', 'shapes', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries', 'features', 'lava', 'tiers', 'lavaWalk'];
 /** The Design's budgets (ms), on the machine of the plans' measurements. */
 const BUILD_MEAN_MS = 800;
 const BUILD_MAX_MS = 2000;
@@ -75,7 +82,7 @@ interface Dealt {
   layout: FloorPlan | null;
   /** The passing Floor's map file (sampled pairs only), and its navmesh numbers (the first NAV_FLOORS passing Floors only). */
   mapText: string | null;
-  nav: { ms: number; polygons: number; links: number; jumps: number; decks: number; decksLinked: number; badJumps: number; fromDeepPit: number; landing: Record<'deck' | 'tier' | 'rim' | 'dais' | 'other', number> } | null;
+  nav: { ms: number; polygons: number; links: number; jumps: number; decks: number; decksLinked: number; badJumps: number; fromDeepPit: number; nearLava: number; ontoLava: number; landing: Record<'deck' | 'tier' | 'rim' | 'dais' | 'other', number> } | null;
   failedReasons?: string[][];
   ok: boolean;
   lastReasons: string[];
@@ -112,7 +119,7 @@ function deal(k: number, wantNav: boolean): Dealt {
     d.plan = t1 - t0;
     d.build = 0;
     d.judge = 0;
-    let reasons: string[] = judgePlan(ft, plan, tuning.battle.field.size);
+    let reasons: string[] = judgePlan(ft, plan, tuning.battle.field.size, tuning.battle);
     if (reasons.length > 0) {
       // As `judgeAttempt`: a plan rule 1 refuses is not built.
       d.layout = plan;
@@ -161,7 +168,28 @@ function deal(k: number, wantNav: boolean): Dealt {
             const m = /^WALK_hall\d+-(deck\d*|tier|rim\d+|dais)_/.exec(built.field.arena.walk[l.to]!.id);
             landing[m ? (m[1]!.startsWith('deck') ? 'deck' : m[1]!.startsWith('rim') ? 'rim' : (m[1] as 'tier' | 'dais')) : 'other']++;
           }
-          d.nav = { ms, polygons: mesh.out.length, links: mesh.links.length, jumps: jumps.length, decks, decksLinked, badJumps, fromDeepPit, landing };
+          // Stage 7d: a jump Link that takes off or lands within LAVA_KEEP of lava, or whose flight passes over it; and any Link onto or from a lava Walk Surface.
+          const lavaRects = plan.halls.flatMap((h) => h.lava?.rects ?? []);
+          const keep2 = LAVA_KEEP * LAVA_KEEP;
+          const gap2 = (r: { x0: number; z0: number; x1: number; z1: number }, x: number, z: number) => Math.max(r.x0 - x, 0, x - r.x1) ** 2 + Math.max(r.z0 - z, 0, z - r.z1) ** 2;
+          /** Whether the segment (ax, az) to (bx, bz) crosses the rect (slab test). */
+          const crosses = (r: { x0: number; z0: number; x1: number; z1: number }, ax: number, az: number, bx: number, bz: number) => {
+            let [lo, hi] = [0, 1];
+            for (const [a, b, r0, r1] of [[ax, bx, r.x0, r.x1], [az, bz, r.z0, r.z1]] as const) {
+              if (Math.abs(b - a) < 1e-12) {
+                if (a < r0 || a > r1) return false;
+                continue;
+              }
+              const [t0, t1] = [(r0 - a) / (b - a), (r1 - a) / (b - a)];
+              lo = Math.max(lo, Math.min(t0, t1));
+              hi = Math.min(hi, Math.max(t0, t1));
+            }
+            return lo <= hi;
+          };
+          const nearLava = jumps.filter((l) => lavaRects.some((r) => gap2(r, l.takeoff.x, l.takeoff.z) < keep2 || gap2(r, l.lands.x, l.lands.z) < keep2 || crosses(r, l.takeoff.x, l.takeoff.z, l.lands.x, l.lands.z))).length;
+          const onLava = (s: number) => deadly(built.field.arena.walk[s]!) === 'Lava';
+          const ontoLava = mesh.links.filter((l) => onLava(l.from) || onLava(l.to)).length;
+          d.nav = { ms, polygons: mesh.out.length, links: mesh.links.length, jumps: jumps.length, decks, decksLinked, badJumps, fromDeepPit, nearLava, ontoLava, landing };
         }
       }
     } catch (e) {
@@ -356,6 +384,33 @@ describe('the Floor generator soak', () => {
     const stairShare = galAll.filter((x) => x.g.high).length / Math.max(1, galAll.length);
     lines.push(`  Halls with a split, a pit or a dais: ${featured} of ${allH.length} (${(featureShare * 100).toFixed(1)} %); stairwells ${(stairShare * 100).toFixed(1)} % of galleries`);
 
+    // Stage 7d: lava, per Run tier and per kind, against the Halls that may hold it and against all Halls.
+    const mayHold = (h: FloorPlan['halls'][number]) => ['Fight', 'Empty', 'Boss', 'Stairs'].includes(h.kind) && !h.gallery && !h.feature;
+    const LAVA_KINDS = ['pit', 'river', 'trough'] as const;
+    const pct1 = (a: number, b: number) => `${(100 * a / Math.max(1, b)).toFixed(1)} %`;
+    const tierLava = [1, 2, 3].map((tier) => {
+      const hs = hallsOf(passing.filter((d) => tierOf(tuning.delver, d.floor) === tier).map((d) => d.layout!));
+      const may = hs.filter(mayHold);
+      const has = hs.filter((h) => h.lava);
+      return { tier, all: hs.length, may: may.length, has: has.length, kinds: LAVA_KINDS.map((k) => has.filter((h) => h.lava!.kind === k).length) };
+    });
+    for (const x of tierLava) {
+      lines.push(`  lava, tier ${x.tier}: ${x.has} Halls with lava of ${x.may} that may hold it (${pct1(x.has, x.may)}) and of ${x.all} Halls (${pct1(x.has, x.all)}); by kind ${LAVA_KINDS.map((k, i) => `${k} ${x.kinds[i]} (${pct1(x.kinds[i]!, x.has)} of lava Halls, ${pct1(x.kinds[i]!, x.may)} of may-hold)`).join(', ')}`);
+    }
+    const lavaAll = allH.filter((h) => h.lava);
+    lines.push(`  lava, all tiers: ${lavaAll.length} Halls of ${allH.filter(mayHold).length} that may hold it and ${allH.length} in all; by kind ${LAVA_KINDS.map((k) => `${k} ${lavaAll.filter((h) => h.lava!.kind === k).length}`).join(', ')}`);
+    const rivers7d = lavaAll.filter((h) => h.lava!.kind === 'river');
+    const troughs7d = lavaAll.filter((h) => h.lava!.kind === 'trough');
+    /** A river bridge's width (m) along its river. */
+    const bridgeWidth = (h: FloorPlan['halls'][number], q: { x0: number; z0: number; x1: number; z1: number }) => (h.lava!.walls[0] === 'n' || h.lava!.walls[0] === 's' ? q.x1 - q.x0 : q.z1 - q.z0);
+    const bridges7d = rivers7d.flatMap((h) => h.lava!.bridges.map((q) => bridgeWidth(h, q)));
+    const trough7d = (h: FloorPlan['halls'][number]) => Math.min(...h.lava!.rects.map((q) => Math.min(q.x1 - q.x0, q.z1 - q.z0)));
+    const lavaRectsPerFloor = floors.map((p) => p.halls.reduce((n, h) => n + (h.lava?.rects.length ?? 0), 0));
+    lines.push(`  rivers ${rivers7d.length}: by bridges ${[1, 2].map((n) => `${n}: ${rivers7d.filter((h) => h.lava!.bridges.length === n).length}`).join(', ')}, other ${rivers7d.filter((h) => h.lava!.bridges.length < 1 || h.lava!.bridges.length > 2).length}; bridges ${bridges7d.length} by width ${[4, 6].map((w) => `${w} m: ${bridges7d.filter((x) => x === w).length}`).join(', ')}, other ${bridges7d.filter((x) => x !== 4 && x !== 6).length}`);
+    lines.push(`  trough Halls ${troughs7d.length}: by walls ${[1, 2].map((n) => `${n}: ${troughs7d.filter((h) => h.lava!.walls.length === n).length}`).join(', ')}; by depth ${[2, 4].map((n) => `${n} m: ${troughs7d.filter((h) => trough7d(h) === n).length}`).join(', ')}; pits ${lavaAll.filter((h) => h.lava!.kind === 'pit').length}`);
+    lines.push(`  lava in Boss Halls ${lavaAll.filter((h) => h.kind === 'Boss').length}, Stairs Halls ${lavaAll.filter((h) => h.kind === 'Stairs').length}, Fight ${lavaAll.filter((h) => h.kind === 'Fight').length}, Empty ${lavaAll.filter((h) => h.kind === 'Empty').length}, great halls ${lavaAll.filter((h) => h.great).length}; Floors with lava ${lavaRectsPerFloor.filter((n) => n > 0).length} of ${floors.length}; lava rects a Floor: mean ${fmt(mean(lavaRectsPerFloor))}, max ${Math.max(...lavaRectsPerFloor)}`);
+    lines.push(`  navmesh Floors: jump Links that take off or land within ${LAVA_KEEP} m of lava or pass over it: ${nav.reduce((n, x) => n + x.nearLava, 0)}; Links onto or from a lava Walk Surface: ${nav.reduce((n, x) => n + x.ontoLava, 0)}`);
+
     // Stage 7b: Hall shapes, pillars and Blocks.
     const SHAPE_NAMES = ['L', 'T', 'cross', 'ring'] as const;
     const allHalls = floors.flatMap((p) => p.halls);
@@ -448,6 +503,24 @@ describe('the Floor generator soak', () => {
     expect(stairShare, 'stairwells on fewer than 1 gallery in 3').toBeGreaterThanOrEqual(1 / 3);
     expect(featureShare, 'share of Halls with a split, pit or dais').toBeGreaterThanOrEqual(0.22);
     expect(featureShare, 'share of Halls with a split, pit or dais').toBeLessThanOrEqual(0.28);
+    // Stage 7d: every kind on every tier, the rarer shapes, the places lava may stand, the tiers' shares, and no Link onto lava.
+    for (const x of tierLava) {
+      LAVA_KINDS.forEach((k, i) => expect(x.kinds[i], `no ${k} on tier ${x.tier}`).toBeGreaterThan(0));
+    }
+    [[14, 20], [22, 28], [30, 36]].forEach(([lo, hi], i) => {
+      const x = tierLava[i]!;
+      expect((100 * x.has) / x.may, `share of Halls that may hold lava which do, tier ${x.tier}`).toBeGreaterThanOrEqual(lo!);
+      expect((100 * x.has) / x.may, `share of Halls that may hold lava which do, tier ${x.tier}`).toBeLessThanOrEqual(hi!);
+    });
+    expect(rivers7d.filter((h) => h.lava!.bridges.length === 2).length, 'no river with two bridges').toBeGreaterThan(0);
+    expect(bridges7d.filter((x) => x === 6).length, 'no 6 m bridge').toBeGreaterThan(0);
+    expect(troughs7d.filter((h) => h.lava!.walls.length === 2).length, 'no two-wall trough').toBeGreaterThan(0);
+    expect(lavaAll.filter((h) => h.kind === 'Boss').length, 'no lava in a Boss Hall').toBeGreaterThan(0);
+    expect(lavaAll.filter((h) => h.kind === 'Stairs').length, 'no lava in a Stairs Hall').toBeGreaterThan(0);
+    expect(lavaAll.filter((h) => h.great).length, 'no lava in a great hall').toBeGreaterThan(0);
+    for (const k of LAVA_KINDS) expect(lavaAll.filter((h) => h.lava!.kind === k).length / lavaAll.length, `${k} under a tenth of the lava Halls`).toBeGreaterThanOrEqual(0.1);
+    expect(nav.reduce((n, x) => n + x.ontoLava, 0), 'a Link onto or from lava').toBe(0);
+    expect(nav.reduce((n, x) => n + x.nearLava, 0), 'a jump Link that takes off or lands near lava or passes over it').toBe(0);
     const total = passing.map((d) => d.plan + d.build + d.judge);
     expect(mean(total), `passing attempt plan + build + judge averages ${fmt(mean(total))} ms`).toBeLessThanOrEqual(BUILD_MEAN_MS);
     expect(Math.max(...total), `slowest passing attempt ${fmt(Math.max(...total))} ms`).toBeLessThanOrEqual(BUILD_MAX_MS);

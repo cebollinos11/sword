@@ -7,7 +7,7 @@
  * (`look.ts`): every Walk Surface (a Hazard's in its own look), a Deck and an Enclosure's roof as a slab, each Wall the compiler stood (a Platform's and a raised
  * floor's faces, the skirts under raised edges, Rails, Walls) as a box on its line, each bank with no Wall (over lava) down to the floor beyond, each Ramp's open sides as its wedge (in place of the
  * stepped skirt the Simulation stands there), each Block as its box, the ground run on beyond the field's edge into the haze, then the props
- * (`mapProps.ts`) and their torches' lights. One mesh per material. The root carries the map's sky (`userData.sky`), read back once loaded.
+ * (`mapProps.ts`) and their torches' lights. A Wall whose foot stands over lava is drawn down to it (`overLava`). One mesh per material. The root carries the map's sky (`userData.sky`), read back once loaded.
  */
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -178,6 +178,53 @@ function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, 
   return pieces;
 }
 
+/**
+ * Wall `w`'s run `a` to `b` (heights `bottom` to `top`, `thick` thick) in pieces, each with the height it is drawn down to. Where a Wall's foot
+ * stands over lava (the floor beside it, on either side and within its height, is a lava Walk Surface lower than the foot: a Hall's Enclosure
+ * Wall, standing from a metre under its floor, over the end of a river or the length of a trough, the lava 4 m down) the piece is drawn down to
+ * that lava's height, so no gap shows under it. Render only: the Simulation's Wall is as the compiler stood it. Null when no piece reaches lava
+ * (every Wall of a map with none), so such a Wall is drawn whole, as it was.
+ */
+function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number, thick: number): { a: Vec2; b: Vec2; bottom: number }[] | null {
+  const { map, arena } = draft;
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  if (len < LEVEL_EPS) return null;
+  const pieces = Math.max(1, Math.round(len / BANK_PIECE));
+  const [nx, nz] = [-(b.z - a.z) / len, (b.x - a.x) / len];
+  const reach = thick / 2 + BANK_PROBE;
+  const downs: number[] = [];
+  let any = false;
+  for (let n = 0; n < pieces; n++) {
+    const t = (n + 0.5) / pieces;
+    let down = bottom;
+    for (const side of [-1, 1]) {
+      const x = a.x + (b.x - a.x) * t + nx * reach * side;
+      const z = a.z + (b.z - a.z) * t + nz * reach * side;
+      // The highest floor under the Wall's top there: if it is lava below the foot, the Wall stands over lava.
+      let best: { y: number; lava: boolean } | null = null;
+      for (const j of surfacesAt(arena, x, z)) {
+        // Not a roof (the Hall's own ceiling, which lies over the lava at the Wall's top and is no floor to stand on).
+        if (map.walk[j]!.roof) continue;
+        const y = surfaceHeight(arena, j, x, z);
+        if (y <= top + LEVEL_EPS && (best === null || y > best.y)) best = { y, lava: !!map.walk[j]!.lava };
+      }
+      if (best?.lava && best.y < down - LEVEL_EPS) down = best.y;
+    }
+    downs.push(down);
+    if (down < bottom) any = true;
+  }
+  if (!any) return null;
+  const out: { a: Vec2; b: Vec2; bottom: number }[] = [];
+  const at = (t: number): Vec2 => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+  for (let n = 0; n < pieces; ) {
+    let m = n + 1;
+    while (m < pieces && downs[m] === downs[n]) m++;
+    out.push({ a: at(n / pieces), b: at(m / pieces), bottom: downs[n]! });
+    n = m;
+  }
+  return out;
+}
+
 /** The model of `source` as compiled (`draft`, from `compileDraft(source, …)`): a group of one mesh per material, the torches' lights, and its sky. */
 export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const buckets = new MeshBuckets();
@@ -262,9 +309,13 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const sides = map.walls.filter((w, i) => brushes.get(draft.wallBrush[i]!)?.kind === 'enclosure' && isEnclosureSide(w.id));
   // Every Wall box as drawn, and each Block's sides, for the shade where they meet floor and ceiling.
   const shaded: ShadedWall[] = [];
+  const hasLava = map.walk.some((w) => w.lava);
   const wall = (look: MaterialLook, a: Vec2, b: Vec2, bottom: number, top: number, thick: number) => {
-    buckets.slab(look, a, b, bottom, top, thick);
-    shaded.push({ a, b, bottom, top, thick });
+    // A Wall standing over lava is drawn down to it, in pieces (`overLava`).
+    for (const p of (hasLava ? overLava(draft, a, b, bottom, top, thick) : null) ?? [{ a, b, bottom }]) {
+      buckets.slab(look, p.a, p.b, p.bottom, top, thick);
+      shaded.push({ a: p.a, b: p.b, bottom: p.bottom, top, thick });
+    }
   };
   map.walls.forEach((w, i) => {
     const id = draft.wallBrush[i]!;

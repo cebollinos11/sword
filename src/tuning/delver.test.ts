@@ -47,6 +47,7 @@ const SHAPES = { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } };
 const PILLARS = { percent: 0, weights: { colonnade: 1, grid: 1 } };
 const GALLERIES = { wrapPercent: 0, uPercent: 30, stairPercent: 0 };
 const FEATURES = { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 };
+const LAVA = { percent: [25, 35, 50], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -115,7 +116,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
       traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } }, lava: { percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -216,6 +217,22 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['shapes.weights negative', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, T: -1 } } }), /^delver\.floor\.shapes\.weights\.T /],
     ['shapes.weights fractional', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, L: 1.5 } } }), /^delver\.floor\.shapes\.weights\.L /],
     ['shapes.weights all 0', withFloor({ shapes: { percent: 0, weights: { L: 0, T: 0, cross: 0, ring: 0 } } }), /^delver\.floor\.shapes\.weights /],
+    ['lava missing', withFloor({ lava: undefined }), /^delver\.floor\.lava /],
+    ['lava.percent not a list', withFloor({ lava: { ...LAVA, percent: 25 } }), /^delver\.floor\.lava\.percent /],
+    ['lava.percent empty', withFloor({ lava: { ...LAVA, percent: [] } }), /^delver\.floor\.lava\.percent /],
+    ['lava.percent entry above 100', withFloor({ lava: { ...LAVA, percent: [25, 101] } }), /^delver\.floor\.lava\.percent\[1\] /],
+    ['lava.percent entry negative', withFloor({ lava: { ...LAVA, percent: [-1] } }), /^delver\.floor\.lava\.percent\[0\] /],
+    ['lava.percent entry fractional', withFloor({ lava: { ...LAVA, percent: [0.5] } }), /^delver\.floor\.lava\.percent\[0\] /],
+    ['lava.weights missing', withFloor({ lava: { percent: [0], twoPercent: 40 } }), /^delver\.floor\.lava\.weights /],
+    ['lava.weights key missing', withFloor({ lava: { ...LAVA, weights: { pit: 1, river: 1 } } }), /^delver\.floor\.lava\.weights\.trough /],
+    ['lava.weights extra key', withFloor({ lava: { ...LAVA, weights: { ...LAVA.weights, moat: 1 } } }), /^delver\.floor\.lava\.weights\.moat /],
+    ['lava.weights negative', withFloor({ lava: { ...LAVA, weights: { ...LAVA.weights, pit: -1 } } }), /^delver\.floor\.lava\.weights\.pit /],
+    ['lava.weights fractional', withFloor({ lava: { ...LAVA, weights: { ...LAVA.weights, river: 1.5 } } }), /^delver\.floor\.lava\.weights\.river /],
+    ['lava.weights all 0', withFloor({ lava: { ...LAVA, weights: { pit: 0, river: 0, trough: 0 } } }), /^delver\.floor\.lava\.weights /],
+    ['lava.twoPercent missing', withFloor({ lava: { percent: [0], weights: LAVA.weights } }), /^delver\.floor\.lava\.twoPercent /],
+    ['lava.twoPercent above 100', withFloor({ lava: { ...LAVA, twoPercent: 101 } }), /^delver\.floor\.lava\.twoPercent /],
+    ['lava.twoPercent fractional', withFloor({ lava: { ...LAVA, twoPercent: 0.5 } }), /^delver\.floor\.lava\.twoPercent /],
+    ['lava.twoPercent negative', withFloor({ lava: { ...LAVA, twoPercent: -1 } }), /^delver\.floor\.lava\.twoPercent /],
     ['features missing', withFloor({ features: undefined }), /^delver\.floor\.features /],
     ['features.percent above 100', withFloor({ features: { ...FEATURES, percent: 101 } }), /^delver\.floor\.features\.percent /],
     ['features.percent fractional', withFloor({ features: { ...FEATURES, percent: 0.5 } }), /^delver\.floor\.features\.percent /],
@@ -399,6 +416,14 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } })).floor.features).toEqual(FEATURES);
     expect(tuning.delver.floor.features).toEqual(FEATURES);
     expect(bundled.delver.floor.features).toEqual({ percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 });
+  });
+
+  it('takes the 7d lava keys: a percent per Run tier, whole weights and a percent', () => {
+    expect(parse(withFloor({ lava: LAVA })).floor.lava).toEqual(LAVA);
+    expect(parse(withFloor({ lava: { percent: [0, 100], weights: { pit: 0, river: 0, trough: 1 }, twoPercent: 100 } })).floor.lava).toEqual({ percent: [0, 100], weights: { pit: 0, river: 0, trough: 1 }, twoPercent: 100 });
+    expect(parse(withFloor({ lava: { ...LAVA, percent: [10] } })).floor.lava.percent).toEqual([10]);
+    // The shipped values (Stage 7d's switch): tuned so about 1 in 6, 1 in 4 and 1 in 3 of the Halls that may hold lava do, on tiers 1, 2 and 3.
+    expect(bundled.delver.floor.lava).toEqual({ percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 });
   });
 
   it('accepts a fractional follow', () => {

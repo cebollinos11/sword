@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
+import { floorNear } from './levels';
+import { LAVA_KEEP } from './delver/plan';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { emptyReveal, fullReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
 import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
 import { pickItemAt } from './pickups';
-import { fireAt, inStairs, STONE_REVIVE } from './delverRun';
+import { fireAt, inStairs, REVIVE_MARGIN, STONE_REVIVE } from './delverRun';
 import { hashValue } from './hash';
 import { restore, snapshot } from './snapshot';
 import { runSeed } from './dungeon';
@@ -13,7 +15,7 @@ import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
 import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT, type Intent } from './intent';
-import { addItem, commonItem, holdInventory, inventoryMods, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { addItem, commonItem, holdInventory, inventoryMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
 import { flatFloors } from './delver/flat.testdata';
 
@@ -982,5 +984,105 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
     };
     expect(hashValue(run())).toBe(hashValue(run()));
     expect(hashValue(restore(snapshot(run())))).toBe(hashValue(run()));
+  });
+});
+
+describe('a Resurrection Stone and the Inventory beside lava (Stage 7d)', { timeout: 120_000 }, () => {
+  const shipped = loadTuningData();
+  const lt: TuningData = { ...shipped, delver: { ...shipped.delver, tiers: 1, floorsPerTier: 3, postFill: 0, patrolFill: 0 } };
+  const planOf2 = (m: MatchState) => floorOf(lt, m.arena)!.plan;
+  const KEEP2 = LAVA_KEEP * LAVA_KEEP;
+  const STONE = 'Resurrection Stone';
+  const MAXHP = lt.fighter.maxHp;
+  /** Found by scanning Run arenas gen:greybox:1 to 40 on the shipped data: Floor 1 of 16 has a river (hall 1, one bridge) and of 35 a trough (hall 2). */
+  const river = { arena: 'gen:greybox:16', hall: 1 };
+  const trough = { arena: 'gen:greybox:35', hall: 2 };
+  const lavaMatch = (arena: string): MatchState => createMatch(lt, { format: 'Gauntlet', bestOf: 1, seed: 7, arena, teams: [0, 0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const step = (m: MatchState, by: Record<number, Partial<Intent>> = {}): MatchState => stepMatch(m, m.duel.fighters.map((_, i) => ({ ...IDLE_INTENT, ...by[i] })), lt);
+  const holdingStone = (m: MatchState): MatchState =>
+    withFighters(m, (f, i) => (i === 0 ? holdInventory(f, withStartingRelics(startingInventory(f.weapon), [STONE], lt), lt) : f));
+  const gap2 = (q: { x0: number; z0: number; x1: number; z1: number }, x: number, z: number) => (x - Math.min(q.x1, Math.max(q.x0, x))) ** 2 + (z - Math.min(q.z1, Math.max(q.z0, z))) ** 2;
+  /** `m` with Fighter 0 standing at (x, z) on the Hall's floor and Fighters 1 and 2 fallen, the Stone used. */
+  const usedAt = (m: MatchState, x: number, z: number, y: number): MatchState =>
+    step(
+      withFighters(holdingStone(m), (f, i) => (i === 0 ? { ...f, position: { x, z }, y } : i === 1 || i === 2 ? fell(f) : f)),
+      { 0: { use: { kind: 'relic', slot: 0 } } },
+    );
+  const checkRevived = (r: MatchState, hallIndex: number): void => {
+    const p = floorOf(lt, r.arena)!.plan;
+    const h = p.halls[hallIndex]!;
+    const a = arenaOf(arenaTuning(lt, r.arena), r.arena);
+    for (const i of [1, 2]) {
+      const back = r.duel.fighters[i]!;
+      expect(back.death).toBeUndefined();
+      expect(back.hp).toBe(lt.dungeon.revive * MAXHP);
+      expect(r.events).toContainEqual({ type: 'Revived', fighter: i, fire: STONE_REVIVE });
+      for (const q of h.lava!.rects) expect(gap2(q, back.position.x, back.position.z), `fighter ${i}`).toBeGreaterThanOrEqual(KEEP2 - 1e-9);
+      expect(h.rects.some((q) => back.position.x >= q.x0 && back.position.x <= q.x1 && back.position.z >= q.z0 && back.position.z <= q.z1)).toBe(true);
+      expect(floorNear(a, back.position.x, back.position.z, h.y)).toBeGreaterThanOrEqual(0);
+      expect(back.y).toBeCloseTo(h.y, 6);
+    }
+  };
+
+  it('raises the fallen at least LAVA_KEEP from the lava when the user stands on a river bridge\'s edge', () => {
+    const m = lavaMatch(river.arena);
+    const h = planOf2(m).halls[river.hall]!;
+    expect(h.lava!.kind).toBe('river');
+    const b = h.lava!.bridges[0]!;
+    const q = h.lava!.rects[0]!;
+    // The bridge point nearest the first rect, 0.3 m inside its edge.
+    const nx = Math.min(b.x1, Math.max(b.x0, (q.x0 + q.x1) / 2));
+    const nz = Math.min(b.z1, Math.max(b.z0, (q.z0 + q.z1) / 2));
+    const x = nx + Math.sign((b.x0 + b.x1) / 2 - nx) * 0.3;
+    const z = nz + Math.sign((b.z0 + b.z1) / 2 - nz) * 0.3;
+    const r = usedAt(m, x, z, h.y);
+    checkRevived(r, river.hall);
+  });
+
+  it('raises the fallen at least LAVA_KEEP from the lava when the user stands at a trough\'s lip', () => {
+    const m = lavaMatch(trough.arena);
+    const h = planOf2(m).halls[trough.hall]!;
+    expect(h.lava!.kind).toBe('trough');
+    const q = h.lava!.rects[0]!;
+    const cx = (q.x0 + q.x1) / 2;
+    const cz = (q.z0 + q.z1) / 2;
+    const lip = [[q.x0 - 0.3, cz], [q.x1 + 0.3, cz], [cx, q.z0 - 0.3], [cx, q.z1 + 0.3]].find(([x, z]) => h.rects.some((r) => x! >= r.x0 && x! <= r.x1 && z! >= r.z0 && z! <= r.z1) && !h.lava!.rects.some((l) => gap2(l, x!, z!) === 0))!;
+    const r = usedAt(m, lip[0]!, lip[1]!, h.y);
+    checkRevived(r, trough.hall);
+  });
+
+  it('keeps today\'s spots in a Hall without lava: each clamped inside the Hall rect, REVIVE_MARGIN from its edges', () => {
+    const m = lavaMatch(river.arena);
+    const p = planOf2(m);
+    const k = p.halls.findIndex((h, i) => i !== p.entrance && !h.lava && h.rects.length === 1 && h.pillars.length === 0);
+    const h = p.halls[k]!;
+    const r = usedAt(m, h.cx, h.cz, h.y);
+    const rect = h.rects[0]!;
+    for (const i of [1, 2]) {
+      const back = r.duel.fighters[i]!;
+      const j = i - 1;
+      const dx = [-1.5, 1.5][j]!;
+      expect(back.position.x).toBeCloseTo(Math.min(rect.x1 - REVIVE_MARGIN, Math.max(rect.x0 + REVIVE_MARGIN, h.cx + dx)), 9);
+      expect(back.position.z).toBeCloseTo(Math.min(rect.z1 - REVIVE_MARGIN, Math.max(rect.z0 + REVIVE_MARGIN, h.cz - 1.5)), 9);
+    }
+  });
+
+  it('refuses a drop from a Fighter in the air over lava, or fallen in it: it neither changes its inventory nor lays a pickup', () => {
+    const m = lavaMatch(river.arena);
+    const h = planOf2(m).halls[river.hall]!;
+    const q = h.lava!.rects[0]!;
+    const at = { x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2 };
+    const drop = { drop: { kind: 'relic' as const, slot: 0 } };
+    const air = { vx: 0, vz: 0, vy: 0, peakY: h.y, ticks: 1, jumped: true };
+    const held = holdingStone(m);
+    const flying = withFighters(held, (f, i) => (i === 0 ? { ...f, position: at, y: h.y, air } : f));
+    expect(useInventory(flying.duel.fighters[0]!, drop, lt)).toEqual({ fighter: flying.duel.fighters[0], dropped: null });
+    const dead = withFighters(held, (f, i) => (i === 0 ? { ...fell(f), position: at, y: h.lava!.y } : f));
+    expect(useInventory(dead.duel.fighters[0]!, drop, lt)).toEqual({ fighter: dead.duel.fighters[0], dropped: null });
+    for (const start of [flying, dead]) {
+      const r = step(start, { 0: drop });
+      expect(r.events.some((e) => e.type === 'ItemDropped')).toBe(false);
+      expect(r.delver!.pickups).toEqual(start.delver!.pickups);
+    }
   });
 });

@@ -10,6 +10,7 @@ import { compileDraft } from '../mapEditor/compile';
 import { MAP_MODEL_ROOT, MAX_TORCH_LIGHTS, TORCH_LIGHT } from '../mapEditor/look';
 import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEditor/sample.testdata';
 import type { Brush, EnclosureBrush, MapSource } from '../mapEditor/source';
+import { floorArenaName, floorOf } from '../sim/delver';
 import { mapModel } from './mapModel';
 import { SEAM_SHADE } from './seamShade';
 
@@ -268,5 +269,38 @@ describe('the model of a Map Editor map', () => {
     expect(upCorner(1.5 - 0.004, 0.15)).toBe(false);
     // Over deadly ground there is nothing to shade.
     for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThan(-1);
+  });
+});
+
+describe('a Wall over lava (Delver, Stage 7d)', () => {
+  // A pit (seed 10), a river (16) and a trough (3) on the first Floor: the Hall's Enclosure Wall stands from a metre under its floor.
+  it.each([
+    [10, 1, 'pit'],
+    [16, 1, 'river'],
+    [3, 1, 'trough'],
+    // A Hall with a roof (Floor 3's Boss Hall, a two-wall trough; Floor 5's river): the roof, a walk surface at the Wall's top, is no floor
+    // for the Wall to stand on, so the Wall still reaches the lava (it once stopped a metre under the Hall's floor, a black slot over the lava).
+    [10, 3, 'trough'],
+    [10, 5, 'river'],
+  ] as const)('draws a Hall Wall down to the lava beside it (seed %i, Floor %i, a %s)', (seed, n, kind) => {
+    const tuning = loadTuningData();
+    const floor = floorOf(tuning, floorArenaName(seed, n))!;
+    const hall = floor.plan.halls.find((h) => h.lava?.kind === kind)!;
+    expect(hall).toBeDefined();
+    const root = mapModel(floor.source, compileDraft(floor.source, floor.battle));
+    // Over the Wall's own line, out of the Hall's rect (the lava and its banks lie inside it): any face at the lava's height is the Wall's.
+    const { x0, z0, x1, z1 } = hall.rect;
+    let reaches = false;
+    for (const m of meshes(root)) {
+      if (m.name === 'Map_SeamShade') continue;
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const [x, y, z] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+        const out = x < x0 - 0.1 || x > x1 + 0.1 || z < z0 - 0.1 || z > z1 + 0.1;
+        if (out && x > x0 - 1 && x < x1 + 1 && z > z0 - 1 && z < z1 + 1 && Math.abs(y - hall.lava!.y) < 1e-4) reaches = true;
+      }
+    }
+    // A pit is ringed by floor, its Walls stand on floor: only a river's and a trough's reach the lava.
+    expect(reaches).toBe(kind !== 'pit');
   });
 });

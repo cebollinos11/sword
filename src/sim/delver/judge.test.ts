@@ -7,7 +7,10 @@ import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
 import { flatRooms, fullFloors, plainHalls } from './flat.testdata';
-import { isBossFloor, tierOf } from './troops';
+import { BRIDGE_MIN, type DelverLava } from './plan';
+import { holeId, lavaId } from './source';
+import type { Rect } from '../../mapEditor/source';
+import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
@@ -861,7 +864,199 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
       const n = (xs: unknown[]) => xs.length;
       const text = `${n(splits)} split Halls (${n(splits.filter((h) => h.feature?.kind === 'split' && h.feature.tiers.length === 2))} two-tier, ${n(splits.filter((h) => h.feature?.kind === 'split' && h.feature.tiers.length === 3))} three-tier), ${n(pits)} pits (${n(pits.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 2))} 2 m, ${n(pits.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4))} 4 m), ${n(daises)} daises (${n(daises.filter((h) => h.kind === 'Boss'))} thrones, ${n(daises.filter((h) => h.kind === 'Treasure'))} altars), ${n(wraps)} wrapped galleries (${n(wraps.filter((w) => w.walls.length === 1))} L, ${n(wraps.filter((w) => w.walls.length === 2))} U)`;
       expect(describeFloor(f)).toContain(`pillars in `);
-      expect(describeFloor(f)).toContain(`, ${text}; passes the judge`);
+      // Stage 7d adds the lava Halls at the end of the vertical summary.
+      const lavas = hs.flatMap((h) => (h.lava ? [h.lava] : []));
+      const rivers = lavas.filter((l) => l.kind === 'river');
+      const lavaText = `${lavas.length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((a, l) => a + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
+      expect(describeFloor(f)).toContain(`, ${text}, ${lavaText}; passes the judge`);
     }
+  });
+});
+
+describe('the judge on Floors with lava (Stage 7d)', () => {
+  // The data as shipped (lava on, the tiers' own Hall counts).
+  const shipped = loadTuningData();
+  const size = shipped.battle.field.size;
+  const planOf = (seed: number, floor: number, attempt = 0) =>
+    planFloor(floorTuningOf(shipped.delver, floor), seed, floor, attempt, isBossFloor(shipped.delver, floor), tierOf(shipped.delver, floor));
+  const ft = (floor: number) => floorTuningOf(shipped.delver, floor);
+  const lavaReasons = (plan: FloorPlan) => judgePlan(ft(plan.floor), plan, size, shipped.battle).filter((r) => r.startsWith('lava: '));
+  const withHall = (plan: FloorPlan, k: number, patch: Partial<FloorPlan['halls'][number]>): FloorPlan => ({ ...plan, halls: plan.halls.map((h, i) => (i === k ? { ...h, ...patch } : h)) });
+  const withLava = (plan: FloorPlan, k: number, lava: DelverLava): FloorPlan => withHall(plan, k, { lava });
+
+  /** Plans of seeds 1 to 30, Floors 1 to 9 (attempt 0) the plan rules accept, with the lava Halls found in them. */
+  const plans: FloorPlan[] = [];
+  for (let seed = 1; seed <= 30; seed++) for (let floor = 1; floor <= 9; floor++) plans.push(planOf(seed, floor));
+  const lavaHalls = plans.flatMap((plan) => plan.halls.flatMap((h, k) => (h.lava ? [{ plan, k, h, lava: h.lava }] : [])));
+  const find = (pred: (x: (typeof lavaHalls)[number]) => boolean) => {
+    const x = lavaHalls.find(pred);
+    if (!x) throw new Error('no such lava Hall');
+    return x;
+  };
+  /** Passages' ends at Hall `k`: [the Passage, the Hall's wall it leaves by, its end piece's rect]. */
+  const endsAt = (plan: FloorPlan, k: number) =>
+    plan.passages.flatMap((p) => [
+      ...(p.a === k ? [{ p, wall: p.sideA, rect: p.pieces[0]!.rect }] : []),
+      ...(p.b === k ? [{ p, wall: p.sideB, rect: p.pieces[p.pieces.length - 1]!.rect }] : []),
+    ]);
+
+  it('passes every plan of the 270 the pick dealt, with every kind of lava among them', () => {
+    const kinds = new Set<string>();
+    for (const plan of plans) {
+      expect(lavaReasons(plan), `Floor ${plan.floor} of seed ${plan.seed}`).toEqual([]);
+      for (const h of plan.halls) if (h.lava) kinds.add(h.lava.kind);
+    }
+    expect([...kinds].sort()).toEqual(['pit', 'river', 'trough']);
+  });
+
+  // Found by scanning seeds 1 to 40, Floors 1 to 9 on the shipped data: a pit, a river with one bridge, a river with two, a trough Hall on one wall and one on two.
+  const LAVA_FLOORS = [[10, 1, 'pit'], [16, 1, 'river'], [10, 5, 'river'], [1, 3, 'trough'], [10, 3, 'trough']] as const;
+  let lavaFloors: DelverFloor[];
+  beforeAll(() => {
+    lavaFloors = LAVA_FLOORS.map(([seed, floor]) => delverFloor(shipped, seed, floor));
+  }, 300_000);
+
+  it('deals lava Floors that pass the judge on their first attempt, each kind among them', () => {
+    lavaFloors.forEach((f, n) => {
+      expect(f.judgement, `${LAVA_FLOORS[n]}`).toEqual({ ok: true, reasons: [] });
+      expect(f.attempts).toBe(1);
+      expect(f.plan.halls.some((h) => h.lava?.kind === LAVA_FLOORS[n]![2])).toBe(true);
+      expect(judgeBuilt(floorTuningOf(shipped.delver, f.plan.floor), f)).toEqual([]);
+    });
+    const rivers = lavaFloors.flatMap((f) => f.plan.halls.flatMap((h) => (h.lava?.kind === 'river' ? [h.lava.bridges.length] : [])));
+    expect(rivers).toContain(1);
+    expect(rivers).toContain(2);
+    expect(lavaFloors.some((f) => f.plan.halls.some((h) => h.lava?.kind === 'trough' && h.lava.walls.length === 2))).toBe(true);
+  });
+
+  it('no Wall of a lava Floor stands on a 2 m destination-field cell centre', () => {
+    const at2 = { ...shipped, battle: { ...shipped.battle, crowd: { ...shipped.battle.crowd, flowCell: 2 } } };
+    for (const f of lavaFloors) expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+  }, 120_000);
+
+  it('lava: refuses lava put in the Entrance', () => {
+    const { plan, lava } = lavaHalls[0]!;
+    const k = plan.entrance;
+    const id = plan.halls[k]!.id;
+    expect(lavaReasons(withLava(plan, k, { ...lava, rects: [{ x0: 0, z0: 0, x1: 2, z1: 2 }] }))).toEqual([`lava: ${id}'s lava is not on a plain Fight, Empty, Boss or Stairs Hall`]);
+    expect(lavaReasons(plan)).toEqual([]);
+  });
+
+  it('lava: refuses a marker moved onto a rect, naming both (a post also names its Formation)', () => {
+    const { plan, k, h, lava } = find((x) => x.lava.kind === 'trough' && x.plan.markers.posts.some((q) => q.hall === x.k));
+    const q = lava.rects[0]!;
+    const n = plan.markers.posts.findIndex((p) => p.hall === k);
+    const posts = plan.markers.posts.map((p, i) => (i === n ? { ...p, x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2, y: h.y } : p));
+    const moved = { ...plan, markers: { ...plan.markers, posts } };
+    const got = lavaReasons(moved);
+    expect(got).toContain(`lava: post${n} is within 2.5 m of ${h.id}-lava0`);
+    expect(got).toContain(`lava: post${n}'s Formation (reach 2.7 m) comes within 1 m of ${h.id}-lava0`);
+    // A patrol point has no Formation: only the keep.
+    const pk = plan.markers.patrols.findIndex((pt) => pt.halls.includes(k));
+    if (pk >= 0) {
+      const at = plan.markers.patrols[pk]!.halls.indexOf(k);
+      const patrols = plan.markers.patrols.map((pt, i) => (i === pk ? { ...pt, points: pt.points.map((p, j) => (j === at ? { ...p, x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2 } : p)) } : pt));
+      expect(lavaReasons({ ...plan, markers: { ...plan.markers, patrols } })).toContain(`lava: patrol${pk}.${at} is within 2.5 m of ${h.id}-lava0`);
+    }
+  });
+
+  it('lava: refuses the Stairs zone within 2.5 m of lava', () => {
+    const { plan, h, lava } = find((x) => x.plan.markers.stairs.hall === x.k);
+    const q = lava.rects[0]!;
+    const zone = { x0: q.x0 - 1, z0: q.z0, x1: q.x0 + 1, z1: q.z0 + 2 };
+    const moved = { ...plan, markers: { ...plan.markers, stairs: { ...plan.markers.stairs, zone } } };
+    expect(lavaReasons(moved)).toContain(`lava: stairs is within 2.5 m of ${h.id}-lava0`);
+  });
+
+  it('lava: refuses a rect moved onto a doorway\'s lane, naming the Passage, the Hall and the rect', () => {
+    // A trough on one wall cut round a lane: the run before the cut grown 2 m into it (still on odd metres) reaches the lane.
+    const cut = (r: Rect, o: Rect) => (r.z0 === o.z0 && r.z1 === o.z1 && r.x1 < o.x0) || (r.x0 === o.x0 && r.x1 === o.x1 && r.z1 < o.z0);
+    const { plan, k, h, lava } = find((x) => x.lava.kind === 'trough' && x.lava.rects.some((r, n) => x.lava.rects.some((o, m) => m !== n && cut(r, o))));
+    const first = lava.rects.findIndex((r, n) => lava.rects.some((o, m) => m !== n && cut(r, o)));
+    const a = lava.rects[first]!;
+    const grown: Rect = a.z1 - a.z0 > a.x1 - a.x0 ? { ...a, z1: a.z1 + 2 } : { ...a, x1: a.x1 + 2 };
+    const got = lavaReasons(withLava(plan, k, { ...lava, rects: lava.rects.map((r, n) => (n === first ? grown : r)) }));
+    const ends = endsAt(plan, k);
+    expect(got.length).toBeGreaterThan(0);
+    for (const r of got) expect(r, r).toMatch(new RegExp(`^lava: pass\\d+'s doorway into ${h.id} is not clear of ${h.id}-lava${first}$`));
+    expect(ends.some((e) => got.includes(`lava: ${e.p.id}'s doorway into ${h.id} is not clear of ${h.id}-lava${first}`))).toBe(true);
+  });
+
+  it('lava: refuses a rect shifted half a metre (an edge on the field\'s dots)', () => {
+    const { plan, k, h, lava } = find((x) => x.lava.kind === 'pit');
+    const q = lava.rects[0]!;
+    const got = lavaReasons(withLava(plan, k, { ...lava, rects: [{ ...q, x0: q.x0 + 0.5, x1: q.x1 + 0.5 }] }));
+    expect(got).toContain(`lava: ${h.id}-lava0 has an edge on the field's dots`);
+    expect(got.filter((r) => r.includes('dots'))).toHaveLength(1);
+  });
+
+  it('lava: refuses a bridge narrowed to 2 m (the rects widened to meet it), naming the bridge', () => {
+    // A free bridge: one that holds no doorway (a river with two bridges has one).
+    const x = find((c) => c.lava.kind === 'river' && c.lava.bridges.length === 2 && endsAt(c.plan, c.k).filter((e) => e.wall === c.lava.walls[0]).length <= 1);
+    const { plan, k, h, lava } = x;
+    const alongX = lava.walls[0] === 'n' || lava.walls[0] === 's';
+    const doorOn = (b: Rect) =>
+      endsAt(plan, k).some((e) => e.wall === lava.walls[0] && (alongX ? e.rect.x0 >= b.x0 && e.rect.x1 <= b.x1 : e.rect.z0 >= b.z0 && e.rect.z1 <= b.z1));
+    const bi = lava.bridges.findIndex((b) => !doorOn(b));
+    expect(bi).toBeGreaterThanOrEqual(0);
+    const bridge = lava.bridges[bi]!;
+    // The bridge keeps its far 2 m; the rect on its near side grows by 2.
+    const narrow: Rect = alongX ? { ...bridge, x0: bridge.x0 + 2 } : { ...bridge, z0: bridge.z0 + 2 };
+    const rects = lava.rects.map((r) => (alongX ? (r.x1 === bridge.x0 ? { ...r, x1: bridge.x0 + 2 } : r) : r.z1 === bridge.z0 ? { ...r, z1: bridge.z0 + 2 } : r));
+    expect(lavaReasons(withLava(plan, k, { ...lava, rects, bridges: lava.bridges.map((b, n) => (n === bi ? narrow : b)) }))).toEqual([`lava: ${h.id}'s bridge ${bi} is 2 m wide, ${BRIDGE_MIN} wanted`]);
+  });
+
+  it('lava: refuses a post within a Formation\'s reach of lava but beyond the keep, and passes it 1 m further', () => {
+    const { plan, k, h, lava } = find((x) => x.lava.kind === 'pit' && x.plan.markers.posts.some((q) => q.hall === x.k));
+    const q = lava.rects[0]!;
+    const n = plan.markers.posts.findIndex((p) => p.hall === k);
+    const at = (gap: number) => ({ ...plan, markers: { ...plan.markers, posts: plan.markers.posts.map((p, i) => (i === n ? { ...p, x: q.x0 - gap, z: (q.z0 + q.z1) / 2, y: h.y } : p)) } });
+    // 3 m off the rect: past the keep (2.5 m), inside the reach (2.7 m) and 1 m.
+    expect(lavaReasons(at(3))).toEqual([`lava: post${n}'s Formation (reach 2.7 m) comes within 1 m of ${h.id}-lava0`]);
+    expect(lavaReasons(at(4))).toEqual([]);
+  });
+
+  describe('lavaWalk', () => {
+    const tc = (b: BuiltFloor) => floorTuningOf(shipped.delver, b.plan.floor);
+    const walk = (b: BuiltFloor) => judgeFields(tc(b), b).filter((r) => r.startsWith('lavaWalk: '));
+    const source = (b: BuiltFloor, brushes: BuiltFloor['source']['brushes']) => buildFromSource(shipped, b.plan, { ...b.source, brushes });
+
+    it('is quiet on every lava Floor', () => {
+      for (const f of lavaFloors) expect(walk(f)).toEqual([]);
+    });
+
+    it('refuses a bridge\'s Hole widened over it in the source (the far bank cut off), naming the bridge and the doorways on the bank', () => {
+      const b = lavaFloors[2]!;
+      const k = b.plan.halls.findIndex((h) => h.lava?.kind === 'river');
+      const h = b.plan.halls[k]!;
+      const lava = h.lava!;
+      // The first lava rect's Hole grown over the first bridge.
+      const bridge = lava.bridges[0]!;
+      const first = lava.rects.findIndex((r) => r.x1 === bridge.x0 || r.x0 === bridge.x1 || r.z1 === bridge.z0 || r.z0 === bridge.z1);
+      const grown = { x0: Math.min(lava.rects[first]!.x0, bridge.x0), z0: Math.min(lava.rects[first]!.z0, bridge.z0), x1: Math.max(lava.rects[first]!.x1, bridge.x1), z1: Math.max(lava.rects[first]!.z1, bridge.z1) };
+      const brushes = b.source.brushes.map((br) => (br.id === holeId(h, first) ? { ...br, rect: grown } : br));
+      const got = walk(source(b, brushes));
+      expect(got).toContain(`lavaWalk: ${h.id}'s bridge 0 does not reach its centre`);
+      expect(got.every((r) => r.startsWith(`lavaWalk: ${h.id}'s bridge `) || / doorway into /.test(r))).toBe(true);
+    });
+
+    it('refuses a Hazard removed from the source (the ground under the rect is no lava), naming the rect', () => {
+      for (const b of lavaFloors) {
+        const k = b.plan.halls.findIndex((h) => h.lava);
+        const h = b.plan.halls[k]!;
+        const got = walk(source(b, b.source.brushes.filter((br) => br.id !== lavaId(h, 0))));
+        expect(got).toEqual([`lavaWalk: ${h.id}-lava0 is not lava 4 m under the floor`]);
+      }
+    });
+  });
+
+  it('describeFloor counts the lava Halls, pits, rivers with their bridges and trough Halls', () => {
+    for (const f of lavaFloors) {
+      const lavas = f.plan.halls.flatMap((h) => (h.lava ? [h.lava] : []));
+      const rivers = lavas.filter((l) => l.kind === 'river');
+      const text = `, ${lavas.length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls); passes the judge`;
+      expect(describeFloor(f)).toContain(text);
+    }
+    expect(describeFloor(lavaFloors[2]!)).toMatch(/, [1-9]\d* lava Halls \(\d+ pits, [1-9]\d* rivers with [2-9]\d* bridges, \d+ trough Halls\); passes the judge$/);
   });
 });

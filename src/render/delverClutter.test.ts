@@ -102,6 +102,30 @@ describe('clutterOf', () => {
   });
 });
 
+describe('clutter and lava (Stage 7d)', () => {
+  it('keeps every heap, crack, chain and cobweb off lava and a metre clear of it, over a scan of shipped lava Floors', { timeout: 120_000 }, () => {
+    let lavaHalls = 0;
+    let items = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      for (const n of [1, 4, 7, 9]) {
+        const { plan, clutter } = floor(seed, n);
+        const rects = plan.halls.flatMap((h) => h.lava?.rects ?? []);
+        lavaHalls += plan.halls.filter((h) => h.lava).length;
+        const points = [
+          ...discs(clutter).map((d) => ({ x: d.x, z: d.z, pad: 1 + d.r })),
+          ...clutter.chains.map((c) => ({ x: c.x + c.nx * 0.5, z: c.z + c.nz * 0.5, pad: 1 })),
+          ...clutter.webs.map((w) => ({ x: w.hub.x, z: w.hub.z, pad: 0 })),
+        ];
+        items += points.length;
+        for (const p of points) for (const r of rects) expect(inside(r, p.x, p.z, p.pad), `seed ${seed} Floor ${n}: (${p.x.toFixed(2)}, ${p.z.toFixed(2)}) by lava`).toBe(false);
+      }
+    }
+    // The scan met lava (else it proves nothing).
+    expect(lavaHalls).toBeGreaterThan(5);
+    expect(items).toBeGreaterThan(500);
+  });
+});
+
 describe('clutterModel', () => {
   it('draws a whole Floor in at most four draw calls and under 20 000 triangles', () => {
     for (const [seed, n] of [

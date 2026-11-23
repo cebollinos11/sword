@@ -6,6 +6,7 @@ import type { MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import { floorOf } from '../sim/delver';
 import { delverMapLayout, delverMapStatus, viewReveal, type DelverMapLayout } from './floorMap';
+import { LAVA_MAP_COLOUR } from '../render/delverLava';
 import { markLabel } from '../render/delverMapMarks';
 import { ALLY, INK, INK_FADED, ME, paintArrow, paintPlan, paintStub, paintText, paperSheet } from '../render/parchment';
 
@@ -92,7 +93,7 @@ export const DELVER_MAP_PIXELS = 240;
 
 /**
  * A Delver Floor's layout painted as pixel art on parchment (`parchment.ts`), DELVER_MAP_PIXELS square: the unexplored doorways' stubs, the
- * Passages and Halls in ink, the special Halls' names (`markLabel`), then the party's arrows, big, the local one red and last.
+ * Passages and Halls in ink, a revealed Hall's lava in orange, the special Halls' names (`markLabel`), then the party's arrows, big, the local one red and last.
  */
 function drawDelverMap(layout: DelverMapLayout, tier: number): HTMLCanvasElement {
   const n = DELVER_MAP_PIXELS;
@@ -108,6 +109,14 @@ function drawDelverMap(layout: DelverMapLayout, tier: number): HTMLCanvasElement
     layout.rects.filter((r) => !r.hall).map(px),
     layout.rects.filter((r) => r.hall).map((r) => ({ ...px(r), ...(r.kind === undefined ? {} : { kind: r.kind }) })),
   );
+  // The revealed Halls' lava, orange over their floor (inside the Hall's outline).
+  g.fillStyle = LAVA_MAP_COLOUR;
+  for (const r of layout.lava) {
+    const q = px(r);
+    const x = Math.round(Math.min(q.x0, q.x1));
+    const y = Math.round(Math.min(q.y0, q.y1));
+    g.fillRect(x, y, Math.max(1, Math.round(Math.max(q.x0, q.x1)) - x), Math.max(1, Math.round(Math.max(q.y0, q.y1)) - y));
+  }
   // Over the plan, so each opens its Hall's outline.
   for (const d of layout.doors) paintStub(g, px(d), d.edge);
   for (const m of layout.marks) {

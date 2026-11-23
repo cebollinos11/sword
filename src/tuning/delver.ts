@@ -55,6 +55,21 @@ export interface DelverFloorTuning {
   readonly shapes: DelverShapesTuning;
   /** Pillars. */
   readonly pillars: DelverPillarsTuning;
+  /** Lava (docs/plans/delver.md, Stage 7d). */
+  readonly lava: DelverLavaTuning;
+}
+
+/**
+ * Lava (docs/plans/delver.md, Stage 7d): a pit, a river with bridges or troughs in a Hall that may hold it (a Fight, Empty, Boss or Stairs Hall with no
+ * gallery and no feature). `percent` all 0 makes every Floor as 7c's (no lava, no pick made).
+ */
+export interface DelverLavaTuning {
+  /** Per Run tier (the last for any deeper tier): the chance (in 100) that a Hall that may hold lava is picked for it. Non-empty. */
+  readonly percent: readonly number[];
+  /** The weights of a pit, a river and troughs (whole, at least 0, summing to at least 1). */
+  readonly weights: { readonly pit: number; readonly river: number; readonly trough: number };
+  /** The chance (in 100) that a river wants two bridges (else one), and that a trough Hall tries a second wall. */
+  readonly twoPercent: number;
 }
 
 /**
@@ -678,6 +693,16 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   // A split's main tier stands a level over its outer one and a pit's rim a level over its floor.
   if (features.percent > 0 && levelMax < 1) fail(`${fw}.percent`, '0 when levels.max is 0 (a split\'s main tier stands a level over its outer one, and a pit\'s rim a level over its floor)', features.percent);
 
+  const la = record(f.lava, `${w}.lava`);
+  const lw2 = `${w}.lava`;
+  const lavaList = array(la.percent, `${lw2}.percent`);
+  if (lavaList.length === 0) fail(`${lw2}.percent`, 'a non-empty array of percents (one per Run tier)', la.percent);
+  const lavaPercent = lavaList.map((d, i) => {
+    if (typeof d !== 'number' || !Number.isInteger(d) || d < 0 || d > 100) fail(`${lw2}.percent[${i}]`, 'a whole number 0 to 100', d);
+    return d;
+  });
+  const lava = { percent: lavaPercent, weights: weights(la.weights, `${lw2}.weights`, ['pit', 'river', 'trough'] as const), twoPercent: percent(la, 'twoPercent', lw2) };
+
   const turnPercent = percent(f, 'turnPercent', w);
   const gt = record(f.great, `${w}.great`);
   const gw = `${w}.great`;
@@ -720,6 +745,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     sizeHp,
     skillTints,
     traitor: parseTraitor(root.traitor),
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava },
   };
 }

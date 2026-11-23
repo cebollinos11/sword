@@ -190,3 +190,28 @@ describe('the unexplored doorways of the revealed Halls', () => {
     expect(delverDoorStubs(plan, all)).toEqual([]);
   });
 });
+
+describe('delverMapLayout lava (Stage 7d)', () => {
+  // Seed 3, Floor 1: a lava Hall (a trough of three rects) on the shipped data.
+  const plan = floorOf(tuning, floorArenaName(3, 1))!.plan;
+  const status = { gateOpen: true, restUsed: [], pickups: [] };
+  const hall = plan.halls.findIndex((h) => h.lava);
+  const layout = (revealed: readonly number[]) => delverMapLayout(plan, revealed, [], 0, status);
+
+  it('carries a revealed lava Hall’s lava rects, on the board and inside the Hall, and none for an unrevealed one', () => {
+    expect(hall).toBeGreaterThanOrEqual(0);
+    const seen = layout(withReveal(withReveal(emptyReveal(plan), plan.entrance), hall));
+    expect(seen.lava).toHaveLength(plan.halls[hall]!.lava!.rects.length);
+    const outline = seen.rects.filter((r) => r.hall);
+    for (const q of seen.lava) {
+      expect(q.x1).toBeGreaterThan(q.x0);
+      expect(q.y1).toBeGreaterThan(q.y0);
+      expect(q.x0).toBeGreaterThanOrEqual(0);
+      expect(q.x1).toBeLessThanOrEqual(1);
+      expect(outline.some((r) => q.x0 >= r.x0 - 1e-9 && q.x1 <= r.x1 + 1e-9 && q.y0 >= r.y0 - 1e-9 && q.y1 <= r.y1 + 1e-9)).toBe(true);
+    }
+    const hidden = layout(withReveal(emptyReveal(plan), plan.entrance === hall ? (hall + 1) % plan.halls.length : plan.entrance));
+    expect(hidden.lava).toEqual([]);
+    expect(layout(emptyReveal(plan)).lava).toEqual([]);
+  });
+});
