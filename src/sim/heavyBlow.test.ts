@@ -99,7 +99,7 @@ describe('Quarterstaff Heavy Blow', () => {
 
 describe('Heavy Blow Blocked', () => {
   it('pushes the defender back by `blockSlide`, its Block holding, and the attacker recoils as from any Block', () => {
-    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.45);
+    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.5);
     const [block] = events<BlockEvent>(run, 'Block');
     expect(block).toMatchObject({ heavy: true });
     const at = run.states.find((s) => s.events.includes(block!))!;
