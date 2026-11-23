@@ -44,7 +44,9 @@ import {
   arenaTuning,
   floorArenaName,
   floorOf,
+  LAVA_KEEP,
   warbandHomes,
+  type LavaKind,
   type WarbandHomes,
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
@@ -504,6 +506,8 @@ interface FloorReport {
   soldiers: number;
   deadAtEnd: number;
   stairs: { x: number; z: number };
+  /** The Floor's lava Halls (Stage 7d), as `lavaHallsLine` words them. */
+  lava: string;
 }
 
 const BOUND = ["0", "1-4", "5-8", "9+"];
@@ -599,6 +603,7 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
       soldiers: match.duel.crowd!.x.length,
       deadAtEnd: 0,
       stairs: { x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 },
+      lava: lavaHallsLine(plan),
     };
     floors.push(report);
     live = { report, open: new Map() };
@@ -800,6 +805,7 @@ function printFloor(r: FloorReport): string[] {
   out.push(
     `  Floor ${r.floor}: ${f(dur)} s, ended ${r.how}${r.how === "Stairs" ? ` at Tick ${r.end}` : r.how === "Defeat" ? ` at Tick ${r.end}` : ""}; party then: ${r.party}`,
   );
+  out.push(`    lava Halls: ${r.lava}`);
   out.push(
     `    Warbands ${rows.length} deployed (${count((x) => x.kind === "guard")} guards, ${count((x) => x.kind === "patrol")} patrols, ${r.soldiers} Soldiers): met ${count((x) => x.met)}, chased ${count((x) => x.chases > 0)} ` +
       `(${rows.reduce((a, x) => a + x.chases, 0)} chases), wiped ${count((x) => x.wiped)}, returned ${count((x) => x.returned > 0)} (${rows.reduce((a, x) => a + x.returned, 0)} returns); Soldiers dead ${r.deadAtEnd}/${r.soldiers}`,
@@ -937,6 +943,7 @@ function playBossRun(
   tuning: TuningData,
   seconds = FULL_SECONDS,
   immortal = false,
+  extra?: RunOptions["watch"],
 ) {
   const floors: BossFloor[] = [];
   let runEnd: Extract<MatchEvent, { type: "RunEnd" }> | undefined;
@@ -950,7 +957,8 @@ function playBossRun(
     floors: total,
     seconds,
     immortal,
-    watch: (at, next) => {
+    watch: (at, next, t) => {
+      extra?.(at, next, t);
       const events = next.events as readonly MatchEvent[];
       const found = events.find((e) => e.type === "RunEnd");
       if (found) runEnd = found as typeof runEnd;
@@ -1163,6 +1171,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     const runs: RunReport[] = [];
     const blocks = blockWatcher();
     const platforms = platformWatcher();
+    const lava = lavaWatcher();
     const t0 = performance.now();
     for (const name of RUNS) {
       const wall = performance.now();
@@ -1170,6 +1179,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
         watch: (at, next, t) => {
           blocks.watch(at, next, t);
           platforms.watch(at, next, t);
+          lava.watch(at, next, t);
         },
       });
       runs.push(run);
@@ -1226,6 +1236,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     lines.push(
       `  Platforms (Stage 7c): ${platforms.check.ticks} Ticks checked, ${platforms.check.bodies} bodies, ${platforms.check.count} inside a Platform; 4 m pit drops ${platforms.check.drops}, Soldier-Ticks in 4 m pit Halls ${platforms.check.pitSoldierTicks}`,
     );
+    lines.push(...lavaLines("Lava (Stage 7d)", lava.check));
     console.log(lines.join("\n"));
     expect(
       blocks.check.inside,
@@ -1448,7 +1459,10 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
           ...c0,
           alive: c0.alive.map((a, i) => (c0.squad[i] === q ? a : 0)),
           hp: c0.hp.map((h, i) => (c0.squad[i] === q ? h : 0)),
-          squads: { ...c0.squads, living: c0.squads.living.map((n, k) => (k === q ? n : 0)) },
+          squads: {
+            ...c0.squads,
+            living: c0.squads.living.map((n, k) => (k === q ? n : 0)),
+          },
         };
         m = {
           ...m,
@@ -1481,7 +1495,10 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
               groundOf(t.battle, map.field, post.x, post.z, 0),
             ),
           );
-          const toStart = oneField(fields, fieldToward(fields, chosen.x, chosen.z, on));
+          const toStart = oneField(
+            fields,
+            fieldToward(fields, chosen.x, chosen.z, on),
+          );
           let far = -Infinity;
           const half = t.battle.field.size / 2;
           for (let x = -half; x <= half; x += 2)
@@ -1728,7 +1745,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
   });
 
   it("a full Run on the bundled Tuning (a measurement: where the Delver pilot with two Hard allies ends)", () => {
-    const r = playBossRun(base);
+    const r = playBossRun(base, FULL_SECONDS, false, lavaWatcher().watch);
     printBossRun("Full Run, bundled Tuning", base, r);
     const problems = bossProblems(base, r);
     console.log(
@@ -1741,7 +1758,8 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
   it("a full Run of 3 tiers x 3 Floors on the bundled Tuning with an immortal party, Bosses on Floors 3, 6 and 9: the Boss promoted first, the Boss Warband wiped, the gate opened, loot taken, to the Victory", () => {
     // Stage 6's lattice (Design §7): the elites are met on it; on the 7a Floors the pilot meets none.
     const tuning = flatRooms(base);
-    const r = playBossRun(tuning, FULL_SECONDS, true);
+    const lava = lavaWatcher();
+    const r = playBossRun(tuning, FULL_SECONDS, true, lava.watch);
     printBossRun(
       "Full Run, bundled Tuning on flatRooms, immortal party",
       tuning,
@@ -1752,6 +1770,25 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
       problems,
       `the full Run did not show:\n${problems.join("\n")}`,
     ).toEqual([]);
+  });
+
+  it("a full Run of 3 tiers x 3 Floors on the bundled Tuning (the 7d Floors, with lava on every tier) with an immortal party: where it ends, and the lava the party and the Warbands met (a lava Death kills whatever the HP)", () => {
+    const lava = lavaWatcher();
+    const r = playBossRun(base, FULL_SECONDS, true, lava.watch);
+    printBossRun(
+      "Full Run, bundled Tuning (7d Floors), immortal party",
+      base,
+      r,
+    );
+    const problems = bossProblems(base, r);
+    console.log(
+      `${problems.length === 0 ? "Everything the asserted full Run checks was shown." : `Not shown:\n  ${problems.join("\n  ")}`}\n${r.run.floors.map((x) => `  Floor ${x.floor}: lava Halls ${x.lava}`).join("\n")}\n${lavaLines("Lava (Stage 7d), the full Run on the bundled Tuning", lava.check).join("\n")}`,
+    );
+    // The Run's own end is not what this case asserts (a Victory is the flat Run's): it needs to have gone down the Floors for the lava to be met.
+    expect(
+      r.run.floors.length,
+      "the immortal party did not leave Floor 1",
+    ).toBeGreaterThan(1);
   });
 
   it("exercised what it measures: a Promotion, a Chase, a Return home after a Chase, a Warband wiped, and a patrol walking its whole loop", () => {
@@ -2178,6 +2215,436 @@ function platformWatcher(): {
   return { watch, check };
 }
 
+// ------------------------------------------------------------------ lava (docs/plans/delver.md, Stage 7d, §11)
+
+/** The kinds of lava, in the plan's order. */
+const LAVA_KINDS: readonly LavaKind[] = ["pit", "river", "trough"];
+
+/** A Floor's lava Halls in words: `none`, or `3 (1 pit, 1 river (2 bridges), 1 trough Hall)`. */
+function lavaHallsLine(plan: Lay["plan"]): string {
+  const halls = plan.halls.filter((h) => h.lava);
+  if (halls.length === 0) return "none";
+  const of = (k: LavaKind) => halls.filter((h) => h.lava!.kind === k);
+  const rivers = of("river");
+  return `${halls.length} (${of("pit").length} pit, ${rivers.length} river (${rivers.map((h) => h.lava!.bridges.length).join("+") || "-"} bridges), ${of("trough").length} trough)`;
+}
+
+/** The squared distance from above from (x, z) to the rect (0 inside it). */
+const rectGap2 = (r: Rect, x: number, z: number): number => {
+  const dx = Math.max(r.x0 - x, 0, x - r.x1);
+  const dz = Math.max(r.z0 - z, 0, z - r.z1);
+  return dx * dx + dz * dz;
+};
+const inRectXZ = (r: Rect, x: number, z: number): boolean =>
+  x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+
+/** What pushed a victim of lava in the 3 s before: the cause, or `walked` for none. */
+type LavaCause =
+  | "kick"
+  | "slide"
+  | "whirlwind"
+  | "chain"
+  | "knockdown"
+  | "walked";
+const LAVA_CAUSES: readonly LavaCause[] = [
+  "kick",
+  "slide",
+  "whirlwind",
+  "chain",
+  "knockdown",
+  "walked",
+];
+/** Who died of it. */
+type LavaWho =
+  | "party Player"
+  | "AI ally"
+  | "promoted Soldier"
+  | "traitor Soldier"
+  | "other";
+const LAVA_WHOS: readonly LavaWho[] = [
+  "party Player",
+  "AI ally",
+  "promoted Soldier",
+  "traitor Soldier",
+  "other",
+];
+
+interface LavaDeath {
+  readonly where: string;
+  readonly who: LavaWho;
+  readonly cause: LavaCause;
+  /** The line to print: Run/Floor, Tick, the victim, its place, the Hall and its lava, and the events naming it in the 3 s before. */
+  readonly line: string;
+}
+
+/** What the lava watchers saw, over every Tick they watched (a module total beside each watcher's own). */
+interface LavaCheck {
+  ticks: number;
+  /** Every Floor seen, by Run Floor name and its lava signature: its tier and the lava Halls by kind. */
+  floors: Map<string, { tier: number; halls: Record<LavaKind, number> }>;
+  deaths: LavaDeath[];
+  /** Unpromoted living Crowd Soldier-Ticks, those inside a lava Hall's rect, and those whose Walk Surface is lava (and the first ten). */
+  soldierTicks: number;
+  soldierTicksInLava: number;
+  onLava: number;
+  onLavaLines: string[];
+  /** Pickups added, and those on lava or within `LAVA_KEEP` of it (and the first ten). */
+  pickups: number;
+  pickupsNear: number;
+  pickupLines: string[];
+  /** `Revived` Fighters, and those revived on lava or within `LAVA_KEEP` of it. */
+  revives: number;
+  revivesNear: number;
+  reviveLines: string[];
+  /** Party Fighter-Ticks on a river's bridge, on a pit's ring (within 4 m of the pit) and beside a trough (within 3 m). */
+  bridge: number;
+  ring: number;
+  trough: number;
+}
+const newLavaCheck = (): LavaCheck => ({
+  ticks: 0,
+  floors: new Map(),
+  deaths: [],
+  soldierTicks: 0,
+  soldierTicksInLava: 0,
+  onLava: 0,
+  onLavaLines: [],
+  pickups: 0,
+  pickupsNear: 0,
+  pickupLines: [],
+  revives: 0,
+  revivesNear: 0,
+  reviveLines: [],
+  bridge: 0,
+  ring: 0,
+  trough: 0,
+});
+/** The sum of every lava watcher of this file, checked and printed once at the end. */
+const lavaTotal = newLavaCheck();
+
+/** How far (m) from a pit's rect a party Fighter is on its ring, and from a trough's rect beside it. */
+const PIT_RING = 4;
+const TROUGH_SIDE = 3;
+/** A party Fighter's feet this near (m) a Hall's floor are on it (not in the air over the lava). */
+const ON_FLOOR = 1;
+/** The window (s) before a Death by Lava in which a push on the victim is its cause. */
+const LAVA_WINDOW = 3;
+
+/** The cause table of `deaths`: `who: n (cause n, ...)`. */
+function lavaDeathLines(deaths: readonly LavaDeath[]): string[] {
+  const out: string[] = [];
+  for (const who of LAVA_WHOS) {
+    const of = deaths.filter((d) => d.who === who);
+    if (of.length === 0) continue;
+    out.push(
+      `${who} ${of.length} (${LAVA_CAUSES.map((c) => `${c} ${of.filter((d) => d.cause === c).length}`).join(", ")})`,
+    );
+  }
+  return out;
+}
+
+/** The lines `c` prints, headed by `label`. */
+function lavaLines(label: string, c: LavaCheck): string[] {
+  const out: string[] = [];
+  const floors = [...c.floors.values()];
+  const tiers = [...new Set(floors.map((x) => x.tier))].sort((a, b) => a - b);
+  const sum = (
+    xs: readonly { halls: Record<LavaKind, number> }[],
+    k: LavaKind,
+  ) => xs.reduce((a, x) => a + x.halls[k], 0);
+  const has = (x: { halls: Record<LavaKind, number> }) =>
+    LAVA_KINDS.some((k) => x.halls[k] > 0);
+  out.push(
+    `${label}: ${floors.length} Floors seen, ${floors.filter(has).length} with lava; by tier ${tiers
+      .map((t) => {
+        const at = floors.filter((x) => x.tier === t);
+        return `${t}: ${at.filter(has).length}/${at.length} (${LAVA_KINDS.map((k) => `${sum(at, k)} ${k}`).join(", ")} Halls)`;
+      })
+      .join(
+        "; ",
+      )}; by kind, Floors holding it ${LAVA_KINDS.map((k) => `${k} ${floors.filter((x) => x.halls[k] > 0).length}`).join(", ")}`,
+  );
+  out.push(
+    `  the party's walk past lava (Fighter-Ticks over ${c.ticks} Ticks): on a river's bridge ${c.bridge}, on a pit's ring (within ${PIT_RING} m) ${c.ring}, beside a trough (within ${TROUGH_SIDE} m) ${c.trough}`,
+  );
+  const walked = c.deaths.filter((d) => d.cause === "walked");
+  out.push(
+    `  Deaths by Lava ${c.deaths.length}: ${lavaDeathLines(c.deaths).join("; ") || "none"}; walked in ${walked.length} (of them an ally, the pilot or a promoted Soldier: ${walked.filter((d) => d.who === "AI ally" || d.who === "party Player" || d.who === "promoted Soldier").length}); Soldier-Ticks in lava Halls ${c.soldierTicksInLava} of ${c.soldierTicks} unpromoted Soldier-Ticks; unpromoted Soldiers on lava ${c.onLava}`,
+  );
+  out.push(
+    `  Pickups added ${c.pickups}, on lava or within ${LAVA_KEEP} m of it ${c.pickupsNear}; Revived ${c.revives}, on lava or within ${LAVA_KEEP} m of it ${c.revivesNear}`,
+  );
+  return out;
+}
+
+/** What a watcher read of one Floor, once. */
+interface LavaFloorCache {
+  readonly floor: number;
+  readonly tier: number;
+  /** The Halls with lava, with their index. */
+  readonly halls: readonly { readonly k: number; readonly hall: DelverHall }[];
+  /** Every lava rect of the Floor, and with its Hall's id. */
+  readonly rects: readonly { readonly rect: Rect; readonly id: string }[];
+  /** Per Walk Surface: lava. */
+  readonly lava: readonly boolean[];
+}
+
+/**
+ * A `RunOptions.watch` for the Stage 7d checks, on every Tick of a Delver Floor: each Floor's lava by tier and kind; each Death by Lava classified by
+ * what pushed the victim in the 3 s before (a Kick, a heavy blow's Slide, a Whirlwind blow, a Chain Knockdown, a Knockdown of unknown start, else it
+ * walked in) and by who died; the ground under every living unpromoted Soldier (never lava) and the Soldier-Ticks in lava Halls; each Pickup added
+ * and each Revived spot (never on lava or within `LAVA_KEEP`); and the party's Fighter-Ticks on a bridge, a pit's ring and beside a trough.
+ */
+function lavaWatcher(): {
+  watch: (at: MatchState, next: MatchState, tuning: TuningData) => void;
+  check: LavaCheck;
+} {
+  const check = newLavaCheck();
+  const sinks = [check, lavaTotal];
+  const cache = new Map<string, LavaFloorCache>();
+  interface Push {
+    readonly tick: number;
+    readonly kind: LavaCause | "hit" | "phase";
+    readonly target: number;
+    readonly source: number;
+    readonly text: string;
+  }
+  let recent: Push[] = [];
+  let pickupArena = "";
+  let pickupsSeen = 0;
+  const window = secondsToTicks(LAVA_WINDOW);
+
+  const cacheOf = (
+    tuning: TuningData,
+    name: string,
+    floor: number,
+  ): LavaFloorCache | null => {
+    let c = cache.get(name);
+    if (c) return c;
+    const built = floorOf(tuning, name);
+    if (!built) return null;
+    const t = arenaTuning(tuning, name);
+    const arena = arenaOf(t, name);
+    const halls = built.plan.halls.flatMap((hall, k) =>
+      hall.lava ? [{ k, hall }] : [],
+    );
+    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0 };
+    for (const h of halls) halls0[h.hall.lava!.kind]++;
+    cache.set(
+      name,
+      (c = {
+        floor,
+        tier: tierOf(tuning.delver, floor),
+        halls,
+        rects: halls.flatMap((h) =>
+          h.hall.lava!.rects.map((rect) => ({ rect, id: h.hall.id })),
+        ),
+        lava: arena.walk.map((s) => s.lava === true),
+      }),
+    );
+    const sig = halls
+      .map(
+        (h) => `${h.hall.id}:${h.hall.lava!.kind}:${h.hall.lava!.rects.length}`,
+      )
+      .join(",");
+    for (const to of sinks)
+      to.floors.set(`${name}|${sig}`, { tier: c.tier, halls: halls0 });
+    return c;
+  };
+
+  /** The nearest lava rect's gap (m, from above) to (x, z), or Infinity; and whether it lies on it. */
+  const nearLava = (
+    x: LavaFloorCache,
+    px: number,
+    pz: number,
+  ): { gap: number; on: boolean; id: string } => {
+    let best = { gap: Infinity, on: false, id: "" };
+    for (const r of x.rects) {
+      const g = Math.sqrt(rectGap2(r.rect, px, pz));
+      if (g < best.gap) best = { gap: g, on: g === 0, id: r.id };
+    }
+    return best;
+  };
+
+  const watch = (
+    at: MatchState,
+    next: MatchState,
+    tuning: TuningData,
+  ): void => {
+    const name = next.duel.arena;
+    if (!next.delver) return;
+    const x = cacheOf(tuning, name, next.delver.floor);
+    if (!x) return;
+    const changed = name !== at.duel.arena;
+    const k = next.config.teams.length;
+    const events = next.events as readonly MatchEvent[];
+    const fighters = next.duel.fighters;
+
+    // Pickups added on this Floor (a new Floor's pickups are numbered from 0).
+    if (pickupArena !== name) {
+      pickupArena = name;
+      pickupsSeen = 0;
+    }
+    const pickups = next.delver.pickups;
+    for (; pickupsSeen < pickups.length; pickupsSeen++) {
+      const p = pickups[pickupsSeen]!;
+      const near = nearLava(x, p.at.x, p.at.z);
+      for (const to of sinks) to.pickups++;
+      if (near.gap < LAVA_KEEP - 1e-9) {
+        const line = `${name} Tick ${next.tick}: ${p.kind} pickup ${p.id} at (${f(p.at.x, 2)}, ${f(p.at.z, 2)}) is ${near.on ? "ON" : `${f(near.gap, 2)} m from`} ${near.id}'s lava`;
+        for (const to of sinks) {
+          to.pickupsNear++;
+          if (to.pickupLines.length < 10) to.pickupLines.push(line);
+        }
+      }
+    }
+    // Revived spots.
+    for (const e of events) {
+      if (e.type !== "Revived") continue;
+      const fighter = fighters[e.fighter];
+      if (!fighter) continue;
+      const near = nearLava(x, fighter.position.x, fighter.position.z);
+      for (const to of sinks) to.revives++;
+      if (near.gap < LAVA_KEEP - 1e-9) {
+        const line = `${name} Tick ${next.tick}: Fighter ${e.fighter} revived (fire ${e.fire}) at (${f(fighter.position.x, 2)}, ${f(fighter.position.z, 2)}), ${near.on ? "ON" : `${f(near.gap, 2)} m from`} ${near.id}'s lava`;
+        for (const to of sinks) {
+          to.revivesNear++;
+          if (to.reviveLines.length < 10) to.reviveLines.push(line);
+        }
+      }
+    }
+    if (changed) {
+      recent = [];
+      return;
+    }
+    const c = next.duel.crowd;
+    if (!c) return;
+    for (const to of sinks) to.ticks++;
+
+    // The pushes of this Tick, then the Deaths by Lava.
+    for (const e of next.duel.events) {
+      if (e.type === "KickLanded")
+        recent.push({
+          tick: next.tick,
+          kind: "kick",
+          target: e.defender,
+          source: e.attacker,
+          text: `KickLanded ${e.attacker}->${e.defender} (${e.outcome})`,
+        });
+      else if (e.type === "Hit")
+        recent.push({
+          tick: next.tick,
+          kind: e.whirlwind ? "whirlwind" : e.heavy ? "slide" : "hit",
+          target: e.defender,
+          source: e.attacker,
+          text: `Hit ${e.attacker}->${e.defender} ${e.whirlwind ? "whirlwind" : e.heavy ? "HEAVY" : "plain"} ${f(e.damage, 0)} dmg`,
+        });
+      else if (e.type === "ChainKnockdown")
+        recent.push({
+          tick: next.tick,
+          kind: "chain",
+          target: e.fighter,
+          source: e.source,
+          text: `ChainKnockdown ${e.by}->${e.fighter} (started by ${e.source})`,
+        });
+      else if (e.type === "KnockdownPhase")
+        recent.push({
+          tick: next.tick,
+          kind: "phase",
+          target: e.fighter,
+          source: -1,
+          text: `KnockdownPhase ${e.fighter} ${e.phase}`,
+        });
+    }
+    recent = recent.filter((p) => next.tick - p.tick <= window);
+    const traitors = next.config.traitors?.length ?? 0;
+    for (const e of next.duel.events) {
+      if (e.type !== "Death" || e.cause !== "Lava") continue;
+      const i = e.fighter;
+      const before = at.duel.fighters[i];
+      const after = fighters[i];
+      const soldier = after?.soldier ?? before?.soldier;
+      const who: LavaWho =
+        i < k
+          ? (next.config.players ?? [0]).includes(i)
+            ? "party Player"
+            : "AI ally"
+          : i < k + traitors
+            ? "traitor Soldier"
+            : soldier !== undefined
+              ? "promoted Soldier"
+              : "other";
+      const mine = recent.filter((p) => p.target === i);
+      const causes = mine.filter(
+        (p) =>
+          p.kind === "kick" ||
+          p.kind === "slide" ||
+          p.kind === "whirlwind" ||
+          p.kind === "chain",
+      );
+      const cause: LavaCause =
+        causes.length > 0
+          ? (causes[causes.length - 1]!.kind as LavaCause)
+          : mine.some((p) => p.kind === "phase")
+            ? "knockdown"
+            : "walked";
+      const pos = (before ?? after)!;
+      const hall = x.halls.find(
+        (h) => rectGap2(h.hall.rect, pos.position.x, pos.position.z) < 4,
+      );
+      const events3 = recent
+        .filter((p) => p.target === i || p.source === i)
+        .map((p) => `T-${next.tick - p.tick} ${p.text}`);
+      const line = `${name} Floor ${x.floor} Tick ${next.tick}: Fighter ${i} (${who}${soldier ? ` ${soldier.role}, Soldier ${soldier.index}` : ""}, team ${pos.team}) died in lava by ${cause} from (${f(pos.position.x, 2)}, ${f(pos.position.z, 2)}) y ${f(pos.y, 2)}${pos.air ? " airborne" : ""} in ${hall ? `${hall.hall.id} (${hall.hall.lava!.kind}, y ${f(hall.hall.y)}, lava y ${f(hall.hall.lava!.y)})` : "no lava Hall"}; events naming it in the 3 s before: ${events3.length === 0 ? "none" : events3.join("; ")}`;
+      for (const to of sinks) to.deaths.push({ where: name, who, cause, line });
+    }
+
+    // The ground under each living unpromoted Soldier, and the Soldier-Ticks in lava Halls.
+    for (let i = 0; i < c.x.length; i++) {
+      if (!c.alive[i] || c.slot[i]! >= 0) continue;
+      for (const to of sinks) to.soldierTicks++;
+      const px = c.x[i]!;
+      const pz = c.z[i]!;
+      if (x.halls.some((h) => inRectXZ(h.hall.rect, px, pz)))
+        for (const to of sinks) to.soldierTicksInLava++;
+      if (x.lava[c.surface[i]!]) {
+        const line = `${name} Tick ${next.tick}: Soldier ${i} (Warband ${c.squad[i]}) at (${f(px, 2)}, ${f(pz, 2)}) stands on a lava Walk Surface`;
+        for (const to of sinks) {
+          to.onLava++;
+          if (to.onLavaLines.length < 10) to.onLavaLines.push(line);
+        }
+      }
+    }
+
+    // The party's walk past lava: Fighter-Ticks on a bridge, a pit's ring and beside a trough.
+    if (x.halls.length > 0)
+      for (let i = 0; i < k; i++) {
+        const fighter = fighters[i]!;
+        if (!inDuel(fighter)) continue;
+        const px = fighter.position.x;
+        const pz = fighter.position.z;
+        for (const { hall } of x.halls) {
+          if (Math.abs(fighter.y - hall.y) > ON_FLOOR) continue;
+          const lava = hall.lava!;
+          if (lava.kind === "river") {
+            if (lava.bridges.some((b) => inRectXZ(b, px, pz)))
+              for (const to of sinks) to.bridge++;
+          } else {
+            const gap2 = Math.min(
+              ...lava.rects.map((r) => rectGap2(r, px, pz)),
+            );
+            const limit = lava.kind === "pit" ? PIT_RING : TROUGH_SIDE;
+            if (gap2 > 0 && gap2 <= limit * limit)
+              for (const to of sinks)
+                if (lava.kind === "pit") to.ring++;
+                else to.trough++;
+          }
+        }
+      }
+  };
+  return { watch, check };
+}
+
 /** A Floor's vertical features, counted from its plan. */
 function featureCounts(plan: Lay["plan"]) {
   const halls = plan.halls;
@@ -2216,6 +2683,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     let rampSeconds = 0;
     const blocks = blockWatcher();
     const platforms = platformWatcher();
+    const lava = lavaWatcher();
     const all = {
       ticks: [] as number[],
       builds: [] as number[],
@@ -2253,6 +2721,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
           watcher.watch(at, next, t);
           blocks.watch(at, next, t);
           platforms.watch(at, next, t);
+          lava.watch(at, next, t);
         },
       });
       watcher.flush();
@@ -2286,6 +2755,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
             )} (${levels.size} distinct); galleries ${galleries.length} (${galleries.length - stairwells} balconies, ${stairwells} stairwells), Deck posts ${plan.markers.posts.filter((p) => plan.halls[p.hall]!.gallery?.y === p.y).length}; sloped Passages ${slopes} of ${plan.passages.length}; great halls ${plan.halls.filter((h) => h.great).length}; Passages ${(["straight", "L", "S", "Z"] as const).map((k) => `${plan.passages.filter((p) => p.shape === k).length} ${k}`).join(", ")}`,
         );
         lines.push(`    7c features: ${featureLine(plan)}`);
+        lines.push(`    7d lava Halls: ${lavaHallsLine(plan)}`);
         lines.push(
           `    party on a Ramp ${f(secs(s.rampTicks))} s (${f(secs(s.rampFighterTicks))} Fighter-s); chases ${s.chases}, crossed a level ${s.crossed} (biggest anchor change ${f(s.biggest)} m); Promotions ${s.promotions}, on a Deck ${s.deckPromotions}; allies' jump Links taken ${s.jumps} (navmesh ${c.jumps} jump Links, ${c.shortcuts} shortcuts)`,
         );
@@ -2306,6 +2776,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     lines.push(
       `Platforms (Stage 7c): ${pc.ticks} Ticks checked, ${pc.bodies} bodies, ${pc.count} inside a tier, rim or dais (shrunk by ${BLOCK_SHRINK} m, feet more than ${PLATFORM_SUNK} m under its top); unpromoted Soldiers that dropped from a 4 m pit's rim to its floor ${pc.drops}; Soldier-Ticks in 4 m pit Halls ${pc.pitSoldierTicks}${pc.pitSoldierTicks === 0 ? " (NOTE: the 4 m pit check was not exercised on these Runs)" : ""}`,
     );
+    lines.push(...lavaLines("Lava (Stage 7d)", lava.check));
     console.log(lines.join("\n"));
     problems.push(...blocks.check.inside, ...pc.inside, ...pc.dropped);
     if (rampSeconds <= 0) problems.push("the party never stood on a Ramp");
@@ -2924,6 +3395,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       let m = putAt(s.match, 0, start.x, start.z, hall.y);
       const blocks = blockWatcher();
       const platforms = platformWatcher();
+      const lava = lavaWatcher();
       const party = lineup.filter((x) => x.team === 0).length;
       const r = {
         promotedIn: 0,
@@ -2946,6 +3418,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
         }
         blocks.watch(at, m, tuning);
         platforms.watch(at, m, tuning);
+        lava.watch(at, m, tuning);
         const c = m.duel.crowd!;
         const pc = at.duel.crowd!;
         const fighters = m.duel.fighters;
@@ -3090,6 +3563,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     if (q < 0) throw new Error(`${run}: loop ${loop} holds no Warband`);
     const blocks = blockWatcher();
     const platforms = platformWatcher();
+    const lava = lavaWatcher();
     const entered = new Map<number, number>(halls.map((h) => [h, 0]));
     const CAP = 420;
     let tick = 0;
@@ -3105,6 +3579,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       tracker.observe(at, m);
       blocks.watch(at, m, tuning);
       platforms.watch(at, m, tuning);
+      lava.watch(at, m, tuning);
       const c = m.duel.crowd!;
       for (const h of halls) {
         const x = c.squads.x[q]!;
@@ -3981,6 +4456,7 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
       const s = scenarioAt(tuning, run, floor, lineup, player);
       let m = putAt(s.match, 0, start.x, start.z, hall.y);
       const platforms = platformWatcher();
+      const lava = lavaWatcher();
       const r = {
         chases: 0,
         fall: 0,
@@ -4031,6 +4507,7 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
           break;
         }
         platforms.watch(at, m, tuning);
+        lava.watch(at, m, tuning);
         const c = m.duel.crowd!;
         if (c.warbands!.mode[q] === CHASE) {
           if (at.duel.crowd!.warbands!.mode[q] !== CHASE) r.chases++;
@@ -4151,6 +4628,7 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
       >;
       const throne = lay.plan.markers.boss!;
       const platforms = platformWatcher();
+      const lava = lavaWatcher();
       let m = createMatch(tuning, {
         format: "Gauntlet",
         bestOf: 1,
@@ -4214,6 +4692,7 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
           break;
         }
         platforms.watch(at, m, tuning);
+        lava.watch(at, m, tuning);
         const c = m.duel.crowd!;
         const pc = at.duel.crowd!;
         const fighters = m.duel.fighters;
@@ -4331,6 +4810,203 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
     expect(
       platformProblems,
       "a body stood inside a Platform or a Soldier dropped into a 4 m pit",
+    ).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------ lava, over the whole file (docs/plans/delver.md, Stage 7d, §11)
+
+describe("lava", { timeout: 60 * 60_000 }, () => {
+  /** How many lava Floors the case below plays at most, and the longest (s) it stays on one. */
+  const LAVA_FLOORS = 30;
+  const LAVA_BOSS_FLOORS = 10;
+  const LAVA_FLOOR_SECONDS = 600;
+  /** The lava Floors' party: the Delver pilot and two Expert allies (the kicking, footwork-minded end of the ladder; `kickRate` 0.15, `footwork` 0.9). */
+  const LAVA_LINEUP: Lineup = LINEUP.map((x, i) =>
+    i === 1 || i === 2
+      ? { team: 0, pilot: { kind: "AI" as const, difficulty: "Expert" } }
+      : x,
+  );
+
+  it(`lava Floors: the first ${LAVA_BOSS_FLOORS} Floors (seed order, seeds 1 to ${SEARCH}) with lava in their Boss Hall and the first ${LAVA_FLOORS - LAVA_BOSS_FLOORS} with a pit or a river in a Fight Hall, each played from its own Entrance by the immortal party (the Delver pilot and two Expert allies) to its Stairs (cap ${LAVA_FLOOR_SECONDS} s): the Warbands fight in and round the lava (a measurement, with the Stage 7d watcher)`, () => {
+    const tuning = base;
+    const picks: { run: string; floor: number; halls: string }[] = [];
+    // The Boss Halls with lava (the Boss fight is always in them) first, then Fight Halls with a pit or a river, each in seed order.
+    let bosses = 0;
+    let fights = 0;
+    for (
+      let n = 1;
+      n <= SEARCH &&
+      (bosses < LAVA_BOSS_FLOORS || fights < LAVA_FLOORS - LAVA_BOSS_FLOORS);
+      n++
+    ) {
+      const run = `gen:greybox:${n}`;
+      for (let floor = 1; floor <= 9; floor++) {
+        const plan = floorOf(tuning, floorArenaName(runSeed(run), floor))!.plan;
+        const boss = plan.halls.filter((h) => h.lava && h.kind === "Boss");
+        const fight = plan.halls.filter(
+          (h) => h.lava && h.kind === "Fight" && h.lava.kind !== "trough",
+        );
+        const words = (hs: typeof boss) =>
+          hs.map((h) => `${h.id} ${h.kind} ${h.lava!.kind}`).join(", ");
+        if (boss.length > 0 && bosses < LAVA_BOSS_FLOORS) {
+          bosses++;
+          picks.push({ run, floor, halls: words([...boss, ...fight]) });
+        } else if (
+          fight.length > 0 &&
+          fights < LAVA_FLOORS - LAVA_BOSS_FLOORS
+        ) {
+          fights++;
+          picks.push({ run, floor, halls: words(fight) });
+        }
+      }
+    }
+    const lava = lavaWatcher();
+    const lines = [
+      `\nLava Floors: ${picks.length} Floors (the first ${LAVA_BOSS_FLOORS} in seed order with lava in the Boss Hall, the first ${LAVA_FLOORS - LAVA_BOSS_FLOORS} with a pit or river in a Fight Hall; seeds 1 to ${SEARCH}, Floors 1 to 9), the immortal party on the Delver pilot and two Expert allies from the Floor's Entrance, each to its Stairs or ${LAVA_FLOOR_SECONDS} s:`,
+    ];
+    const t0 = performance.now();
+    for (const pick of picks) {
+      const arenaName = floorArenaName(runSeed(pick.run), pick.floor);
+      let m = createMatch(tuning, {
+        format: "Gauntlet",
+        bestOf: 1,
+        seed: 7,
+        arena: pick.run,
+        delverStart: pick.floor,
+        teams: LAVA_LINEUP.map((x) => x.team),
+        humans: 1,
+        players: [0],
+      });
+      const controllers: Controller[] = lineupAis(
+        tuning,
+        LAVA_LINEUP,
+        "Gauntlet",
+        {
+          seed: 7,
+        },
+      ).map((c) => c ?? createDelverPilot(tuning, "Hard"));
+      const before = lava.check.deaths.length;
+      const soldiersBefore = lava.check.soldierTicksInLava;
+      let ended = "cap";
+      let ticks = 0;
+      for (; ticks < secondsToTicks(LAVA_FLOOR_SECONDS); ticks++) {
+        const at = m;
+        m = withImmortalParty(
+          stepMatch(at, controllerIntents(at.duel, controllers), tuning),
+        );
+        lava.watch(at, m, tuning);
+        if (m.status.status === "Over") {
+          ended = "Over";
+          break;
+        }
+        if (m.duel.arena !== at.duel.arena) {
+          ended = "Stairs";
+          break;
+        }
+      }
+      const deaths = lava.check.deaths.slice(before);
+      lines.push(
+        `  Run ${pick.run} Floor ${pick.floor} (${arenaName}): lava Halls ${pick.halls}; ${f(secs(ticks))} s, ended ${ended}; Deaths by Lava ${deaths.length}${deaths.length ? ` (${deaths.map((d) => `${d.who} by ${d.cause}`).join(", ")})` : ""}; Soldier-Ticks in lava Halls ${lava.check.soldierTicksInLava - soldiersBefore}`,
+      );
+    }
+    for (const d of lava.check.deaths) lines.push(`    death: ${d.line}`);
+    lines.push(
+      `  (${f((performance.now() - t0) / 1000, 0)} s wall)`,
+      ...lavaLines("Lava (Stage 7d), the lava Floors", lava.check),
+    );
+    console.log(lines.join("\n"));
+    expect(
+      picks.length,
+      "no Floor of the first seeds has a pit or river Fight Hall",
+    ).toBeGreaterThan(0);
+  });
+
+  /** The Deaths by Lava, the lines of what was wrong, and the totals, printed once by the first of the checks below. */
+  let printed = false;
+  const report = (): LavaCheck => {
+    const t = lavaTotal;
+    if (printed) return t;
+    printed = true;
+    const lines = [
+      `\nLava over every Tick the Stage 7d watchers saw (all the Runs and scenarios of this file):`,
+      ...lavaLines("  all", t),
+    ];
+    for (const d of t.deaths) lines.push(`    death: ${d.line}`);
+    for (const l of [...t.onLavaLines, ...t.pickupLines, ...t.reviveLines])
+      lines.push(`    BAD: ${l}`);
+    console.log(lines.join("\n"));
+    return t;
+  };
+  const floorsWith = (
+    pred: (x: { tier: number; halls: Record<LavaKind, number> }) => boolean,
+  ) => [...lavaTotal.floors.values()].filter(pred).length;
+  const hasLava = (x: { halls: Record<LavaKind, number> }) =>
+    LAVA_KINDS.some((k) => x.halls[k] > 0);
+
+  it("must show: lava on every tier and of each kind, and the party walking past it (on a bridge, round a pit, beside a trough)", () => {
+    const t = report();
+    const counts = `(${lavaTotal.floors.size} Floors seen, ${floorsWith(hasLava)} with lava; party Fighter-Ticks: bridge ${t.bridge}, pit ring ${t.ring}, trough side ${t.trough})`;
+    const problems: string[] = [];
+    for (const tier of [1, 2, 3])
+      if (floorsWith((x) => x.tier === tier && hasLava(x)) === 0)
+        problems.push(`no Floor of tier ${tier} had lava ${counts}`);
+    for (const k of LAVA_KINDS)
+      if (floorsWith((x) => x.halls[k] > 0) === 0)
+        problems.push(`no Floor had a ${k} ${counts}`);
+    if (t.bridge === 0)
+      problems.push(`the party never stood on a river's bridge ${counts}`);
+    if (t.ring === 0)
+      problems.push(
+        `the party was never on a pit's ring (within ${PIT_RING} m) ${counts}`,
+      );
+    if (t.trough === 0)
+      problems.push(
+        `the party was never beside a trough (within ${TROUGH_SIDE} m) ${counts}`,
+      );
+    expect(problems, `lava was not shown:\n${problems.join("\n")}`).toEqual([]);
+  });
+
+  it("must show: promoted Soldiers die in lava (by a kick, a Slide or a Whirlwind), with the count by cause", () => {
+    const t = report();
+    const pushed = t.deaths.filter(
+      (d) => d.who === "promoted Soldier" && d.cause !== "walked",
+    );
+    expect(
+      pushed.length,
+      `no promoted Soldier died in lava by a kick, a Slide or a Whirlwind; Deaths by Lava ${t.deaths.length}: ${lavaDeathLines(t.deaths).join("; ") || "none"}`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("must show: no AI ally, Delver pilot or promoted Soldier walked into lava (Deaths by Lava with nothing pushing them in the 3 s before), and no unpromoted Soldier stood on lava", () => {
+    const t = report();
+    const walked = t.deaths.filter(
+      (d) =>
+        d.cause === "walked" &&
+        (d.who === "AI ally" ||
+          d.who === "party Player" ||
+          d.who === "promoted Soldier"),
+    );
+    const problems = [
+      ...walked.map((d) => `walked in: ${d.line}`),
+      ...(t.onLava > 0
+        ? [
+            `${t.onLava} unpromoted Soldier-Ticks on lava: ${t.onLavaLines.join("; ")}`,
+          ]
+        : []),
+    ];
+    expect(
+      problems,
+      `${walked.length} walked-in Death(s) by Lava (Soldier-Ticks in lava Halls ${t.soldierTicksInLava} of ${t.soldierTicks}), ${t.onLava} unpromoted Soldier-Ticks on lava:\n${problems.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("must show: no drop, revive or Pickup on lava or within LAVA_KEEP of it", () => {
+    const t = report();
+    const problems = [...t.pickupLines, ...t.reviveLines];
+    expect(
+      problems,
+      `${t.pickupsNear} of ${t.pickups} Pickups and ${t.revivesNear} of ${t.revives} revives on lava or within ${LAVA_KEEP} m of it:\n${problems.join("\n")}`,
     ).toEqual([]);
   });
 });
