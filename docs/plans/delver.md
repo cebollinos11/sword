@@ -2428,14 +2428,17 @@ Battles, Duels and the Hall-graph Run are unchanged. With every 7c knob off (`fl
 - **Accidental drops off a Deck's inner corner** are now refused for a Warband's lead. Other walks (a Battle Squad, a free agent) still cut such corners.
 
 ### Stage 7d: lava
-**Model**: Opus (the rules and the AI around them).
-- **Lava** is the kit's `lava` Hazard: a Death by Lava for anyone.
+**Model**: Opus (the rules and the AI around them). The user's calls are in "Answered questions (2026-11-23, before Stage 7d)".
+- **Lava** is the kit's `lava` Hazard: a Death by Lava for anyone. It lies 4 m under the Hall's floor, as the Cavern's river lies under its ledges: a body that walks, falls or is knocked over the edge dies in it. Soldiers in the Crowd never drop 4 m, so they can never walk in.
 - **Shapes**:
   - a central pit ringed by floor;
-  - a river crossed by one or two narrow bridges with no rails;
-  - troughs along a wall, or under a Deck's open front or a dais's edge.
-- **Amount**: it grows with the tier, about 1 Hall in 6 on tier 1 and 1 in 3 on tier 3. There is none in the Entrance, and none on the walk to a Rest Hall's fire.
+  - a river from wall to wall, crossed by one or two bridges with no rails, at least 4 m wide (the user's call);
+  - troughs along one or two walls.
+  - No trough under a Deck's open front or round a dais's edge: they would put lava in a Hall with a gallery or a dais (the user's call: one feature a Hall).
+- **Where**: rect Halls only, one feature a Hall, as 7c's rule: a Hall with lava has no gallery, split, pit, dais, 7b shape or pillars, and lava picks before 7b's shapes and pillars. Fight, Empty, Boss and Stairs Halls and great halls may hold it; the Entrance, a Rest Hall and a Treasure Hall never do (the user's call).
+- **Amount** (lowered, the user's call): it grows with the tier, about 1 in 6 of the Halls that may hold it on tier 1, 1 in 4 on tier 2 and 1 in 3 on tier 3 (about 1 Hall in 7 of all on tier 3). So 7b's shapes and pillars stay about as common as now. None in the Entrance, and none on the walk to a Rest Hall's fire (no Rest Hall holds lava).
 - **Who it threatens**: everyone, as the AI already plays it. Enemies and allies kick toward a hazard more readily (`hazardBehind`). Allies, the pilot and Soldiers never step in by choice. A fire still revives a Player who died in it.
+- **The budget** may rise if lava needs it (the user's call): to at most 900 ms build mean and 600 ms navmesh mean in `delverGen.slow.test.ts`; the 2 s cap stays.
 - **The judge**:
   - No post, spawn, fire, pedestal, drop spot or the Stairs is on lava, or within a Knockdown's Slide of it.
   - A Warband's home and patrol keep off it.
@@ -2446,7 +2449,7 @@ Battles, Duels and the Hall-graph Run are unchanged. With every 7c knob off (`fl
   - the 500 pairs, with the lava per tier counted;
   - the soak, which must show Soldiers and promoted Fighters dying in lava, and no Soldier walking in;
   - a scenario test of a kick into lava and one of a Knockdown's Slide into it;
-  - screenshots of each lava shape.
+  - screenshots of each lava shape (the user's call: yes).
 
 ### Stage 7e: archetypes
 **Model**: Opus (the recipes), then Sonnet.
@@ -2750,3 +2753,9 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 3. **Keys**: none; a Consumable is used from the inventory screen.
 4. **Drop rate**: loot weight 2 (against Relic 4, Weapon 1).
 5. **A third Consumable**: the Resurrection Stone brings back every fallen ally, as a fire or a new Floor does.
+
+## Answered questions (2026-11-23, before Stage 7d)
+1. **Amount**: lower than proposed, one feature a Hall. About 1 in 3 of the Halls that may hold lava on tier 3 (about 1 Hall in 7 of all), fewer on tiers 1 and 2, so 7b's shapes and pillars stay about as common as now.
+2. **Which Halls**: Fight, Empty, Boss and Stairs Halls and great halls. Never the Entrance, a Rest Hall or a Treasure Hall.
+3. **Shapes**: a central pit ringed by floor, a river with one or two railless bridges at least 4 m wide, and troughs along a wall. No trough under a Deck's front or round a dais.
+4. **Proof**: screenshots of each lava shape. The generator's budget may rise to at most 900 ms build mean and 600 ms navmesh mean; the 2 s cap stays.
