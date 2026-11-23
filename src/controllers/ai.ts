@@ -24,7 +24,8 @@
  *    up on a Link it cannot get airborne on in time. With no way to its enemy
  *    it goes only as near as it safely can. Fighting, it never steps off a
  *    ledge or onto Lava or Water (`safeMove`): it turns aside, or holds its
- *    ground, and it only Jumps where the Simulation's own arc, made a little
+ *    ground. On a Delver Floor with Lava, whatever it walks (a step in, a route's corner, the waiting ring, or no walk at all while other
+ *    bodies push it) it keeps EDGE_KEEP from the Lava and steps inboard when nearer (`edgeKeep`). It only Jumps where the Simulation's own arc, made a little
  *    off every way, lands safely (`jumpIsSafe`).
  *
  * How it fights (each part scaled by its difficulty preset, `AiDifficulty`):
@@ -199,7 +200,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { arenaTuning } from '../sim/delver';
+import { arenaTuning, parseFloorArena } from '../sim/delver';
 import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
@@ -472,6 +473,14 @@ const DEFEND_LEVEL = 1.0;
 const SAFETY_PROBE = 0.8;
 /** ...and this far (m) to either side of where it looks. */
 const SAFETY_MARGIN = 0.1;
+/**
+ * On a Delver Floor with Lava (`edgeKeep`) it walks no closer than this (m) to deadly ground (Lava, or no ground at all): the outward part of
+ * its move is dropped (a walk may still slide along the edge)...
+ */
+const EDGE_KEEP = 0.5;
+/** ...and standing closer than this (m) it steps inboard at EDGE_NUDGE of a walk, so a body push (a Fighter's capsule shoved by the others) never carries it over. */
+const EDGE_NEAR = 0.42;
+const EDGE_NUDGE = 0.6;
 /** Within this far (m) of the edge of the drop Link its route takes next, a walk holds while a Fighter is settling below (`holdForLanding`). */
 const DROP_HOLD_AT = 1.2;
 /** A Fighter in the air or Staggered below a drop Link, this near (m) its edge, is where a Fighter dropping would land on it. */
@@ -1114,7 +1123,7 @@ class RuleAi implements AiController {
     this.view = null;
     this.observe(state);
     const self = state.fighters[fighter]!;
-    return this.flying(state, self, this.holdingJump(state.tick, self, this.keepClear(state.tick, self, this.decide(state, fighter))));
+    return this.edgeKeep(state, self, this.flying(state, self, this.holdingJump(state.tick, self, this.keepClear(state.tick, self, this.decide(state, fighter)))));
   }
 
   /**
@@ -1135,12 +1144,12 @@ class RuleAi implements AiController {
     const there = Math.hypot(to.x - self.position.x, to.z - self.position.z) <= stop && Math.abs(to.y - self.y) < LEVEL;
     if (there && !this.jumpRun) {
       this.route = null;
-      return this.flying(state, self, IDLE_INTENT);
+      return this.edgeKeep(state, self, this.flying(state, self, IDLE_INTENT));
     }
     const way = this.approach(state, self, { position: { x: to.x, z: to.z }, y: to.y, airborne: false });
     const move = this.jumpRun || shove ? way.move : this.sidestep(state, self, fighter, way.move);
     const held = this.holdForLanding(state, self, fighter, move);
-    return this.flying(state, self, { ...IDLE_INTENT, ...way, move: held, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
+    return this.edgeKeep(state, self, this.flying(state, self, { ...IDLE_INTENT, ...way, move: held, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) }));
   }
 
   /**
@@ -1696,7 +1705,7 @@ class RuleAi implements AiController {
     const { radius } = this.tuning.battle.ring;
     const to = { x: player.position.x + from.x * radius - self.position.x, z: player.position.z + from.z * radius - self.position.z };
     const face = Math.atan2(player.position.x - self.position.x, player.position.z - self.position.z);
-    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? unit(to) : ZERO };
+    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? this.safeMove(state, self, unit(to)) : ZERO };
   }
 
   /** Idle life for its next while of circling (`idleLife`, rolled with the side): a spacing of its own, maybe no circling, maybe a short pause first. */
@@ -2183,6 +2192,51 @@ class RuleAi implements AiController {
   private safe(state: SimState, self: FighterState, dir: Vec2): boolean {
     const { tuning: tn, arena } = this.world(state);
     return stepIsSafe(arena, tn, self.position, self.y, dir);
+  }
+
+  /**
+   * `intent` with the last guard against Lava, on a Delver Floor that has some, for every path that returns a raw walk (a step in on
+   * its target, a route's corner, the waiting ring) and against what moves a body that gives no move at all (the other Fighters'
+   * capsules push it apart): on the ground, within EDGE_KEEP of deadly ground its move loses the part that goes toward it, and
+   * within EDGE_NEAR it steps inboard. Not in the air or in the run-up of a jump Link. Elsewhere (a Battle, a Duel, a Floor with no Lava) the
+   * intent is returned as it is: a Duel's edges are the fight.
+   */
+  private edgeKeep(state: SimState, self: FighterState, intent: Intent): Intent {
+    if (self.air || this.jumpRun || !parseFloorArena(state.arena)) return intent;
+    const { tuning: tn, arena } = this.world(state);
+    if (!hasLava(arena)) return intent;
+    const { stepUp } = tn.fall;
+    const deadlyAt = (x: number, z: number): boolean => {
+      const g = groundBelow(arena, x, z, self.y + stepUp);
+      return g === null || deadlyGround(arena, x, z, g.y) !== null;
+    };
+    const ring = (r: number): Vec2 | null => {
+      let hx = 0;
+      let hz = 0;
+      for (const [dx, dz] of EDGE_DIRS) {
+        if (deadlyAt(self.position.x + dx * r, self.position.z + dz * r)) {
+          hx += dx;
+          hz += dz;
+        }
+      }
+      const len = Math.hypot(hx, hz);
+      return len < 1e-9 ? null : { x: hx / len, z: hz / len };
+    };
+    const away = ring(EDGE_KEEP);
+    if (!away) return intent;
+    let { x, z } = intent.move;
+    const out = x * away.x + z * away.z;
+    if (out > 0) {
+      x -= away.x * out;
+      z -= away.z * out;
+    }
+    const near = ring(EDGE_NEAR);
+    if (near) {
+      x -= near.x * EDGE_NUDGE;
+      z -= near.z * EDGE_NUDGE;
+    }
+    if (x === intent.move.x && z === intent.move.z) return intent;
+    return { ...intent, move: { x, z } };
   }
 
   /** `m` if it walks onto safe ground, else the nearest safe heading turned up to 135° aside (keeping its speed), else standing still. */
@@ -2892,9 +2946,32 @@ class RuleAi implements AiController {
   }
 }
 
+/** The eight compass directions (unit vectors) `edgeKeep` looks along. */
+const EDGE_DIRS: readonly (readonly [number, number])[] = (() => {
+  const d = Math.SQRT1_2;
+  return [
+    [1, 0],
+    [d, d],
+    [0, 1],
+    [-d, d],
+    [-1, 0],
+    [-d, -d],
+    [0, -1],
+    [d, -d],
+  ] as const;
+})();
+
+const lavaArenas = new WeakMap<ArenaGeometry, boolean>();
+/** Whether any Walk Surface of the Arena is Lava (once per Arena). */
+function hasLava(arena: ArenaGeometry): boolean {
+  let has = lavaArenas.get(arena);
+  if (has === undefined) lavaArenas.set(arena, (has = arena.walk.some((w) => w.lava === true)));
+  return has;
+}
+
 /**
  * Whether a step from feet at (`at`, `y`) along `dir` (a unit vector) keeps it on safe ground, looking up to SAFETY_PROBE
- * ahead: no ledge (a drop of more than a step), no Lava, Water or Abyss, no higher ground in the way. The ground is looked
+ * ahead (at a quarter, a half and all of it: a walk that clips a corner within the first quarter is seen): no ledge (a drop of more than a step), no Lava, Water or Abyss, no higher ground in the way. The ground is looked
  * at SAFETY_MARGIN to either side of each point too, so a walk that cuts an open corner between the points is not safe.
  */
 export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2): boolean {
@@ -2907,7 +2984,7 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
     return g !== null && from - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
   };
   let from = y;
-  for (const k of [0.5, 1]) {
+  for (const k of [0.25, 0.5, 1]) {
     const x = at.x + dir.x * SAFETY_PROBE * k;
     const z = at.z + dir.z * SAFETY_PROBE * k;
     const g = solid(x, z, from);
