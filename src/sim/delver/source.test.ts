@@ -3,7 +3,7 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, holeId, isFloorName, lavaId, pieceId, planFloor, floorSource, type BuiltFloor, type DelverFloor, type DelverHall, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, fullFloors, lava7d, noLava, plainHalls } from './flat.testdata';
+import { flatHalls, flatRooms, fullFloors, noLava, plainHalls } from './flat.testdata';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { deadly, groundBelow } from '../arena';
 import { groundNear, trace, walled, walkCheck } from '../levels';
@@ -317,11 +317,11 @@ const distToCentre = (b: BuiltFloor, x: number, z: number, s: number) => distanc
 
 describe('a Floor\'s source with lava (Stage 7d)', () => {
   const bundled = loadTuningData();
-  const on = lava7d(bundled);
+  const on = bundled;
   const planOf = (tuning: typeof on, seed: number, floor: number) =>
     planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
-  // Found by scanning seeds 1 to 60, Floors 1 to 9: a trough Hall (one wall, then two), a pit, a river with one bridge and one with two.
-  const PAIRS = [[1, 1, 'trough'], [3, 1, 'trough'], [1, 7, 'pit'], [1, 8, 'river'], [1, 9, 'river']] as const;
+  // Found by scanning seeds 1 to 40, Floors 1 to 9, on the shipped data: a trough Hall (one wall, then two), a pit, a river with one bridge and one with two.
+  const PAIRS = [[1, 3, 'trough'], [10, 3, 'trough'], [10, 1, 'pit'], [16, 1, 'river'], [10, 5, 'river']] as const;
   const floors = PAIRS.map(([seed, floor, kind]) => ({ seed, floor, kind, plan: planOf(on, seed, floor) }));
   let built: BuiltFloor[];
   beforeAll(() => {
@@ -496,7 +496,7 @@ describe('a Floor\'s source with lava (Stage 7d)', () => {
 
   it('writes today\'s source, byte for byte, with lava off', () => {
     const off = noLava(bundled);
-    for (const t of [bundled, off])
+    for (const t of [off])
       for (const [seed, floor] of [[1, 1], [3, 1], [1, 7], [1, 8], [1, 9], [2, 4]] as const) {
         const plan = planOf(t, seed, floor);
         expect(plan.halls.some((h) => h.lava)).toBe(false);

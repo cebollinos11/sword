@@ -17,12 +17,6 @@ export function noLava(tuning: TuningData): TuningData {
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, lava: { ...f.lava, percent: [0] } } } };
 }
 
-/** Temporary (Stage 7d, Tasks 1 and 2; Task 3 removes it): `tuning` with `delver.floor.lava.percent` [25, 35, 50], the rest as given. */
-export function lava7d(tuning: TuningData): TuningData {
-  const f = tuning.delver.floor;
-  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, lava: { ...f.lava, percent: [25, 35, 50] } } } };
-}
-
 /** `tuning` with `delver.floor.levels` { max 0, min 1, changePercent 0, galleryPercent 0 }. */
 export function flatFloors(tuning: TuningData): TuningData {
   // Stage 7c's splits, pits and daises (and its gallery knobs) go too: a flat Floor has no raised or sunk floor.

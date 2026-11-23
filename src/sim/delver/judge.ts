@@ -29,18 +29,28 @@
  *     height that is no roof, reached from the Entrance, and from which the Hall's centre is reached; and a pit's first rim is reached from its floor (the pit is left by walking).
  *     `galleries` also checks each wrap Deck's centre as it does the first Deck's.
  *
+ *  9. `lava` (Stage 7d, plan-only, after `features`): lava only on a Fight, Empty, Boss or Stairs Hall that is a rect with no gallery, feature, solid or pillar; each lava rect inside its
+ *     Hall's rect, at least `LAVA_MIN` across, sharing no interior with another, on odd metres, at the Hall's y less `LAVA_DEPTH`, and out of the centre square +- `LAVA_CENTRE`; every
+ *     marker in the Hall (the Stairs zone as a rect) at least `LAVA_KEEP` from every rect (squared distance, no square root); every held slot's lane `LAVA_LANE` from every rect, but a
+ *     river's lanes on its bank wall, whose doorway +- 0.5 m lies inside one bridge; by kind, a river's rects, bridges and wall-end floor gaps tile one band from wall to wall (lava and
+ *     bridge alternating, each bridge at least `BRIDGE_MIN`, the band beyond the centre square and its bank at least `RIVER_BANK`), a pit is one rect with its bands `LAVA_BAND` (its
+ *     centre side `2 * LAVA_CENTRE`) and the Hall's centre in that band's middle, each trough lies against one of its (one or two, opposite) walls; and every Warband home (a post and the
+ *     Boss post) keeps a full column Squad's reach (its widest place from the post, no trigonometry) and 1 m from every rect (only when the Battle Tuning is given).
+ * 10. `lavaWalk` (Stage 7d, after `tiers`): at each lava rect's centre the ground under the Hall's floor is lava `LAVA_DEPTH` down (the Hole and the Hazard compiled), and the field to the
+ *     Hall's centre reads at the point 1 m inside each doorway and, on a river, at each bridge's centre.
+ *
  * Pure: no clock, so a verdict never hangs on a machine's speed.
  */
 import { MapCompileError } from '../../mapEditor/compile';
 import type { DelverFloorTuning } from '../../tuning/delver';
-import type { TuningData } from '../../tuning';
-import { deadly, surfaceHeight } from '../arena';
+import type { BattleTuning, TuningData } from '../../tuning';
+import { deadly, groundBelow, surfaceHeight } from '../arena';
 import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
-import { DAIS_RISE, LEVEL_RISE, MAX_SLOPE, PIT_RIM, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
-import { pieceId, pillarId, solidId, stepId } from './source';
+import { BRIDGE_MIN, DAIS_RISE, DOOR_SIDE, DOOR_LANE, LAVA_BAND, LAVA_CENTRE, LAVA_DEPTH, LAVA_KEEP, LAVA_LANE, LAVA_MIN, LEVEL_RISE, MAX_SLOPE, PIT_RIM, RIVER_BANK, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
+import { lavaId, pieceId, pillarId, solidId, stepId } from './source';
 import { floorTuningOf } from './troops';
 import type { Rect, Side } from '../../mapEditor/source';
 
@@ -70,9 +80,10 @@ const overlap = (p: Rect, q: Rect): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.z
 
 /**
  * Rules 1 (`rooms`, `levels`) and `layout`: what a plan alone can show. `fieldSize` (m) is the Battle's field the Floor stands in; without it the
- * `layout` rule's field check is skipped.
+ * `layout` rule's field check is skipped. `battle` is the Battle Tuning the Warband homes' reach is read from (`squad`); without it that part of the `lava` rule is skipped
+ * (`judgeAttempt` and `judgeBuilt` always give it).
  */
-export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: number): string[] {
+export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: number, battle?: Pick<BattleTuning, 'squad'>): string[] {
   const out: string[] = [];
   const count = (k: string) => plan.halls.filter((h) => h.kind === k).length;
   if (plan.halls.length !== t.rooms) out.push(`rooms: ${plan.halls.length} Halls, ${t.rooms} wanted (the layout stalled)`);
@@ -96,6 +107,7 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   out.push(...judgeLayout(plan, fieldSize));
   out.push(...judgeShapes(plan));
   out.push(...judgeFeatures(plan));
+  out.push(...judgeLava(plan, battle));
   return out;
 }
 
@@ -336,6 +348,155 @@ function judgeFeatures(plan: FloorPlan): string[] {
   return out;
 }
 
+/** The squared metres between rects `p` and `q` seen from above: 0 when they touch or overlap. */
+const rectGap2 = (p: Rect, q: Rect): number => {
+  const dx = Math.max(p.x0 - q.x1, q.x0 - p.x1, 0);
+  const dz = Math.max(p.z0 - q.z1, q.z0 - p.z1, 0);
+  return dx * dx + dz * dz;
+};
+
+/** The squared metres between rect `r` and the point (x, z): 0 inside or on it. */
+const pointGap2 = (r: Rect, x: number, z: number): number => {
+  const dx = Math.max(r.x0 - x, 0, x - r.x1);
+  const dz = Math.max(r.z0 - z, 0, z - r.z1);
+  return dx * dx + dz * dz;
+};
+
+/** A held slot's lane (7b's: the doorway +- `DOOR_SIDE`, `DOOR_LANE` deep) into Hall `h` by wall `wall`, as the plan's lava pick builds it; and the doorway's span along the wall. */
+function slotLane(h: DelverHall, q: PassagePiece, wall: Side): { lane: Rect; span: [number, number] } {
+  const r = h.rect;
+  const [a, b] = wall === 'n' || wall === 's' ? [q.rect.x0, q.rect.x1] : [q.rect.z0, q.rect.z1];
+  const [lo, hi] = [a - DOOR_SIDE, b + DOOR_SIDE];
+  const lane: Rect =
+    wall === 'n' ? { x0: lo, z0: r.z1 - DOOR_LANE, x1: hi, z1: r.z1 }
+    : wall === 's' ? { x0: lo, z0: r.z0, x1: hi, z1: r.z0 + DOOR_LANE }
+    : wall === 'e' ? { x0: r.x1 - DOOR_LANE, z0: lo, x1: r.x1, z1: hi }
+    : { x0: r.x0, z0: lo, x1: r.x0 + DOOR_LANE, z1: hi };
+  return { lane, span: [a, b] };
+}
+
+/**
+ * The `lava` rule (Stage 7d, see the module's rule 9): what a plan's lava must keep, one line per failure. Brush ids name the rects (`<hall>-lava<n>`). Nothing here uses a square root
+ * or a trigonometric function on a map coordinate: distances are compared squared, and a Warband home's reach is the column's own constants.
+ */
+function judgeLava(plan: FloorPlan, battle: Pick<BattleTuning, 'squad'> | undefined): string[] {
+  const out: string[] = [];
+  const halls = plan.halls;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const keep2 = LAVA_KEEP * LAVA_KEEP;
+  const ends = endsOf(plan);
+  const mks = markersOf(plan);
+  // A full column Squad's reach about its post: ρ² = r² + f², the column's widest place, whatever the facing.
+  let reach = 0;
+  if (battle) {
+    const { spacing, size, column } = battle.squad;
+    const r = ((column.wide - 1) / 2) * spacing;
+    const f = ((Math.ceil(size / column.wide) - 1) / 2) * spacing;
+    reach = Math.sqrt(r * r + f * f);
+  }
+  for (const [k, h] of halls.entries()) {
+    const lava = h.lava;
+    if (!lava) continue;
+    const r = h.rect;
+    const may = h.kind === 'Fight' || h.kind === 'Empty' || h.kind === 'Boss' || h.kind === 'Stairs';
+    if (!may || h.shape !== 'rect' || h.gallery || h.feature || h.solids.length > 0 || h.pillars.length > 0) {
+      out.push(`lava: ${h.id}'s lava is not on a plain Fight, Empty, Boss or Stairs Hall`);
+      continue;
+    }
+    const named = lava.rects.map((rect, n) => ({ id: lavaId(h, n), rect }));
+    if (!eq(lava.y, h.y - LAVA_DEPTH)) out.push(`lava: ${h.id}'s lava is at ${m(lava.y)}, ${m(h.y - LAVA_DEPTH)} wanted`);
+    const centre: Rect = { x0: h.cx - LAVA_CENTRE, z0: h.cz - LAVA_CENTRE, x1: h.cx + LAVA_CENTRE, z1: h.cz + LAVA_CENTRE };
+    for (const [n, q] of named.entries()) {
+      if (!inside(q.rect, r)) out.push(`lava: ${q.id} is not inside ${h.id}`);
+      if (q.rect.x1 - q.rect.x0 < LAVA_MIN || q.rect.z1 - q.rect.z0 < LAVA_MIN) out.push(`lava: ${q.id} is under ${LAVA_MIN} m across`);
+      if (![q.rect.x0, q.rect.x1, q.rect.z0, q.rect.z1].every(odd)) out.push(`lava: ${q.id} has an edge on the field's dots`);
+      if (overlap(q.rect, centre)) out.push(`lava: ${q.id} is within ${LAVA_CENTRE} m of ${h.id}'s centre`);
+      for (const o of named.slice(n + 1)) if (overlap(q.rect, o.rect)) out.push(`lava: ${q.id} overlaps ${o.id}`);
+    }
+    // Every marker standing in the Hall keeps `LAVA_KEEP` from every rect (the Stairs zone as a rect).
+    for (const mk of mks) {
+      if (mk.hall !== k) continue;
+      const close = (rect: Rect) => (mk.kind === 'stairs' ? rectGap2(rect, plan.markers.stairs.zone) : pointGap2(rect, mk.x, mk.z)) < keep2;
+      for (const q of named) if (close(q.rect)) out.push(`lava: ${mk.name} is within ${m(LAVA_KEEP)} m of ${q.id}`);
+    }
+    // Every Warband home (a post, the Boss post) keeps its full column's reach and 1 m from every rect.
+    if (battle) {
+      const home = (1 + reach) * (1 + reach);
+      for (const mk of mks) {
+        if (mk.hall !== k || (mk.kind !== 'post' && mk.kind !== 'boss')) continue;
+        for (const q of named) if (pointGap2(q.rect, mk.x, mk.z) < home) out.push(`lava: ${mk.name}'s Formation (reach ${m(reach)} m) comes within 1 m of ${q.id}`);
+      }
+    }
+    // Every held slot's lane keeps `LAVA_LANE` from every rect, but a river's lanes on its bank wall, whose doorway +- 0.5 m lies inside one bridge.
+    const bank = lava.kind === 'river' ? lava.walls[0] : undefined;
+    for (const e of ends) {
+      if (e.hall !== k) continue;
+      const { lane, span } = slotLane(h, e.q, e.wall);
+      if (e.wall === bank) {
+        const along = (b: Rect): [number, number] => (e.wall === 'n' || e.wall === 's' ? [b.x0, b.x1] : [b.z0, b.z1]);
+        if (!lava.bridges.some((b) => along(b)[0] <= span[0] - 0.5 + 1e-9 && along(b)[1] >= span[1] + 0.5 - 1e-9)) out.push(`lava: ${e.p.id}'s doorway into ${h.id} is not on a bridge`);
+        continue;
+      }
+      for (const q of named) if (rectGap2(lane, q.rect) < LAVA_LANE * LAVA_LANE) out.push(`lava: ${e.p.id}'s doorway into ${h.id} is not clear of ${q.id}`);
+    }
+    // By kind.
+    if (lava.kind === 'pit') {
+      const p = lava.rects[0];
+      const d = lava.walls[0];
+      if (lava.rects.length !== 1 || lava.walls.length !== 1 || !p || !d) out.push(`lava: ${h.id}'s pit is not one rect on one side`);
+      else {
+        const want: Rect = { x0: r.x0 + (d === 'w' ? 2 * LAVA_CENTRE : LAVA_BAND), z0: r.z0 + (d === 's' ? 2 * LAVA_CENTRE : LAVA_BAND), x1: r.x1 - (d === 'e' ? 2 * LAVA_CENTRE : LAVA_BAND), z1: r.z1 - (d === 'n' ? 2 * LAVA_CENTRE : LAVA_BAND) };
+        if (!(eq(p.x0, want.x0) && eq(p.z0, want.z0) && eq(p.x1, want.x1) && eq(p.z1, want.z1))) out.push(`lava: ${h.id}'s pit is not ringed by ${LAVA_BAND} m bands (${2 * LAVA_CENTRE} m on its ${d} side)`);
+        const mid = d === 'n' ? [(r.x0 + r.x1) / 2, r.z1 - LAVA_CENTRE] : d === 's' ? [(r.x0 + r.x1) / 2, r.z0 + LAVA_CENTRE] : d === 'e' ? [r.x1 - LAVA_CENTRE, (r.z0 + r.z1) / 2] : [r.x0 + LAVA_CENTRE, (r.z0 + r.z1) / 2];
+        if (!eq(h.cx, mid[0]!) || !eq(h.cz, mid[1]!)) out.push(`lava: ${h.id}'s centre is not in the middle of its pit's ${d} band`);
+      }
+    } else if (lava.kind === 'trough') {
+      const [w0, w1] = lava.walls;
+      const opposite: Record<Side, Side> = { n: 's', s: 'n', e: 'w', w: 'e' };
+      if (!w0 || lava.walls.length > 2 || (w1 !== undefined && w1 !== opposite[w0])) out.push(`lava: ${h.id}'s troughs are not along one wall or two opposite ones`);
+      const against = (q: Rect, d: Side) => (d === 'n' ? eq(q.z1, r.z1) : d === 's' ? eq(q.z0, r.z0) : d === 'e' ? eq(q.x1, r.x1) : eq(q.x0, r.x0));
+      for (const q of named) if (!lava.walls.some((d) => against(q.rect, d))) out.push(`lava: ${q.id} is not against a wall of ${h.id}'s troughs`);
+      if (lava.bridges.length > 0) out.push(`lava: ${h.id}'s troughs have bridges`);
+    } else {
+      const d = lava.walls[0];
+      if (lava.walls.length !== 1 || !d || lava.rects.length === 0) {
+        out.push(`lava: ${h.id}'s river is not one band on one bank wall`);
+        continue;
+      }
+      const alongX = d === 'n' || d === 's';
+      const span = (q: Rect): [number, number] => (alongX ? [q.x0, q.x1] : [q.z0, q.z1]);
+      const across = (q: Rect): [number, number] => (alongX ? [q.z0, q.z1] : [q.x0, q.x1]);
+      const [lo, hi] = span(r);
+      const [b0, b1] = across(lava.rects[0]!);
+      const band = [...lava.rects.map((q) => ({ q, lava: true })), ...lava.bridges.map((q) => ({ q, lava: false }))].sort((p, o) => span(p.q)[0] - span(o.q)[0]);
+      // The band: every rect and bridge spans the same across; walking from wall to wall they meet end to end, alternating, but for a floor gap at either end (which holds no bank doorway).
+      const doorways = ends.filter((e) => e.hall === k && e.wall === d).map((e) => slotLane(h, e.q, e.wall).span);
+      const gapHolds = (a: number, b: number) => doorways.some(([d0, d1]) => d0 < b && d1 > a);
+      let tiles = band.every(({ q }) => eq(across(q)[0], b0) && eq(across(q)[1], b1));
+      let at = lo;
+      band.forEach(({ q, lava: isLava }, n) => {
+        const [a, b] = span(q);
+        if (n === 0 ? a > at + 1e-6 && gapHolds(at, a) : !eq(a, at)) tiles = false;
+        if (n > 0 && band[n - 1]!.lava === isLava) tiles = false;
+        at = b;
+      });
+      if (band.length > 0 && at < hi - 1e-6 && gapHolds(at, hi)) tiles = false;
+      if (at > hi + 1e-6 || band[0] && span(band[0].q)[0] < lo - 1e-6) tiles = false;
+      if (!tiles) out.push(`lava: ${h.id}'s river's rects and bridges do not tile one band from wall to wall`);
+      if (lava.bridges.length === 0) out.push(`lava: ${h.id}'s river has no bridge`);
+      lava.bridges.forEach((q, n) => {
+        const w = span(q)[1] - span(q)[0];
+        if (w < BRIDGE_MIN - 1e-9) out.push(`lava: ${h.id}'s bridge ${n} is ${m(w)} m wide, ${BRIDGE_MIN} wanted`);
+      });
+      const beyond = d === 'n' ? b0 - (h.cz + LAVA_CENTRE) : d === 'e' ? b0 - (h.cx + LAVA_CENTRE) : d === 's' ? h.cz - LAVA_CENTRE - b1 : h.cx - LAVA_CENTRE - b1;
+      if (beyond < -1e-6) out.push(`lava: ${h.id}'s river is not beyond its centre square`);
+      const bankWidth = d === 'n' ? r.z1 - b1 : d === 'e' ? r.x1 - b1 : d === 's' ? b0 - r.z0 : b0 - r.x0;
+      if (bankWidth < RIVER_BANK - 1e-9) out.push(`lava: ${h.id}'s river is ${m(bankWidth)} m from its bank wall, ${RIVER_BANK} wanted`);
+    }
+  }
+  return out;
+}
+
 /** A marker to judge: its kind, its name, its Hall and where it stands. */
 interface Marker {
   readonly kind: 'spawn' | 'stairs' | 'fire' | 'pedestal' | 'post' | 'patrol' | 'boss';
@@ -515,12 +676,41 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
       else if (f.kind === 'pit' && part.name === 'rim' && fieldAt(fields, fieldFrom({ x: part.x, z: part.z, s }), centre[k]!.x, centre[k]!.z, centre[k]!.s) < 0) out.push(`tiers: ${h.id}'s rim is not reached from its floor`);
     }
   });
+
+  // Stage 7d: each lava Hall. At each rect's centre the ground under the Hall's floor (within a step) is lava at the lava's height (the Hole and the Hazard compiled); the field to the
+  // Hall's centre reads at the point 1 m inside each doorway (at the door's height) and, on a river, at each bridge's centre (at the Hall's), so no lava cuts the walk.
+  const ends = endsOf(plan);
+  halls.forEach((h, k) => {
+    const lava = h.lava;
+    if (!lava) return;
+    lava.rects.forEach((q, n) => {
+      const x = (q.x0 + q.x1) / 2;
+      const z = (q.z0 + q.z1) / 2;
+      const g = groundBelow(field.arena, x, z, h.y + battle.levels.stepUp);
+      if (!g || deadly(field.arena.walk[g.surface]!) !== 'Lava' || Math.abs(g.y - lava.y) > 1e-6) out.push(`lavaWalk: ${lavaId(h, n)} is not lava ${LAVA_DEPTH} m under the floor`);
+    });
+    const reaches = (x: number, z: number, y: number) => {
+      const s = floorNear(field.arena, x, z, y);
+      return s >= 0 && fieldAt(fields, to(k), x, z, s) >= 0;
+    };
+    const r = h.rect;
+    for (const e of ends) {
+      if (e.hall !== k) continue;
+      const [a, b] = e.wall === 'n' || e.wall === 's' ? [e.q.rect.x0, e.q.rect.x1] : [e.q.rect.z0, e.q.rect.z1];
+      const line = (a + b) / 2;
+      const [x, z] = e.wall === 'n' ? [line, r.z1 - 1] : e.wall === 's' ? [line, r.z0 + 1] : e.wall === 'e' ? [r.x1 - 1, line] : [r.x0 + 1, line];
+      if (!reaches(x, z, e.y)) out.push(`lavaWalk: ${e.p.id}'s doorway into ${h.id} does not reach its centre`);
+    }
+    lava.bridges.forEach((q, n) => {
+      if (!reaches((q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2, h.y)) out.push(`lavaWalk: ${h.id}'s bridge ${n} does not reach its centre`);
+    });
+  });
   return out;
 }
 
 /** Rules 1 and 3 to 8 on a built Floor (the compile rule is the build's own throw). */
 export function judgeBuilt(t: DelverFloorTuning, b: BuiltFloor): string[] {
-  return [...judgePlan(t, b.plan, b.battle.field.size), ...judgeFields(t, b)];
+  return [...judgePlan(t, b.plan, b.battle.field.size, b.battle), ...judgeFields(t, b)];
 }
 
 /**
@@ -534,7 +724,7 @@ export function judgeAttempt(
   judge: (t: DelverFloorTuning, b: BuiltFloor) => string[] = judgeFields,
 ): { reasons: string[]; built: BuiltFloor | undefined } {
   const t = floorTuningOf(tuning.delver, plan.floor);
-  const reasons = judgePlan(t, plan, tuning.battle.field.size);
+  const reasons = judgePlan(t, plan, tuning.battle.field.size, tuning.battle);
   if (reasons.length > 0) return { reasons, built: undefined };
   let built: BuiltFloor;
   try {

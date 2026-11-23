@@ -4,11 +4,14 @@ import { loadTuningData } from '../tuning';
 import { arenaOf } from '../sim/arena';
 import { arenaTuning, floorArenaName, floorOf } from '../sim/delver';
 import type { Rect } from '../mapEditor/source';
+import { noLava } from '../sim/delver/flat.testdata';
 import { hallBase } from '../sim/delver/plan';
 import { CLUTTER, CLUTTER_SHADE, clutterEnabled, clutterModel, clutterOf, setClutterEnabled, type Clutter } from './delverClutter';
 import { sconcesOf } from './delverTorches';
 
-const tuning = loadTuningData();
+// Stage 7d (Task 3): on `noLava`, the Floors these cases were written on. With lava on, clutter stands on the lava's surface (a heap at the lava's height, 4 m under its Hall's floor);
+// the render of lava (Task 6) must keep clutter off it, and then this runs on the shipped data again.
+const tuning = noLava(loadTuningData());
 const fireRadius = tuning.delver.fireRadius;
 
 const inside = (r: Rect, x: number, z: number, pad = 0): boolean => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;

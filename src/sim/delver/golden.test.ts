@@ -16,6 +16,10 @@ import { delverFloor } from './index';
  *
  * `DELVER_VERSION` 13 (issue #163): a Hall's roof is 6 m over its floor (was 4) and a gallery Hall's 8 m (was 6), so a full Jump has room;
  * a Passage's stays 4 m. Every map and plan hash below moved, and no attempt count did: the earlier "byte for byte" claims held before it.
+ *
+ * `DELVER_VERSION` 14 (Stage 7d, lava): the bundled Tuning ships lava on (`delver.floor.lava.percent` [20, 55, 70]) and the judge gained its `lava` and `lavaWalk` rules. A Floor with a lava Hall has a new
+ * plan and map; a Floor with none keeps today's bytes (the pick is the only change to a plan, the Brushes the only change to a map), so only the Floors below that hold lava (`HOLDS`) have new
+ * `PINS` and `TIER_PINS`, and no attempt count moved. `NO_LAVA_PINS` and `NO_LAVA_TIER_PINS` are the old pins on `noLava`, unchanged.
  */
 const tuning = loadTuningData();
 
@@ -44,38 +48,38 @@ const FLAT_HALLS_PINS: readonly { seed: number; floor: number; hash: string; pla
  * Floor is byte for byte what it was. Floor 9 is the default Tuning's own (its tier is full length); the shorter tiers are pinned in `TIER_PINS`.
  */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: 'e4c03085', plan: 'ac6bbfb9', attempts: 1 },
-  { seed: 1, floor: 3, hash: 'fe2cce8a', plan: '551e09f0', attempts: 1 },
-  { seed: 1, floor: 9, hash: '5351dcb9', plan: '00e03d9d', attempts: 1 },
+  { seed: 1, floor: 1, hash: '0e07e8be', plan: '7f78371a', attempts: 1 },
+  { seed: 1, floor: 3, hash: '130cb2f4', plan: 'a0f115d4', attempts: 1 },
+  { seed: 1, floor: 9, hash: 'be91efc2', plan: '46e1c726', attempts: 1 },
   { seed: 7, floor: 1, hash: '135bdf8d', plan: '788b8e85', attempts: 1 },
   { seed: 7, floor: 3, hash: 'db669ddd', plan: '926000ad', attempts: 1 },
-  { seed: 7, floor: 9, hash: 'b28d21d0', plan: 'a615b4a6', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'cbd18615', plan: '487fbbee', attempts: 1 },
   { seed: 123456789, floor: 1, hash: 'a3c15235', plan: 'bb120eb9', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '13c3dec6', plan: '87c55526', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: 'e266e878', plan: 'b133164e', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '13bac101', plan: '4988e84a', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: '04467a1b', plan: 'c237a324', attempts: 1 },
   { seed: 4294967295, floor: 1, hash: 'a7c56cc6', plan: '3ed46d37', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: 'a9bc9474', plan: 'c4233cab', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: 'c06b5d7d', plan: '3b046796', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: 'ef61b589', plan: 'b3227f95', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'a88fbb1a', plan: 'fc0c4cff', attempts: 1 },
 ];
 
 /** The default Tuning's shorter Floors (issue #135, `DELVER_VERSION` 9): tier 1's 7 Halls (Floors 1 and 3) and tier 2's 10 (Floors 4 and 6). */
 const TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
   { seed: 1, floor: 1, hash: '9f1682ed', plan: 'ff91735f', attempts: 1 },
-  { seed: 1, floor: 3, hash: '40b3574a', plan: '40d614e5', attempts: 1 },
-  { seed: 1, floor: 4, hash: '48aa7f48', plan: '4e94305c', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'ad8f5be0', plan: '783d69db', attempts: 1 },
+  { seed: 1, floor: 4, hash: '7865e16d', plan: '29ba5db1', attempts: 1 },
   { seed: 1, floor: 6, hash: '71f24ab7', plan: '8868856b', attempts: 1 },
   { seed: 7, floor: 1, hash: 'ad32184c', plan: 'db815292', attempts: 1 },
   { seed: 7, floor: 3, hash: '7d6b1205', plan: '2566b278', attempts: 2 },
-  { seed: 7, floor: 4, hash: 'f533e3f7', plan: '30e6a25e', attempts: 1 },
-  { seed: 7, floor: 6, hash: '090add16', plan: 'b832c7c6', attempts: 1 },
+  { seed: 7, floor: 4, hash: 'a06d32f8', plan: 'bbd149e3', attempts: 1 },
+  { seed: 7, floor: 6, hash: '09d01bcb', plan: 'd1a83768', attempts: 1 },
   { seed: 123456789, floor: 1, hash: '6d4006bb', plan: '216c5c76', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '6b69627e', plan: '720d77c3', attempts: 1 },
-  { seed: 123456789, floor: 4, hash: '945db25e', plan: '0ca39271', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: 'bea765c9', plan: '8b89821b', attempts: 1 },
+  { seed: 123456789, floor: 4, hash: 'a7a3a285', plan: '98186abc', attempts: 1 },
   { seed: 123456789, floor: 6, hash: '3777f36b', plan: 'd4fe55d0', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: '093ad97a', plan: '85cb8f13', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '82b6d129', plan: '6d345e65', attempts: 1 },
   { seed: 4294967295, floor: 3, hash: 'ca5acdff', plan: '2d825023', attempts: 1 },
-  { seed: 4294967295, floor: 4, hash: '707fe4ea', plan: '69604c3e', attempts: 1 },
-  { seed: 4294967295, floor: 6, hash: 'eb31c493', plan: 'b9808843', attempts: 1 },
+  { seed: 4294967295, floor: 4, hash: '67a0636a', plan: '9c6fe974', attempts: 1 },
+  { seed: 4294967295, floor: 6, hash: 'f4954294', plan: '4c8ace82', attempts: 1 },
 ];
 
 /**
@@ -182,20 +186,20 @@ const OLD_FLOOR_9: readonly { seed: number; hash: string; plan: string }[] = [
   { seed: 4294967295, hash: '5afd67fd', plan: '2fd2277b' },
 ];
 
-/** Per default pin: has the Floor a split, a pit, a dais, a wrapped gallery, a shaped Hall, a pillared Hall (recorded, not forced). */
-const HOLDS: Record<string, { split: boolean; pit: boolean; dais: boolean; wrapped: boolean; shaped: boolean; pillared: boolean }> = {
-  '1/1': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: true },
-  '1/3': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false },
-  '1/9': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: true },
-  '7/1': { split: false, pit: true, dais: true, wrapped: true, shaped: true, pillared: true },
-  '7/3': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false },
-  '7/9': { split: true, pit: true, dais: true, wrapped: true, shaped: false, pillared: false },
-  '123456789/1': { split: true, pit: false, dais: false, wrapped: true, shaped: true, pillared: false },
-  '123456789/3': { split: true, pit: true, dais: true, wrapped: true, shaped: false, pillared: true },
-  '123456789/9': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: false },
-  '4294967295/1': { split: true, pit: true, dais: true, wrapped: true, shaped: true, pillared: false },
-  '4294967295/3': { split: true, pit: true, dais: true, wrapped: true, shaped: true, pillared: false },
-  '4294967295/9': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false },
+/** Per default pin: has the Floor a split, a pit, a dais, a wrapped gallery, a shaped Hall, a pillared Hall (recorded, not forced), and the kind of the first Hall (in index order) holding lava, or false for none. */
+const HOLDS: Record<string, { split: boolean; pit: boolean; dais: boolean; wrapped: boolean; shaped: boolean; pillared: boolean; lava: false | 'pit' | 'river' | 'trough' }> = {
+  '1/1': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: false, lava: 'pit' },
+  '1/3': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false, lava: 'trough' },
+  '1/9': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: false, lava: 'trough' },
+  '7/1': { split: false, pit: true, dais: true, wrapped: true, shaped: true, pillared: true, lava: false },
+  '7/3': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false, lava: false },
+  '7/9': { split: true, pit: true, dais: true, wrapped: true, shaped: false, pillared: false, lava: 'trough' },
+  '123456789/1': { split: true, pit: false, dais: false, wrapped: true, shaped: true, pillared: false, lava: false },
+  '123456789/3': { split: true, pit: true, dais: true, wrapped: true, shaped: false, pillared: true, lava: 'trough' },
+  '123456789/9': { split: true, pit: true, dais: false, wrapped: true, shaped: true, pillared: false, lava: 'pit' },
+  '4294967295/1': { split: true, pit: true, dais: true, wrapped: true, shaped: true, pillared: false, lava: false },
+  '4294967295/3': { split: true, pit: true, dais: true, wrapped: true, shaped: true, pillared: false, lava: 'trough' },
+  '4294967295/9': { split: true, pit: false, dais: true, wrapped: true, shaped: true, pillared: false, lava: 'trough' },
 };
 
 describe('golden Delver Floors', () => {
@@ -217,7 +221,7 @@ describe('golden Delver Floors', () => {
       // Levels: at least `levels.min` of them, and a gallery asks for shortcut jump Links.
       expect(new Set(a.plan.halls.map((h) => h.level)).size).toBeGreaterThanOrEqual(tuning.delver.floor.levels.min);
       expect(a.map.shortcuts === true).toBe(a.plan.halls.some((h) => h.gallery || h.feature));
-      // What holds of the pinned Floor (recorded, not forced): whether it has a split, a pit, a dais, a wrapped gallery, a shaped Hall (solids) and a pillared one.
+      // What holds of the pinned Floor (recorded, not forced): whether it has a split, a pit, a dais, a wrapped gallery, a shaped Hall (solids), a pillared one and a lava Hall (the first one's kind).
       expect({
         split: a.plan.halls.some((h) => h.feature?.kind === 'split'),
         pit: a.plan.halls.some((h) => h.feature?.kind === 'pit'),
@@ -225,6 +229,7 @@ describe('golden Delver Floors', () => {
         wrapped: a.plan.halls.some((h) => h.gallery?.wrap),
         shaped: a.plan.halls.some((h) => h.solids.length > 0),
         pillared: a.plan.halls.some((h) => h.pillars.length > 0),
+        lava: a.plan.halls.find((h) => h.lava)?.lava?.kind ?? false,
       }).toEqual(HOLDS[`${seed}/${floor}`]);
     });
   }

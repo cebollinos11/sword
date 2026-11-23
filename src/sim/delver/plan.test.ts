@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, lava7d, noLava, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, noLava, plainHalls } from './flat.testdata';
 import { SHORTCUT_RISE } from '../nav';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import {
@@ -844,7 +844,7 @@ describe('Hall shapes and pillars (Stage 7b)', () => {
   });
 
   const bundled7b = loadTuningData();
-  const tuning = bundled7b;
+  const tuning = noLava(bundled7b);
   const t = tuning.delver.floor;
   const w = t.passage;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
@@ -1703,7 +1703,7 @@ describe('daises (Stage 7c)', () => {
 
 describe('lava (Stage 7d)', () => {
   const bundled7d = loadTuningData();
-  const on = lava7d(bundled7d);
+  const on = bundled7d;
   const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
   const SIDE_OF: Record<Side, number> = { n: 0, e: 1, s: 2, w: 3 };
   const odd = (v: number) => Math.abs(v % 2) === 1;
@@ -1755,12 +1755,11 @@ describe('lava (Stage 7d)', () => {
     return { pts, zones: m.stairs.hall === i ? [m.stairs.zone] : [] };
   };
 
-  it('has the constants and salts the Design fixes, and the shipped data ships lava off', () => {
+  it('has the constants and salts the Design fixes, and the shipped data ships lava on', () => {
     expect([LAVA_DEPTH, LAVA_KEEP, LAVA_CENTRE, LAVA_LANE, LAVA_MIN, BRIDGE_MIN, RIVER_BANK, LAVA_BAND, PIT_MIN, TROUGH_MIN]).toEqual([4, 2.5, 6, 1, 2, 4, 4, 8, 4, 4]);
     expect([SALT.lava, SALT.lavaKind, SALT.lavaSide, SALT.lavaWide, SALT.lavaTwo]).toEqual([73, 74, 75, 76, 77]);
     expect([oddDown(4), oddDown(5), oddDown(5.5), oddDown(-4), oddUp(4), oddUp(5), oddUp(4.5), oddUp(-4)]).toEqual([3, 5, 5, -5, 5, 5, 5, -3]);
-    expect(bundled7d.delver.floor.lava.percent).toEqual([0, 0, 0]);
-    expect(on.delver.floor.lava.percent).toEqual([25, 35, 50]);
+    expect(on.delver.floor.lava.percent).toEqual([20, 55, 70]);
     expect(noLava(on).delver.floor.lava.percent).toEqual([0]);
   });
 
@@ -1944,7 +1943,7 @@ describe('lava (Stage 7d)', () => {
 
   it('leaves every Hall without lava as the same Hall planned with lava off, and every lava Hall\'s place and kind', () => {
     for (const { seed, floor } of pairs.filter((_, k) => k % 7 === 0)) {
-      const off = planOf(bundled7d, seed, floor);
+      const off = planOf(noLava(bundled7d), seed, floor);
       const got = planOf(on, seed, floor);
       expect(got.halls.length).toBe(off.halls.length);
       expect(off.halls.some((h) => 'lava' in h)).toBe(false);
@@ -1957,15 +1956,15 @@ describe('lava (Stage 7d)', () => {
     }
   });
 
-  it('on noLava and on the shipped data (lava off) makes no pick: a plan is today\'s whatever the 7d salts, and carries no lava', () => {
+  it('on noLava makes no pick: a plan is today\'s whatever the 7d salts, and carries no lava', () => {
     const salts = SALT as unknown as Record<string, number>;
     const saved = { ...salts };
-    const shipped = (seed: number, floor: number) => JSON.stringify(planOf(bundled7d, seed, floor));
+    const shipped = (seed: number, floor: number) => JSON.stringify(planOf(noLava(bundled7d), seed, floor));
     for (const { seed, floor } of pairs.filter((_, k) => k % 11 === 0)) {
       const want = shipped(seed, floor);
       expect(want).not.toContain('"lava"');
       expect(JSON.stringify(planOf(noLava(bundled7d), seed, floor))).toBe(want);
-      expect(JSON.stringify(planOf({ ...bundled7d, delver: { ...bundled7d.delver, floor: { ...bundled7d.delver.floor, lava: { ...bundled7d.delver.floor.lava, twoPercent: 100, weights: { pit: 0, river: 1, trough: 0 } } } } }, seed, floor))).toBe(want);
+      expect(JSON.stringify(planOf({ ...bundled7d, delver: { ...bundled7d.delver, floor: { ...bundled7d.delver.floor, lava: { percent: [0], twoPercent: 100, weights: { pit: 0, river: 1, trough: 0 } } } } }, seed, floor))).toBe(want);
       try {
         for (const key of ['lava', 'lavaKind', 'lavaSide', 'lavaWide', 'lavaTwo']) salts[key] = 9000 + salts[key]!;
         expect(JSON.stringify(planOf(noLava(bundled7d), seed, floor))).toBe(want);
