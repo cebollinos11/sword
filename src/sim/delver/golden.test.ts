@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors, flatHalls, flatRooms, fullFloors, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, fullFloors, noLava, plainHalls } from './flat.testdata';
 import { delverFloor } from './index';
 
 /**
@@ -60,6 +60,45 @@ const PINS: readonly { seed: number; floor: number; hash: string; plan: string; 
 
 /** The default Tuning's shorter Floors (issue #135, `DELVER_VERSION` 9): tier 1's 7 Halls (Floors 1 and 3) and tier 2's 10 (Floors 4 and 6). */
 const TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
+  { seed: 1, floor: 1, hash: '9f1682ed', plan: 'ff91735f', attempts: 1 },
+  { seed: 1, floor: 3, hash: '40b3574a', plan: '40d614e5', attempts: 1 },
+  { seed: 1, floor: 4, hash: '48aa7f48', plan: '4e94305c', attempts: 1 },
+  { seed: 1, floor: 6, hash: '71f24ab7', plan: '8868856b', attempts: 1 },
+  { seed: 7, floor: 1, hash: 'ad32184c', plan: 'db815292', attempts: 1 },
+  { seed: 7, floor: 3, hash: '7d6b1205', plan: '2566b278', attempts: 2 },
+  { seed: 7, floor: 4, hash: 'f533e3f7', plan: '30e6a25e', attempts: 1 },
+  { seed: 7, floor: 6, hash: '090add16', plan: 'b832c7c6', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '6d4006bb', plan: '216c5c76', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '6b69627e', plan: '720d77c3', attempts: 1 },
+  { seed: 123456789, floor: 4, hash: '945db25e', plan: '0ca39271', attempts: 1 },
+  { seed: 123456789, floor: 6, hash: '3777f36b', plan: 'd4fe55d0', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '093ad97a', plan: '85cb8f13', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: 'ca5acdff', plan: '2d825023', attempts: 1 },
+  { seed: 4294967295, floor: 4, hash: '707fe4ea', plan: '69604c3e', attempts: 1 },
+  { seed: 4294967295, floor: 6, hash: 'eb31c493', plan: 'b9808843', attempts: 1 },
+];
+
+/**
+ * `noLava(fullFloors(tuning))` (Stage 7d's lava off) on the same seeds and Floors as `PINS`: its map hashes, plan hashes and attempts are `PINS`' exactly, so a Floor with every
+ * 7d knob off is byte for byte what 7c dealt (no `lava` field, no Brush). The byte-identity proof of Stage 7d, Task 1.
+ */
+const NO_LAVA_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
+  { seed: 1, floor: 1, hash: 'e4c03085', plan: 'ac6bbfb9', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'fe2cce8a', plan: '551e09f0', attempts: 1 },
+  { seed: 1, floor: 9, hash: '5351dcb9', plan: '00e03d9d', attempts: 1 },
+  { seed: 7, floor: 1, hash: '135bdf8d', plan: '788b8e85', attempts: 1 },
+  { seed: 7, floor: 3, hash: 'db669ddd', plan: '926000ad', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'b28d21d0', plan: 'a615b4a6', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: 'a3c15235', plan: 'bb120eb9', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '13c3dec6', plan: '87c55526', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: 'e266e878', plan: 'b133164e', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: 'a7c56cc6', plan: '3ed46d37', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: 'a9bc9474', plan: 'c4233cab', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'c06b5d7d', plan: '3b046796', attempts: 1 },
+];
+
+/** `noLava(tuning)` (the default Tuning's tiers) on `TIER_PINS`' seeds and Floors: `TIER_PINS`' values exactly. */
+const NO_LAVA_TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
   { seed: 1, floor: 1, hash: '9f1682ed', plan: 'ff91735f', attempts: 1 },
   { seed: 1, floor: 3, hash: '40b3574a', plan: '40d614e5', attempts: 1 },
   { seed: 1, floor: 4, hash: '48aa7f48', plan: '4e94305c', attempts: 1 },
@@ -198,6 +237,26 @@ describe('golden Delver Floors', () => {
       expect(a.plan.halls.length).toBe(tuning.delver.tierRooms![Math.ceil(floor / 3) - 1]);
       expect(a.plan.halls[a.plan.stairs]!.kind).toBe(floor % 3 === 0 ? 'Boss' : 'Stairs');
       expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts });
+    });
+  }
+
+  const noLavaFull = noLava(full);
+  for (const { seed, floor, hash, plan, attempts } of NO_LAVA_PINS) {
+    it(`noLava(fullFloors Tuning), seed ${seed}, Floor ${floor}: today's map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s), no lava`, () => {
+      const a = delverFloor(noLavaFull, seed, floor);
+      expect(a.judgement).toEqual({ ok: true, reasons: [] });
+      expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts });
+      expect(a.plan.halls.some((h) => 'lava' in h)).toBe(false);
+    });
+  }
+
+  const noLavaTier = noLava(tuning);
+  for (const { seed, floor, hash, plan, attempts } of NO_LAVA_TIER_PINS) {
+    it(`noLava(Tuning), seed ${seed}, Floor ${floor}: today's map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s), no lava`, () => {
+      const a = delverFloor(noLavaTier, seed, floor);
+      expect(a.judgement).toEqual({ ok: true, reasons: [] });
+      expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts });
+      expect(a.plan.halls.some((h) => 'lava' in h)).toBe(false);
     });
   }
 

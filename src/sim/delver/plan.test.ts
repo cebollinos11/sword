@@ -3,10 +3,11 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, lava7d, noLava, plainHalls } from './flat.testdata';
 import { SHORTCUT_RISE } from '../nav';
-import { isBossFloor, tierOf } from './troops';
+import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import {
+  BRIDGE_MIN, LAVA_BAND, LAVA_CENTRE, LAVA_DEPTH, LAVA_KEEP, LAVA_LANE, LAVA_MIN, lavaDry, oddDown, oddUp, PIT_MIN, RIVER_BANK, TROUGH_MIN, type DelverLava,
   attemptSeed, PEDESTAL_GAP, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
   DAIS_DEPTH, DAIS_HALF, DAIS_RISE, DAIS_STEP, DAIS_STEP_HALF, type DelverDais,
   hallBase, PIT_LONG, PIT_RIM, PIT_WIDE, SPLIT_CUT, STEP_WIDTH, TIER_MIN, type DelverStep,
@@ -1696,6 +1697,315 @@ describe('daises (Stage 7c)', () => {
           Object.assign(salts, saved);
         }
       }
+    });
+  });
+});
+
+describe('lava (Stage 7d)', () => {
+  const bundled7d = loadTuningData();
+  const on = lava7d(bundled7d);
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const SIDE_OF: Record<Side, number> = { n: 0, e: 1, s: 2, w: 3 };
+  const odd = (v: number) => Math.abs(v % 2) === 1;
+  const within = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  const grow = (q: Rect, g: number): Rect => R(q.x0 - g, q.z0 - g, q.x1 + g, q.z1 + g);
+  /** The squared distance (m^2) from the point (x, z) to a rect, 0 inside. */
+  const dist2 = (x: number, z: number, q: Rect): number => {
+    const dx = Math.max(q.x0 - x, 0, x - q.x1);
+    const dz = Math.max(q.z0 - z, 0, z - q.z1);
+    return dx * dx + dz * dz;
+  };
+  /** The squared distance (m^2) between two rects, 0 when they touch or overlap. */
+  const gap2 = (a: Rect, b: Rect): number => {
+    const dx = Math.max(a.x0 - b.x1, b.x0 - a.x1, 0);
+    const dz = Math.max(a.z0 - b.z1, b.z0 - a.z1, 0);
+    return dx * dx + dz * dz;
+  };
+  const planOf = (tuning: typeof on, seed: number, floor: number, attempt = 0) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+  const pairs = Array.from({ length: 200 }, (_, s) => Array.from({ length: 9 }, (_, f) => ({ seed: s + 1, floor: f + 1 }))).flat();
+  const planned = pairs.map((pr) => ({ ...pr, p: planOf(on, pr.seed, pr.floor) })).filter(({ p, floor }) => p.halls.length === floorTuningOf(on.delver, floor).rooms);
+  const w = bundled7d.delver.floor.passage;
+  /** The lanes of Hall `i`'s held slots, from its Passages' pieces: the doorway's line and the lane rect (a doorway and `DOOR_SIDE` each side, `DOOR_LANE` deep). */
+  const lanesOf = (p: FloorPlan, i: number): { side: Side; line: number; rect: Rect }[] => {
+    const r = p.halls[i]!.rect;
+    const out: { side: Side; line: number; rect: Rect }[] = [];
+    for (const q of p.passages) {
+      for (const [hall, side, piece] of [[q.a, q.sideA, q.pieces[0]!], [q.b, q.sideB, q.pieces[q.pieces.length - 1]!]] as const) {
+        if (hall !== i) continue;
+        const line = side === 'n' || side === 's' ? (piece.rect.x0 + piece.rect.x1) / 2 : (piece.rect.z0 + piece.rect.z1) / 2;
+        const lo = line - w / 2 - DOOR_SIDE;
+        const hi = line + w / 2 + DOOR_SIDE;
+        out.push({
+          side, line,
+          rect: side === 'n' ? R(lo, r.z1 - DOOR_LANE, hi, r.z1) : side === 's' ? R(lo, r.z0, hi, r.z0 + DOOR_LANE) : side === 'e' ? R(r.x1 - DOOR_LANE, lo, r.x1, hi) : R(r.x0, lo, r.x0 + DOOR_LANE, hi),
+        });
+      }
+    }
+    return out;
+  };
+  /** Every Hall of every planned Floor with lava. */
+  const lavaHalls = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (h.lava ? [{ p, h, i, seed, floor, lava: h.lava }] : [])));
+  const ofKind = (k: DelverLava['kind']) => lavaHalls.filter((e) => e.lava.kind === k);
+  /** The markers standing in Hall `i`, as points, and the Stairs zone as a rect. */
+  const markersIn = (p: FloorPlan, i: number): { pts: { x: number; z: number }[]; zones: Rect[] } => {
+    const m = p.markers;
+    const pts = [...m.spawns, ...m.fires, ...m.pedestals, ...m.posts, ...(m.boss ? [m.boss] : [])].filter((q) => q.hall === i).map((q) => ({ x: q.x, z: q.z }));
+    for (const pa of m.patrols) pa.halls.forEach((hh, k) => hh === i && pts.push({ x: pa.points[k]!.x, z: pa.points[k]!.z }));
+    return { pts, zones: m.stairs.hall === i ? [m.stairs.zone] : [] };
+  };
+
+  it('has the constants and salts the Design fixes, and the shipped data ships lava off', () => {
+    expect([LAVA_DEPTH, LAVA_KEEP, LAVA_CENTRE, LAVA_LANE, LAVA_MIN, BRIDGE_MIN, RIVER_BANK, LAVA_BAND, PIT_MIN, TROUGH_MIN]).toEqual([4, 2.5, 6, 1, 2, 4, 4, 8, 4, 4]);
+    expect([SALT.lava, SALT.lavaKind, SALT.lavaSide, SALT.lavaWide, SALT.lavaTwo]).toEqual([73, 74, 75, 76, 77]);
+    expect([oddDown(4), oddDown(5), oddDown(5.5), oddDown(-4), oddUp(4), oddUp(5), oddUp(4.5), oddUp(-4)]).toEqual([3, 5, 5, -5, 5, 5, 5, -3]);
+    expect(bundled7d.delver.floor.lava.percent).toEqual([0, 0, 0]);
+    expect(on.delver.floor.lava.percent).toEqual([25, 35, 50]);
+    expect(noLava(on).delver.floor.lava.percent).toEqual([0]);
+  });
+
+  it('LAVA_KEEP is a Knockdown\'s longest Slide (the Kick, the Whirlwind or any Weapon\'s heavy blow) and 1 m', () => {
+    const slides = [bundled7d.kick.knockdownSlide, bundled7d.whirlwind.knockdownSlide, ...Object.values(bundled7d.weapons).map((wp) => wp.heavyBlow.knockdownSlide)];
+    expect(Math.max(...slides)).toBe(1.5);
+    expect(LAVA_KEEP).toBeGreaterThanOrEqual(1 + Math.max(...slides));
+  });
+
+  it('plans 200 seeds x Floors 1 to 9, with lava in plenty', () => {
+    expect(planned.length).toBeGreaterThan(1600);
+    console.log(`7d lava Halls in ${planned.length} Floors: ${ofKind('pit').length} pits, ${ofKind('river').length} rivers, ${ofKind('trough').length} troughs`);
+    expect(ofKind('pit').length).toBeGreaterThan(0);
+    expect(ofKind('river').length).toBeGreaterThan(0);
+    expect(ofKind('trough').length).toBeGreaterThan(0);
+  });
+
+  it('puts lava only on a Fight, Empty, Boss or Stairs Hall with no gallery, feature, solid or pillar, writes it right after `feature`, and sets its height', () => {
+    for (const { h } of lavaHalls) {
+      expect(['Fight', 'Empty', 'Boss', 'Stairs']).toContain(h.kind);
+      expect([h.gallery, h.feature]).toEqual([undefined, undefined]);
+      expect([h.shape, h.solids, h.pillars, h.layout]).toEqual(['rect', [], [], undefined]);
+      expect(h.rects).toEqual([h.rect]);
+      expect(h.lava!.y).toBe(h.y - LAVA_DEPTH);
+      const keys = Object.keys(h);
+      expect(keys[keys.length - 1]).toBe('lava');
+      expect(keys[keys.length - 2]).toBe('top');
+    }
+    for (const { p } of planned) for (const h of p.halls) if (['Entrance', 'Rest', 'Treasure'].includes(h.kind)) expect(h.lava).toBeUndefined();
+  });
+
+  it('keeps every lava rect inside its Hall, at least LAVA_MIN across, on odd metres, apart, out of the centre square, in z then x order', () => {
+    for (const { h, lava } of lavaHalls) {
+      const sq = R(h.cx - LAVA_CENTRE, h.cz - LAVA_CENTRE, h.cx + LAVA_CENTRE, h.cz + LAVA_CENTRE);
+      lava.rects.forEach((q, k) => {
+        expect(within(q, h.rect)).toBe(true);
+        expect(q.x1 - q.x0).toBeGreaterThanOrEqual(LAVA_MIN);
+        expect(q.z1 - q.z0).toBeGreaterThanOrEqual(LAVA_MIN);
+        expect([q.x0, q.z0, q.x1, q.z1].every(odd)).toBe(true);
+        expect(gap2(q, sq) > 0 || (q.x0 >= sq.x1 || q.x1 <= sq.x0 || q.z0 >= sq.z1 || q.z1 <= sq.z0)).toBe(true);
+        lava.rects.forEach((o, m) => m > k && expect(q.x0 < o.x1 && o.x0 < q.x1 && q.z0 < o.z1 && o.z0 < q.z1).toBe(false));
+        if (k > 0) expect([lava.rects[k - 1]!.z0, lava.rects[k - 1]!.x0] < [q.z0, q.x0] || lava.rects[k - 1]!.z0 < q.z0 || (lava.rects[k - 1]!.z0 === q.z0 && lava.rects[k - 1]!.x0 < q.x0)).toBe(true);
+      });
+    }
+  });
+
+  it('keeps every lane LAVA_LANE from the lava but a river\'s bank-wall lanes, whose doorway (half a metre each side) lies inside one bridge', () => {
+    for (const { p, h, i, lava } of lavaHalls) {
+      for (const ln of lanesOf(p, i)) {
+        const bank = lava.kind === 'river' && lava.walls[0] === ln.side;
+        const alongX = ln.side === 'n' || ln.side === 's';
+        if (bank) {
+          const lo = ln.line - w / 2 - 0.5;
+          const hi = ln.line + w / 2 + 0.5;
+          expect(lava.bridges.some((b) => (alongX ? b.x0 <= lo && b.x1 >= hi : b.z0 <= lo && b.z1 >= hi))).toBe(true);
+          continue;
+        }
+        for (const q of lava.rects) expect(!(grow(ln.rect, LAVA_LANE).x0 < q.x1 && q.x0 < grow(ln.rect, LAVA_LANE).x1 && grow(ln.rect, LAVA_LANE).z0 < q.z1 && q.z0 < grow(ln.rect, LAVA_LANE).z1)).toBe(true);
+      }
+      expect(h.lava).toBe(lava);
+    }
+  });
+
+  it('lays a river as one band from wall to wall, beyond the centre square, with its bank, in bridges of at least BRIDGE_MIN', () => {
+    for (const { p, h, i, lava } of ofKind('river')) {
+      const d = SIDE_OF[lava.walls[0]!];
+      expect(lava.walls.length).toBe(1);
+      const alongX = d % 2 === 0;
+      const items = [...lava.rects.map((q) => ({ q, lava: true })), ...lava.bridges.map((q) => ({ q, lava: false }))].sort((a, b) => (alongX ? a.q.x0 - b.q.x0 : a.q.z0 - b.q.z0));
+      const [a0, a1] = alongX ? [h.rect.x0, h.rect.x1] : [h.rect.z0, h.rect.z1];
+      // One band: the same extent across; lava and bridges tile it from wall to wall, with at most one wall-end floor gap (no lava, no bridge, no bank doorway) at each end.
+      const across = (q: Rect): [number, number] => (alongX ? [q.z0, q.z1] : [q.x0, q.x1]);
+      const span = (q: Rect): [number, number] => (alongX ? [q.x0, q.x1] : [q.z0, q.z1]);
+      for (const it2 of items) expect(across(it2.q)).toEqual(across(items[0]!.q));
+      const [c0, c1] = across(items[0]!.q);
+      expect([c1 - c0].every((v) => v === 2 || v === 4)).toBe(true);
+      const bankLanes = lanesOf(p, i).filter((ln) => ln.side === lava.walls[0]);
+      const holdsDoor = (from: number, to: number) => bankLanes.some((ln) => ln.line - w / 2 - 0.5 >= from && ln.line + w / 2 + 0.5 <= to);
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      // A wall-end bridge (a door bridge reaching the wall) is the first or last item; the end gap beyond an end lava piece holds no doorway.
+      if (first.lava && span(first.q)[0] > a0) expect(holdsDoor(a0, span(first.q)[0])).toBe(false);
+      if (last.lava && span(last.q)[1] < a1) expect(holdsDoor(span(last.q)[1], a1)).toBe(false);
+      if (!first.lava) expect(span(first.q)[0]).toBe(a0);
+      if (!last.lava) expect(span(last.q)[1]).toBe(a1);
+      items.forEach((it2, k) => {
+        if (k > 0 && span(it2.q)[0] === span(items[k - 1]!.q)[1]) expect(it2.lava).toBe(!items[k - 1]!.lava);
+        if (k > 0) expect(span(it2.q)[0]).toBeGreaterThanOrEqual(span(items[k - 1]!.q)[1]);
+      });
+      const wallEnd = (!first.lava ? 1 : 0) + (!last.lava ? 1 : 0);
+      expect(lava.bridges.length).toBeGreaterThanOrEqual(1);
+      expect(lava.rects.length).toBeGreaterThanOrEqual(1);
+      expect(lava.bridges.length).toBe(lava.rects.length - 1 + wallEnd);
+      for (const b of lava.bridges) expect(span(b)[1] - span(b)[0]).toBeGreaterThanOrEqual(BRIDGE_MIN);
+      // Beyond the centre square, and the bank behind it.
+      const centre = alongX ? h.cz : h.cx;
+      const wallAt = d === 0 ? h.rect.z1 : d === 2 ? h.rect.z0 : d === 1 ? h.rect.x1 : h.rect.x0;
+      if (d === 0 || d === 1) {
+        expect(c0).toBeGreaterThanOrEqual(centre + LAVA_CENTRE);
+        expect(wallAt - c1).toBeGreaterThanOrEqual(RIVER_BANK);
+      } else {
+        expect(c1).toBeLessThanOrEqual(centre - LAVA_CENTRE);
+        expect(c0 - wallAt).toBeGreaterThanOrEqual(RIVER_BANK);
+      }
+    }
+  });
+
+  it('lays a pit with its bands and moves the centre into the centre band', () => {
+    for (const { h, lava } of ofKind('pit')) {
+      const d = SIDE_OF[lava.walls[0]!];
+      expect([lava.walls.length, lava.rects.length, lava.bridges.length]).toEqual([1, 1, 0]);
+      const q = lava.rects[0]!;
+      const r = h.rect;
+      expect([q.x0 - r.x0, r.x1 - q.x1, q.z0 - r.z0, r.z1 - q.z1]).toEqual([d === 3 ? 2 * LAVA_CENTRE : LAVA_BAND, d === 1 ? 2 * LAVA_CENTRE : LAVA_BAND, d === 2 ? 2 * LAVA_CENTRE : LAVA_BAND, d === 0 ? 2 * LAVA_CENTRE : LAVA_BAND]);
+      expect(Math.min(q.x1 - q.x0, q.z1 - q.z0)).toBeGreaterThanOrEqual(PIT_MIN);
+      const mid = [(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2];
+      expect([h.cx, h.cz]).toEqual(d === 2 ? [mid[0], r.z0 + 6] : d === 0 ? [mid[0], r.z1 - 6] : d === 1 ? [r.x1 - 6, mid[1]] : [r.x0 + 6, mid[1]]);
+    }
+  });
+
+  it('lays troughs against one or two walls, each a run of at least TROUGH_MIN, 2 or 4 m deep, beyond the centre square', () => {
+    for (const { h, lava } of ofKind('trough')) {
+      expect([1, 2]).toContain(lava.walls.length);
+      if (lava.walls.length === 2) expect(SIDE_OF[lava.walls[1]!]).toBe((SIDE_OF[lava.walls[0]!] + 2) % 4);
+      expect(lava.bridges).toEqual([]);
+      const depths = new Set<number>();
+      for (const q of lava.rects) {
+        const on2 = lava.walls.filter((sd) => (sd === 'n' ? q.z1 === h.rect.z1 : sd === 's' ? q.z0 === h.rect.z0 : sd === 'e' ? q.x1 === h.rect.x1 : q.x0 === h.rect.x0));
+        expect(on2.length).toBe(1);
+        const sd = on2[0]!;
+        const [len, depth] = sd === 'n' || sd === 's' ? [q.x1 - q.x0, q.z1 - q.z0] : [q.z1 - q.z0, q.x1 - q.x0];
+        expect(len).toBeGreaterThanOrEqual(TROUGH_MIN);
+        expect([2, 4]).toContain(depth);
+        depths.add(depth);
+      }
+      expect(depths.size).toBe(1);
+      expect(new Set(lava.walls).size).toBe(lava.walls.length);
+    }
+  });
+
+  it('keeps every marker in a lava Hall LAVA_KEEP from its lava', () => {
+    for (const { p, i, lava } of lavaHalls) {
+      const { pts, zones } = markersIn(p, i);
+      for (const q of lava.rects) {
+        for (const pt of pts) expect(dist2(pt.x, pt.z, q)).toBeGreaterThanOrEqual(LAVA_KEEP * LAVA_KEEP);
+        for (const z of zones) expect(gap2(z, q)).toBeGreaterThanOrEqual(LAVA_KEEP * LAVA_KEEP);
+      }
+    }
+  });
+
+  it('keeps the dry floor round the Hall\'s centre', () => {
+    for (const { h } of lavaHalls) {
+      const dry = lavaDry(h, LAVA_KEEP);
+      expect(dry.some((q) => h.cx >= q.x0 && h.cx <= q.x1 && h.cz >= q.z0 && h.cz <= q.z1)).toBe(true);
+      for (const q of dry) for (const l of h.lava!.rects) expect(gap2(q, l) === 0 ? q.x0 >= l.x1 + LAVA_KEEP - 1e-9 || q.x1 <= l.x0 - LAVA_KEEP + 1e-9 || q.z0 >= l.z1 + LAVA_KEEP - 1e-9 || q.z1 <= l.z0 - LAVA_KEEP + 1e-9 || !(q.x0 < l.x1 && l.x0 < q.x1 && q.z0 < l.z1 && l.z0 < q.z1) : true).toBe(true);
+    }
+  });
+
+  it('shows across the 200 x 9: each kind, a river with two bridges, a door bridge, a two-wall trough, lava in a Boss Hall, a Stairs Hall and a great hall', () => {
+    const rivers = ofKind('river');
+    const doorBridge = rivers.some(({ p, i, lava }) => lanesOf(p, i).some((ln) => ln.side === lava.walls[0]));
+    const counts = {
+      pit: ofKind('pit').length,
+      river: rivers.length,
+      trough: ofKind('trough').length,
+      twoBridges: rivers.filter((e) => e.lava.bridges.length === 2).length,
+      oneBridge: rivers.filter((e) => e.lava.bridges.length === 1).length,
+      wallEndBridges: rivers.reduce((a, e) => a + e.lava.bridges.filter((b) => (b.x0 === e.h.rect.x0 || b.x1 === e.h.rect.x1 || b.z0 === e.h.rect.z0 || b.z1 === e.h.rect.z1) && (e.lava.walls[0] === 'n' || e.lava.walls[0] === 's' ? b.x0 === e.h.rect.x0 || b.x1 === e.h.rect.x1 : b.z0 === e.h.rect.z0 || b.z1 === e.h.rect.z1)).length, 0),
+      wide6: rivers.filter((e) => e.lava.bridges.some((b) => Math.max(b.x1 - b.x0, b.z1 - b.z0) === 6)).length,
+      twoWall: ofKind('trough').filter((e) => e.lava.walls.length === 2).length,
+      boss: lavaHalls.filter((e) => e.h.kind === 'Boss').length,
+      stairs: lavaHalls.filter((e) => e.h.kind === 'Stairs').length,
+      great: lavaHalls.filter((e) => e.h.great).length,
+      fight: lavaHalls.filter((e) => e.h.kind === 'Fight').length,
+      empty: lavaHalls.filter((e) => e.h.kind === 'Empty').length,
+    };
+    console.log(`7d lava over ${planned.length} Floors: ${JSON.stringify(counts)}, door bridge ${doorBridge}`);
+    expect(doorBridge).toBe(true);
+    for (const k of ['pit', 'river', 'trough', 'twoBridges', 'twoWall', 'boss', 'stairs', 'great'] as const) expect(counts[k], k).toBeGreaterThan(0);
+  });
+
+  it('leaves every Hall without lava as the same Hall planned with lava off, and every lava Hall\'s place and kind', () => {
+    for (const { seed, floor } of pairs.filter((_, k) => k % 7 === 0)) {
+      const off = planOf(bundled7d, seed, floor);
+      const got = planOf(on, seed, floor);
+      expect(got.halls.length).toBe(off.halls.length);
+      expect(off.halls.some((h) => 'lava' in h)).toBe(false);
+      got.halls.forEach((h, k) => {
+        const o = off.halls[k]!;
+        if (!h.lava) expect(JSON.stringify(h)).toBe(JSON.stringify(o));
+        else expect([h.rect, h.kind, h.doors, h.level, h.y, h.top, h.depth, h.cells]).toEqual([o.rect, o.kind, o.doors, o.level, o.y, o.top, o.depth, o.cells]);
+      });
+      expect(JSON.stringify(got.passages)).toBe(JSON.stringify(off.passages));
+    }
+  });
+
+  it('on noLava and on the shipped data (lava off) makes no pick: a plan is today\'s whatever the 7d salts, and carries no lava', () => {
+    const salts = SALT as unknown as Record<string, number>;
+    const saved = { ...salts };
+    const shipped = (seed: number, floor: number) => JSON.stringify(planOf(bundled7d, seed, floor));
+    for (const { seed, floor } of pairs.filter((_, k) => k % 11 === 0)) {
+      const want = shipped(seed, floor);
+      expect(want).not.toContain('"lava"');
+      expect(JSON.stringify(planOf(noLava(bundled7d), seed, floor))).toBe(want);
+      expect(JSON.stringify(planOf({ ...bundled7d, delver: { ...bundled7d.delver, floor: { ...bundled7d.delver.floor, lava: { ...bundled7d.delver.floor.lava, twoPercent: 100, weights: { pit: 0, river: 1, trough: 0 } } } } }, seed, floor))).toBe(want);
+      try {
+        for (const key of ['lava', 'lavaKind', 'lavaSide', 'lavaWide', 'lavaTwo']) salts[key] = 9000 + salts[key]!;
+        expect(JSON.stringify(planOf(noLava(bundled7d), seed, floor))).toBe(want);
+        expect(shipped(seed, floor)).toBe(want);
+      } finally {
+        Object.assign(salts, saved);
+      }
+    }
+  });
+
+  it('picks nothing at p 0 and takes the Run tier\'s percent (the last for a deeper tier)', () => {
+    const only = (percent: number[]) => ({ ...on, delver: { ...on.delver, floor: { ...on.delver.floor, lava: { ...on.delver.floor.lava, percent } } } });
+    const count = (tuning: typeof on, tier: number) =>
+      Array.from({ length: 60 }, (_, s) => planFloor(tuning.delver.floor, s + 1, 1, 0, false, tier)).reduce((a, p) => a + p.halls.filter((h) => h.lava).length, 0);
+    expect(count(only([0, 0, 100]), 1)).toBe(0);
+    expect(count(only([0, 0, 100]), 3)).toBeGreaterThan(0);
+    expect(count(only([0, 0, 100]), 7)).toBe(count(only([0, 0, 100]), 3));
+    expect(count(only([100]), 1)).toBeGreaterThan(0);
+  });
+
+  describe('lavaDry', () => {
+    const hallWith = (lava: DelverLava | undefined): DelverHall => {
+      const rect = R(-15, -15, 15, 15);
+      return { rect, rects: [rect], solids: [], ...(lava ? { lava } : {}) } as unknown as DelverHall;
+    };
+    it('cuts a pit out, round it, by the keep, in band order', () => {
+      const h = hallWith({ kind: 'pit', walls: ['s'], rects: [R(-7, -3, 7, 9)], y: -4, bridges: [] });
+      expect(lavaDry(h, 2.5)).toEqual([R(-15, -15, 15, -5.5), R(-15, -5.5, -9.5, 11.5), R(9.5, -5.5, 15, 11.5), R(-15, 11.5, 15, 15)]);
+    });
+    it('leaves a river\'s bridge as a strip across it, clipped at the walls', () => {
+      const h = hallWith({ kind: 'river', walls: ['n'], rects: [R(-15, 5, -3, 9), R(3, 5, 15, 9)], y: -4, bridges: [R(-3, 5, 3, 9)] });
+      expect(lavaDry(h, 2.5)).toEqual([R(-15, -15, 15, 2.5), R(-0.5, 2.5, 0.5, 11.5), R(-15, 11.5, 15, 15)]);
+    });
+    it('leaves a trough Hall\'s floor but the strips and their keep', () => {
+      const h = hallWith({ kind: 'trough', walls: ['n'], rects: [R(-15, 13, -5, 15), R(5, 13, 15, 15)], y: -4, bridges: [] });
+      expect(lavaDry(h, 2.5)).toEqual([R(-15, -15, 15, 10.5), R(-2.5, 10.5, 2.5, 15)]);
+    });
+    it('keeps a solid\'s notch out of the floor too', () => {
+      const h = { ...hallWith({ kind: 'trough', walls: ['s'], rects: [R(-5, -15, 5, -13)], y: -4, bridges: [] }), solids: [R(9, 9, 15, 15)] } as DelverHall;
+      expect(lavaDry(h, 1)).toEqual([R(-15, -15, -6, -12), R(6, -15, 15, -12), R(-15, -12, 15, 9), R(-15, 9, 9, 15)]);
     });
   });
 });

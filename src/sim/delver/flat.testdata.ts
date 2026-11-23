@@ -11,6 +11,18 @@ export function fullFloors(tuning: TuningData): TuningData {
   return { ...tuning, delver };
 }
 
+/** `tuning` with `delver.floor.lava.percent` [0] (docs/plans/delver.md, Stage 7d), the rest unchanged: no Hall takes lava and no pick is made, so a Floor's plan, source and map are 7c's byte for byte. It does not apply `fullFloors`. */
+export function noLava(tuning: TuningData): TuningData {
+  const f = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, lava: { ...f.lava, percent: [0] } } } };
+}
+
+/** Temporary (Stage 7d, Tasks 1 and 2; Task 3 removes it): `tuning` with `delver.floor.lava.percent` [25, 35, 50], the rest as given. */
+export function lava7d(tuning: TuningData): TuningData {
+  const f = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, lava: { ...f.lava, percent: [25, 35, 50] } } } };
+}
+
 /** `tuning` with `delver.floor.levels` { max 0, min 1, changePercent 0, galleryPercent 0 }. */
 export function flatFloors(tuning: TuningData): TuningData {
   // Stage 7c's splits, pits and daises (and its gallery knobs) go too: a flat Floor has no raised or sunk floor.
@@ -19,11 +31,12 @@ export function flatFloors(tuning: TuningData): TuningData {
 }
 
 /**
- * `tuning` with the Stage 7c knobs off and every Floor full length (`fullFloors`) (`galleries.wrapPercent` 0, `galleries.stairPercent` 0, `features.percent` 0 and `features.daisPercent` 0), the rest unchanged: no gallery wraps, none is picked as a stairwell and no Hall takes a split, a pit or a dais, so a Floor's plan, source and map are 7b's byte for byte.
+ * `tuning` with the Stage 7c knobs off, lava off (`noLava`) and every Floor full length (`fullFloors`) (`galleries.wrapPercent` 0, `galleries.stairPercent` 0, `features.percent` 0 and `features.daisPercent` 0), the rest unchanged: no gallery wraps, none is picked as a stairwell and no Hall takes a split, a pit or a dais, so a Floor's plan, source and map are 7b's byte for byte.
  */
 export function flatHalls(tuning: TuningData): TuningData {
   // Every Floor full length too (`fullFloors`), so 7b's pins hold on every Floor.
   tuning = fullFloors(tuning);
+  tuning = noLava(tuning);
   const f = tuning.delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, galleries: { ...f.galleries, wrapPercent: 0, stairPercent: 0 }, features: { ...f.features, percent: 0, daisPercent: 0 } } } };
 }
