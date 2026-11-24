@@ -9,7 +9,7 @@ A combatant in a Duel: its body (Skeleton + Weapon) and its combat state (HP, cu
 _Avoid_: Player, character, unit
 
 **Controller**:
-The source of a Fighter's intents each tick — a human (Local Controller), the AI (AI Controller), or a remote peer (Remote Controller). The Fighter never knows which kind drives it.
+The source of a Fighter's intents each tick — a human (Local Controller), the AI (AI Controller), or a remote peer (Remote Controller). The Fighter never knows which kind drives it. A Local Controller is fed by mouse/keyboard, on-screen touch pads, or a Gamepad (Standard mapping); those bindings live outside the Simulation and only call into the Local Controller.
 _Avoid_: Input, brain, agent
 
 **Player**:

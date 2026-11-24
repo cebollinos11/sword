@@ -19,6 +19,7 @@ import { DamageNumbers } from './play/damageNumbers';
 import { partyMarkers } from './render/minimap';
 import { devAutopilot, devBattlePilot, devDelverStart, devImmortal, devMode, devSpeed, devRunRelics } from './devMode';
 import { bindLocalInput } from './play/input';
+import { bindGamepadInput } from './play/gamepad';
 import { InventoryScreen } from './play/inventoryScreen';
 import { delverContextOf, type DelverContext } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
@@ -168,11 +169,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
   const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;
-  /** Feeds the Local Controller only while a Match is on and the menu closed (mouse/keyboard, plus touch on touch devices). */
+  /** Gamepad (Standard mapping: DualShock / Xbox): polled each frame into the same Local Controller. */
+  const gamepadInput = bindGamepadInput(local, {
+    onMenu: () => {
+      if (driver && !menu.visible) openPause();
+    },
+  });
+  /** Feeds the Local Controller only while a Match is on and the menu closed (mouse/keyboard, touch, gamepad). */
   const input = {
     set enabled(on: boolean) {
       mouseInput.enabled = on;
       if (touchInput) touchInput.enabled = on;
+      gamepadInput.enabled = on;
     },
   };
   const hud = new Hud(container, tuning, () => openPause(), () => toggleMap());
@@ -1044,6 +1052,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   function runFrame(now: number): void {
+    gamepadInput.poll();
     const elapsed = Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
     // Dev `speed=N`: the fade between a Delver Run's Floors plays at 1×, so its banner can be seen.
     const speed = DEV_SPEED > 1 && !lobby?.online && curr.delver?.phase !== 'Descending' ? DEV_SPEED : 1;
