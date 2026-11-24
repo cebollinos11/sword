@@ -54,7 +54,7 @@
  *    much is left of it (counted as seen: the opponent takes as long to see
  *    the punish coming), and otherwise it spaces out. It meets an opponent
  *    walking into its reach with an
- *    Attack already on the way (`preempt`), leaps in with a jumping Overhead
+ *    Attack already on the way (`preempt`), leaps in with a jumping Overhead (Left or Right too, at `leapSides`)
  *    from out of reach, or down off a ledge (`jumpAttackRate`; held for the
  *    shortest hold up to its `jumpNav` whose arc brings it within reach of where
  *    the opponent will be), Chains a second Attack while
@@ -715,6 +715,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     spinRespect: 0,
     whirlwindRate: 0,
     whirlwindRead: 0,
+    leapSides: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -2310,7 +2311,7 @@ class RuleAi implements AiController {
    */
   private leapDirection(self: FighterState, target: Sighting): Direction {
     let options = this.attacksOf(self).filter((d) => d !== 'Thrust');
-    if (options.length === 0) return 'Overhead';
+    if (options.length === 0 || this.skill.leapSides <= 0 || !this.chance(this.skill.leapSides)) return 'Overhead';
     if (this.chance(this.skill.mistakeRate)) return this.pick(options);
     const guard = guardOf(target.action);
     const open = options.filter((d) => guard === null || mirrorDirection(d) !== guard);
