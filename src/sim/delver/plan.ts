@@ -221,6 +221,11 @@ export interface DelverRoom {
   readonly lava: readonly Rect[];
   /** Its ceiling over the Hall's floor (m): the room's `top`. */
   readonly top: number;
+  /**
+   * How far (m) the room stands off its cell's lattice point, on x and z: 0, or 1 m either way where its wall would land on an even metre. A doorway on a wall
+   * along a shifted axis is then 1 m off the room's wall centre, at the Passage's line, and cut by the Passage (as a raised door is).
+   */
+  readonly shift: readonly [number, number];
   /** Its pieces as the source writes them: the room's Brushes in its frame, moved to the Hall's centre (world metres) and up to its `y`, ids `<hall>-<brush id>`, each Block to the Hall's ceiling. */
   readonly brushes: readonly Brush[];
 }
@@ -653,7 +658,7 @@ export function roomFeature(id: string, room: DrawnRoom, frame: number, rect: Re
   });
   const steps: DelverStep[] = brushes.flatMap((b) => (b.kind === 'ramp' ? [{ rect: b.rect, lo: b.lo, hi: b.hi, up: b.up, rails: b.rails }] : []));
   const lava = brushes.flatMap((b) => (b.kind === 'hazard' && b.hazard === 'lava' ? [b.rect] : []));
-  return { kind: 'room', name: room.name, frame, half: fr.half, doorways: fr.doorways, steps, lava, brushes, top: room.top };
+  return { kind: 'room', name: room.name, frame, half: fr.half, doorways: fr.doorways, steps, lava, brushes, top: room.top, shift: [0, 0] };
 }
 
 interface Edge {
@@ -1202,38 +1207,46 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     | { kind: 'pit'; depth: 2 | 4; turn: 0 | 1; v: 'x' | 'z' }
     | { kind: 'uphill'; axis: 'x' | 'z'; up: number; rise: 1 | 2 }
     | { kind: 'spiral'; base: number; turn: 0 | 1 }
-    | { kind: 'room'; room: DrawnRoom; frame: number; lifts: Partial<Record<Side, number>>; high: number };
+    | { kind: 'room'; room: DrawnRoom; frame: number; lifts: Partial<Record<Side, number>>; high: number; shift: [number, number] };
   const feat: (Feat | null)[] = halls.map(() => null);
   /**
-   * Stage 7g: Hall `h`'s rect if it took drawn room `room` in frame `f`, or null when it does not fit: the frame's half within the cell's limits (so it keeps
-   * `minPassage` from every neighbour), its Walls on odd metres, a doorway on every wall a Passage leaves by, its highest door within `levels.max`, and each
-   * Passage re-cut against it clear of it (`PASSAGE_CLEAR`, but the piece that meets it) with every leg of positive length (the one meeting it `MIN_LEG`).
+   * Stage 7g: Hall `h`'s rect if it took drawn room `room` in frame `f`, and the room's shift off the cell's lattice point, or null when it does not fit: its
+   * Walls on odd metres (a half whose wall would land on an even metre moves the room 1 m along that axis, west or south first), within the cell's limits (so it
+   * keeps `minPassage` from every neighbour), a doorway on every wall a Passage leaves by, its highest door within `levels.max`, and each Passage re-cut against it
+   * clear of it (`PASSAGE_CLEAR`, but the piece that meets it) with every leg of positive length (the one meeting it `MIN_LEG`).
    */
-  const roomFits = (h: number, room: DrawnRoom, f: number): Rect | null => {
+  const roomFits = (h: number, room: DrawnRoom, f: number): { rect: Rect; shift: [number, number] } | null => {
     const hall = halls[h]!;
     const [hw, hd] = frameHalf(room, f);
     const c = hall.cells[0]!;
     const cx = X[c % cols]!;
     const cz = Z[Math.floor(c / cols)]!;
-    if (hw > limX(c) || hd > limZ(c)) return null;
-    if ((((cx + hw) % 2) + 2) % 2 !== 1 || (((cz + hd) % 2) + 2) % 2 !== 1) return null;
     const ways = framedRoom(room, f).doorways;
     if (hall.slots.some((sl) => sl.p !== -1 && ways[SIDES[sl.d]!] === undefined)) return null;
     if (Math.max(...Object.values(ways)) > t.levels.max) return null;
-    const rect: Rect = { x0: cx - hw, z0: cz - hd, x1: cx + hw, z1: cz + hd };
+    const shifts = (centre: number, half: number): number[] => ((((centre + half) % 2) + 2) % 2 === 1 ? [0] : [-1, 1]);
+    for (const sx of shifts(cx, hw))
+      for (const sz of shifts(cz, hd)) {
+        const rect: Rect = { x0: cx + sx - hw, z0: cz + sz - hd, x1: cx + sx + hw, z1: cz + sz + hd };
+        if (hw + Math.abs(sx) <= limX(c) && hd + Math.abs(sz) <= limZ(c) && roomClear(h, rect)) return { rect, shift: [sx, sz] };
+      }
+    return null;
+  };
+  /** Whether every Passage re-cut against Hall `h`'s rect `rect` keeps clear of it (`roomFits`). */
+  const roomClear = (h: number, rect: Rect): boolean => {
     for (const p of passages) {
       const at = p.a === h ? 0 : p.b === h ? 1 : -1;
       const pieces = passagePieces(p.a === h ? rect : halls[p.a]!.rect, p.b === h ? rect : halls[p.b]!.rect, p.route, w, 0, 0);
       const meets = at === 0 ? 0 : pieces.length - 1;
       for (let q = 0; q < pieces.length; q++) {
         const pr = pieces[q]!.rect;
-        if (at >= 0 && (pr.x1 - pr.x0 <= 0 || pr.z1 - pr.z0 <= 0)) return null;
+        if (at >= 0 && (pr.x1 - pr.x0 <= 0 || pr.z1 - pr.z0 <= 0)) return false;
         if (at >= 0 && q === meets) {
-          if ((pieces[q]!.axis === 'x' ? pr.x1 - pr.x0 : pr.z1 - pr.z0) < MIN_LEG || !apartBy(pr, rect, 0)) return null;
-        } else if (!apartBy(pr, rect, PASSAGE_CLEAR)) return null;
+          if ((pieces[q]!.axis === 'x' ? pr.x1 - pr.x0 : pr.z1 - pr.z0) < MIN_LEG || !apartBy(pr, rect, 0)) return false;
+        } else if (!apartBy(pr, rect, PASSAGE_CLEAR)) return false;
       }
     }
-    return rect;
+    return true;
   };
   const crossRes = new Array<boolean>(halls.length).fill(false);
   const setP = t.setPieces.percent[Math.min(tier, t.setPieces.percent.length) - 1]!;
@@ -1264,10 +1277,11 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const frame = fits[k]![pick(h, SALT.roomFrame, fits[k]!.length)]!;
         const room = t.drawnRooms[k]!;
         const framed = framedRoom(room, frame);
+        const fit = roomFits(h, room, frame)!;
         const high = Math.max(0, ...Object.values(framed.doorways), ...framed.brushes.map((b) => (b.kind === 'platform' ? Math.ceil(b.top / LEVEL_RISE) : b.kind === 'ramp' ? Math.ceil(b.hi / LEVEL_RISE) : 0)));
-        hall.rect = roomFits(h, room, frame)!;
+        hall.rect = fit.rect;
         roomAt[h] = [k, frame];
-        feat[h] = { kind: 'room', room, frame, lifts: framed.doorways, high };
+        feat[h] = { kind: 'room', room, frame, lifts: framed.doorways, high, shift: fit.shift };
         return;
       }
       if (want === 'uphill') {
@@ -1435,7 +1449,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const f = feat[h];
     if (f?.kind === 'uphill') return d === f.up;
     if (f?.kind === 'spiral') return spiralWall(f.base, f.turn, d) > 0;
-    if (f?.kind === 'room') return (f.lifts[SIDES[d]!] ?? 0) > 0;
+    // A raised doorway, or one on a wall the room was shifted along (its centre 1 m off the Passage's line): the Passage cuts it.
+    if (f?.kind === 'room') return (f.lifts[SIDES[d]!] ?? 0) > 0 || (d % 2 === 0 ? f.shift[0] : f.shift[1]) !== 0;
     return isGalWall(h, d) || f?.kind === 'pit' || (f?.kind === 'split' && !isOuterEnd(h, d));
   };
   /** Whether Hall `h` at level `lv` keeps its wrap's, split's or pit's floors and door levels within 0 to `levels.max`. */
@@ -1734,7 +1749,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const L = level[h]!;
     if (f.kind === 'room') {
       // Stage 7g: the room in its frame, moved to the Hall's centre and up to its floor; the centre markers stand at its centre point.
-      featureOf[h] = roomFeature(`hall${h}`, f.room, f.frame, r, y);
+      featureOf[h] = { ...roomFeature(`hall${h}`, f.room, f.frame, r, y), shift: f.shift };
       const fr = framedRoom(f.room, f.frame);
       hall.cx = (r.x0 + r.x1) / 2 + fr.centre[0];
       hall.cz = (r.z0 + r.z1) / 2 + fr.centre[1];

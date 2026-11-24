@@ -2290,7 +2290,10 @@ describe('drawn rooms (Stage 7g)', () => {
       expect(f.half).toEqual([hw, hd]);
       for (const v of [h.rect.x0, h.rect.x1, h.rect.z0, h.rect.z1]) expect(Math.abs(v % 2)).toBe(1);
       expect(h.great).toBe(false);
+      for (const v of f.shift) expect([-1, 0, 1]).toContain(v);
     }
+    // Rooms are shifted off their lattice point (their walls would be on even metres) and not, on both axes.
+    for (const k of [0, 1]) expect(new Set(roomHalls.map((e) => e.f.shift[k] !== 0))).toEqual(new Set([true, false]));
   });
 
   it('Passages only on doorway walls, at the doorway\'s height; its raised walls are not in doors', () => {
@@ -2301,7 +2304,13 @@ describe('drawn rooms (Stage 7g)', () => {
           const lv = f.doorways[side];
           expect(lv).toBeDefined();
           expect(y).toBe(h.y + lv! * LEVEL_RISE);
-          expect(h.doors[side] !== undefined).toBe(lv === 0);
+          // A doorway on a wall along a shifted axis is cut by its Passage, as a raised one is.
+          const shifted = (side === 'n' || side === 's' ? f.shift[0] : f.shift[1]) !== 0;
+          expect(h.doors[side] !== undefined).toBe(lv === 0 && !shifted);
+          // The Passage meets the wall on its lattice line: the room's wall centre less its shift.
+          const piece = hall === q.a ? q.pieces[0]! : q.pieces[q.pieces.length - 1]!;
+          const line = side === 'n' || side === 's' ? (piece.rect.x0 + piece.rect.x1) / 2 : (piece.rect.z0 + piece.rect.z1) / 2;
+          expect(line).toBe(side === 'n' || side === 's' ? (h.rect.x0 + h.rect.x1) / 2 - f.shift[0] : (h.rect.z0 + h.rect.z1) / 2 - f.shift[1]);
         }
       }
     }

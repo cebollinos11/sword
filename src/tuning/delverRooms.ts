@@ -21,6 +21,9 @@ export type RoomKind = (typeof ROOM_KINDS)[number];
 /** The Brush kinds a room may hold: no Enclosure, Floor or Deck (the generator writes the Hall's Enclosure from `half` and the used doorways). */
 export const ROOM_BRUSH_KINDS = ['platform', 'ramp', 'block', 'rail', 'wall', 'hole', 'hazard'] as const;
 
+/** How far (m) the generator may shift a room off its Hall's lattice point along a wall, so its walls land on odd metres: its doorway on that wall is then that far off the wall's centre. */
+export const DOOR_SHIFT = 1;
+
 /** The highest doorway level (`LEVEL_RISE` each) a room may name. */
 export const ROOM_DOOR_MAX = 3;
 
@@ -234,10 +237,11 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
     const lv = doorways[s];
     if (lv === undefined) continue;
     for (const inset of [0.5, 1]) {
-      for (const off of [-(passage / 2 - 0.25), 0, passage / 2 - 0.25]) {
+      // Across the doorway and a metre each side: a room the generator shifts 1 m along the wall (to keep its walls on odd metres) has its doorway there.
+      for (const off of [-(passage / 2 + DOOR_SHIFT - 0.25), -(passage / 2 - 0.25), 0, passage / 2 - 0.25, passage / 2 + DOOR_SHIFT - 0.25]) {
         const p = doorwayPoint(half, s, inset, off);
         const y = roomFloorAt(room0, p.x, p.z);
-        if (y === null || Math.abs(y - lv * LEVEL_RISE) > 1e-9) fail(`${at}.doorways.${s}`, `the floor 1 m inside the doorway must stand at its level (${lv * LEVEL_RISE} m): it is ${y === null ? 'not floor' : `${y} m`} at (${p.x}, ${p.z})`);
+        if (y === null || Math.abs(y - lv * LEVEL_RISE) > 1e-9) fail(`${at}.doorways.${s}`, `the floor 1 m inside the doorway (and a metre each side of it) must stand at its level (${lv * LEVEL_RISE} m): it is ${y === null ? 'not floor' : `${y} m`} at (${p.x}, ${p.z})`);
       }
     }
   }

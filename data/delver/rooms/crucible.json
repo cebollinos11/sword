@@ -1,0 +1,15 @@
+{
+  "name": "crucible",
+  "half": [12, 10],
+  "doorways": {"n":1,"s":0,"w":0},
+  "centre": [2,-6],
+  "brushes": [
+    {"kind":"platform","id":"balcony","rect":{"x0":-12,"z0":4,"x1":12,"z1":10},"top":2,"material":"stone"},
+    {"kind":"ramp","id":"stair","rect":{"x0":8,"z0":-4,"x1":12,"z1":4},"lo":0,"hi":2,"up":"n","rails":["e"],"material":"stone"},
+    {"kind":"rail","id":"edge","a":{"x":-12,"z":4},"b":{"x":-2,"z":4},"y":2,"height":1},
+    {"kind":"hole","id":"pool","rect":{"x0":-8,"z0":-6,"x1":-2,"z1":-2},"y":0},
+    {"kind":"hazard","id":"lava","rect":{"x0":-8,"z0":-6,"x1":-2,"z1":-2},"y":-4,"hazard":"lava"},
+    {"kind":"block","id":"pillar-w","rect":{"x0":-6,"z0":-10,"x1":-4,"z1":-8},"top":8},
+    {"kind":"block","id":"pillar-e","rect":{"x0":4,"z0":2,"x1":6,"z1":4},"top":8}
+  ]
+}

@@ -51,6 +51,7 @@ const TOOLS: readonly { readonly tool: Tool; readonly name: string; readonly key
   { tool: 'enclosure', name: 'Room', key: 'E', tip: 'An Enclosure: a room with doorways' },
   { tool: 'objective', name: 'Objective', key: 'O', tip: 'Click to place an Objective' },
   { tool: 'prop', name: 'Prop', key: 'T', tip: 'Click to place a prop (its kind in the Look folder, or right-click for one)' },
+  { tool: 'lava', name: 'Lava', key: 'K', tip: 'A lava pool: a Hole at this level and its lava Hazard 4 m under it (a drawn room\'s)' },
 ];
 
 const BAR_CSS =

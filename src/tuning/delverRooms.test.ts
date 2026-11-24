@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIXTURE_ROOM, FIXTURE_ROOM_RAW } from '../sim/delver/rooms.testdata';
 import { brushFootprint, framedRoom, frameSide, parseRoom, ROOM_FRAMES, roomFloorAt, serializeRoom } from './delverRooms';
 import { loadTuningData } from './index';
+import { checkRoom } from '../mapEditor/roomCheck';
 
 const HALF = [7, 14] as const;
 const parse = (raw: unknown) => parseRoom(raw, HALF, 3);
@@ -71,9 +72,14 @@ describe('parseRoom (docs/plans/delver.md, Stage 7g)', () => {
 });
 
 describe('the shipped room files (data/delver/rooms/)', () => {
-  it('each parses, named after its file', () => {
+  it('each parses, named after its file, and passes Check room\'s checks but the AI walk (its stub compiles, walk-checks and builds a navmesh in both frames)', () => {
     const t = loadTuningData();
-    for (const room of t.delver.floor.drawnRooms) expect(parseRoom(serializeRoom(room), t.delver.floor.halfSize, t.delver.floor.passage)).toEqual(room);
+    expect(t.delver.floor.drawnRooms.length).toBeGreaterThan(0);
+    for (const room of t.delver.floor.drawnRooms) {
+      expect(parseRoom(serializeRoom(room), t.delver.floor.halfSize, t.delver.floor.passage)).toEqual(room);
+      const c = checkRoom(serializeRoom(room), t, { walk: false });
+      expect(c.issues, room.name).toEqual([]);
+    }
   });
 
   it('a room file in the wrong file is refused', () => {
