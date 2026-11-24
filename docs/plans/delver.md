@@ -2654,21 +2654,29 @@ Battles, Duels and every Floor without lava are unchanged (the AI's new lava che
 - **Where**: rect Halls of kind Fight, Empty, Boss or Stairs, and great halls where the size fits. Never the Entrance, a Rest Hall or a Treasure Hall. One feature a Hall: a set piece is picked before every other feature (galleries, splits, pits, daises, lava, shapes, pillars), which then skip its Hall.
 - **Amount**: about 1 Hall in 10, the three weighted alike. A rare set piece, not one a Floor.
 - **Done**:
-  - the 500 pairs, with each set piece counted per tier;
-  - the soak;
+  - the 500 pairs, with each set piece counted per tier (one run, at the switch);
+  - a set-piece soak case (§14), not the full soak;
   - `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` clean;
   - a screenshot of each set piece in the Map Editor.
 
 #### Design
 Written 2026-11-24 with the user's answers of that day, on base commit `a0469b1`. Battles, Duels and every Floor with no set piece are unchanged. **No new hashed state**: all of 7f is in the plan and the Map Source, rebuilt on every peer from (Run seed, Floor), as 7a to 7d. `DELVER_VERSION` 14 → 15. `PROTOCOL_VERSION` stays (7d's reasoning: the Tuning Data hash folds in `DELVER_VERSION`). **With the 7f knob off** (`noSetPieces`, below) no 7f pick is made and a Floor's plan, source and map are byte for byte 7d's: every new plan field is optional and absent, every new filter is a no-op, and no Brush is written.
 
-**Resuming** (the user's call, 2026-11-24: this Design was written in one chat; the tasks run in a new one). Start at Task 0 with this Design as the contract. Where the code proves a rule here wrong, amend the Design in place with the date and the reason, as 7d did.
+**Resuming** (the user's call, 2026-11-24: this Design was written in one chat; the tasks run in a new one). Start at Task 1 with this Design as the contract. Where the code proves a rule here wrong, amend the Design in place with the date and the reason, as 7d did.
 
-**Step 0 baseline**: before Task 1, measure on the implementing container, with each slow file run alone:
-- `delverGen.slow.test.ts`: plan, build, judge and navmesh means, and the failed attempts;
-- `warbandSoak.slow.test.ts`: the Tick mean and p99, the Floor build and the navmesh.
+**No baseline run** (the user's call, 2026-11-24). 7d's Result is the baseline:
+- the generator: build mean 363 ms, p95 677, max 845, navmesh mean 179 ms, 15 failed attempts in 500 pairs;
+- the soak: Tick mean 0.32 ms, p99 1.87.
 
-Record them here, with 7d's Result numbers beside them.
+With the knob off, a Floor is byte for byte 7d's, and the golden pins prove it. So nothing measured before Task 1 would add anything. The budgets that decide pass or fail are absolute: an 800 ms build mean, a 2 s cap, and a 300 ms navmesh mean.
+
+**The flow** (the user's call: no wasted time or tokens):
+- **Run only the test files a task touches** (`npx vitest run <files>`) while working. Run the whole fast suite (`npm test`) once, at the end of Task 5. Never run a `*.slow.test.ts` before Task 5.
+- **Tune the rate with a plan-only probe**, not the slow test. A scratch script (not committed) calls `planFloor` over the 500 pairs; at about 2 ms a plan, that is about a second. It prints §4's shares and drops. Iterate `percent` and `weights` on it. Run `delverGen.slow.test.ts` once, alone, when the values are settled.
+- **Check by eye in the Map Editor** (§9) as soon as Task 3 lands, rather than reasoning about geometry from tests alone. Use `npm run ai-walk` on a few seeds of `delverPiece` Floors before any soak.
+- **The soak is one new case** (§14), run alone with `-t` on its name. The existing soak cases are not rerun: they never see a set piece, since their Floors are 7d's.
+- **Work in one session**, the tasks in order, without a subagent per task. For the review, use `/code-review high` once over the Stage's range, not `max`.
+- **Read only what a task needs**. This Design names the files; `plan.ts`'s 7c (3b′, 7b′) and 7d′ blocks are the templates to copy.
 
 **1. The user's layouts, read** (cell = a layout unit, not a metre; rows north to south as drawn, the south door at the bottom):
 - **Lava Bridge** (Sheet 1): all lava but a one-cell cross. One arm runs north–south between the north and south doors; the other runs west–east at the middle row between the west and east doors. The crossing is in the middle.
@@ -2857,7 +2865,7 @@ export interface DelverSpiral {
 - an Uphill is a Ramp;
 - a Spiral is Ramps and Platforms, which 7c's splits proved for the navmesh, the fields, `floorNear` and `levels.promote`.
 
-Task 6's soak and `ai-walk` are the evidence. If an ally, the pilot or a promoted Soldier walks off a Spiral's open edge with nothing pushing it (7d's classification, by Fall), Task 6 finds the cause and fixes it, with a scenario test of its own. `edgeKeep` today runs on lava Arenas only; extending it to tall open ledges is the likely place.
+Task 6's `ai-walk` and Task 7's soak case are the evidence. If an ally, the pilot or a promoted Soldier walks off a Spiral's open edge with nothing pushing it (7d's classification, by Fall), Task 6 finds the cause and fixes it, with a scenario test of its own. `edgeKeep` today runs on lava Arenas only; extending it to tall open ledges is the likely place.
 
 **12. Existing tests this sub-stage rewrites** (only these):
 - `golden.test.ts`: new `NO_SET_PIECE_PINS` and `NO_SET_PIECE_TIER_PINS` tables on `noSetPieces(tuning)`. Their hashes and attempts are **exactly today's `PINS` and `TIER_PINS`** (Task 1 adds them). At the switch (Task 5) `PINS` and `TIER_PINS` are rewritten, and `HOLDS` records each pin's set piece.
@@ -2894,24 +2902,23 @@ Task 6's soak and `ai-walk` are the evidence. If an ally, the pilot or a promote
 
   **It must show, else fail**: each kind on every tier, a 2-level Uphill, a 4-arm cross, a great-hall cross, and each Spiral base, with the shares in range.
 
-**14. The soak** (Task 6, `warbandSoak.slow.test.ts`, run alone; the immortal party):
-- The levelled Runs and the 5-Run soak, rerun on the 7f Floors, compared with the Step 0 baseline.
+**14. The soak** (Task 7: one new case in `warbandSoak.slow.test.ts`, run alone with `-t`; the immortal party). The existing cases are not rerun.
+- **Floors**: the first 6 Floors in seed order that hold each kind, 2 a kind, found with the plan-only probe and listed in the test. They are played on the shipped Tuning (not `onlySetPiece`), so each Floor is a real one. The case prints its Tick mean and p99 against 7d's 0.32 and 1.87.
 - **Must show, else fail**:
   - the party walking each kind: a party Fighter's feet on an Uphill's ramp, on a cross's arm, and on a Spiral's L5;
   - a fight on a cross's plaza;
   - 0 walked-off Falls from a Spiral by an ally, the pilot or a promoted Soldier;
   - 0 Pickups or revives on a ledge's edge or on lava.
-- Also, `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` exits 0, plus the same with `--difficulty Beginner`.
+- Also, `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` exits 0. It runs before the soak case: it is cheaper and finds most ledge faults. A run with `--difficulty Beginner` is needed only if an ally fault is found and fixed.
 
-**Tasks**, one after another (Task 7 may run beside Task 6, since their files are disjoint):
-0. **Baseline**: Step 0's numbers, recorded here.
+**Tasks**, one after another:
 1. **The compiler**: §8 (`src/mapEditor/source.ts`, `compile.ts`, `checks.ts` if needed, and their tests). Hand-built maps only.
 2. **The plan and its Tuning**: `data/delver.json` (`percent` [0, 0, 0]), `src/tuning/delver.ts` and its tests, `plan.ts` (§4 to §7), `flat.testdata.ts`, `plan.test.ts`, and `golden.test.ts` (the `NO_SET_PIECE` tables only).
-3. **The source**: `source.ts` and its tests.
+3. **The source and the editor**: `source.ts` and its tests, then §9's `delverPiece` (`src/mapEditor/`). This is moved up from last, so every later task can be checked by eye. Take one screenshot of each set piece here, shown to the user and not committed. Fix any geometry they show before the judge is written.
 4. **The judge**: `judge.ts`, `generate.ts` (`describeFloor`), `judge.test.ts`.
-5. **The switch**: the shipped values tuned to the rate, `version.ts` (15), the golden pins, `delverGen.slow.test.ts`, `setPieces7f` removed, and the moved tests (listed). Run the generator slow test alone.
-6. **The soak and the AI**: §14, then §11's fix only on the evidence (else record that it was skipped and why).
-7. **The editor and the screenshots**: §9 (`src/mapEditor/`), then one screenshot of each set piece in the Map Editor (`delverPiece`), shown to the user, not committed.
+5. **The switch**: tune the values with the plan-only probe, then `version.ts` (15), the golden pins, `delverGen.slow.test.ts` (run once, alone), `setPieces7f` removed, the moved tests (listed), and `npm test` once.
+6. **The AI check**: `npm run ai-walk` (§14). Make §11's fix only on that evidence; otherwise record that it was skipped and why.
+7. **The soak case**: §14's one case. Then `/code-review high` over the Stage, and the Result.
 
 ### Stage 7e: archetypes
 **Model**: Opus (the recipes), then Sonnet.
@@ -3239,3 +3246,4 @@ The user designed three rooms (a Lava Bridge, an Uphill Room, a Spiral Stair) in
 13. **How often**: about 1 Hall in 10, the three weighted alike, picked before every other feature.
 14. **Hand-made rooms**: recorded as Stage 7f, a change from 7e's "no hand-made templates".
 15. **Process**: the Design is written in this plan, and implemented in a new chat.
+16. **No re-baseline, a lean flow** (asked after the Design): 7d's Result is the baseline; only the tests a task touches run while working; the rate is tuned with a plan-only probe; the generator slow test runs once; the soak is one new set-piece case; the editor comes early, for checks by eye.
