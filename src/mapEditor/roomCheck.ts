@@ -1,6 +1,6 @@
 /**
- * Check room (docs/plans/delver.md, Stage 7g, §5): a drawn room checked alone, as its stub map, in seconds, with no Floor generated. In frame 0 and in
- * one turned and mirrored frame (5), in order:
+ * Check room (docs/plans/delver.md, Stage 7g, §5): a drawn room checked alone, as its stub map, in seconds, with no Floor generated. In the frames
+ * `CHECK_FRAMES` (as drawn, and two turned and shifted ones), in order:
  *  1. `parseRoom` (the room file's checks);
  *  2. the stub compiled, then `walkCheck`;
  *  3. the navmesh built;
@@ -21,9 +21,12 @@ import type { NavTarget } from './navProbe';
 import { walkAll, type WalkLeg } from './navWalk';
 import { SIDES, type MapSource, type Side } from './source';
 
-/** The frames Check room compiles and walks: as drawn, and turned a quarter and mirrored and shifted 1 m on both axes off its doorways' lines (as a Floor shifts a room whose walls would land on even metres). */
-export const CHECK_FRAMES = [0, 5] as const;
-const CHECK_SHIFT: Readonly<Record<number, readonly [number, number]>> = { 0: [0, 0], 5: [1, 1] };
+/**
+ * The frames Check room compiles and walks: as drawn; turned a quarter and mirrored, shifted 1 m east and north off its doorways' lines; and turned a half,
+ * shifted 1 m west and south (a Floor shifts a room whose walls would land on even metres, west or south first).
+ */
+export const CHECK_FRAMES = [0, 5, 2] as const;
+const CHECK_SHIFT: Readonly<Record<number, readonly [number, number]>> = { 0: [0, 0], 5: [1, 1], 2: [-1, -1] };
 
 export interface RoomIssue {
   readonly severity: 'error' | 'warning';

@@ -6,6 +6,8 @@ import { arenaOf, deadly, surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
+import { withFixtureRoom } from './delver/rooms.testdata';
+import { onlySetPiece, type DelverRoom } from './delver';
 import { DROP_MARGIN, dropSpots, lootSlot, treasurePickups, warbandDrops, warbandLoot } from './delverLoot';
 import { floorDuel } from './delverRun';
 import { runSeed } from './dungeon';
@@ -451,5 +453,23 @@ describe('dropSpots and lava (Stage 7d)', () => {
       expect(lavaGap2(r, d.at.x, d.at.z)).toBeGreaterThanOrEqual(KEEP2 - 1e-9);
       expect(d.at.y).toBeCloseTo(h.y, 9);
     }
+  });
+});
+
+describe('dropSpots in a drawn room (docs/plans/delver.md, Stage 7g)', () => {
+  it('lays no spot within DROP_MARGIN of a room\'s Block, as of a pillar', () => {
+    const t = onlySetPiece(withFixtureRoom(noSetPieces(loadTuningData())), 'room');
+    const f = delverFloor(t, 1, 5);
+    const h = f.plan.halls.find((o) => o.feature?.kind === 'room')!;
+    const block = (h.feature as DelverRoom).brushes.find((b) => b.kind === 'block')! as { rect: { x0: number; z0: number; x1: number; z1: number } };
+    const r = block.rect;
+    // Falls hard against each face of the Block: 8 spots each, none inside it or within the margin.
+    const falls = [[r.x0 - 0.1, (r.z0 + r.z1) / 2], [r.x1 + 0.1, (r.z0 + r.z1) / 2], [(r.x0 + r.x1) / 2, r.z0 - 0.1], [(r.x0 + r.x1) / 2, r.z1 + 0.1]] as const;
+    for (const [x, z] of falls)
+      for (const s of dropSpots(f.plan, f.field.arena, t.battle.levels, x, z, h.y, 8)) {
+        const dx = Math.max(r.x0 - s.x, 0, s.x - r.x1);
+        const dz = Math.max(r.z0 - s.z, 0, s.z - r.z1);
+        expect(dx * dx + dz * dz, `(${s.x}, ${s.z})`).toBeGreaterThanOrEqual(DROP_MARGIN * DROP_MARGIN);
+      }
   });
 });

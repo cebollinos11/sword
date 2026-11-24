@@ -571,7 +571,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   document.head.appendChild(style);
 
   // --- File ---------------------------------------------------------------
-  const discardOk = () => !session.dirty || confirm('Discard the unsaved edits to this map?');
+  const discardOk = () => !(session.dirty || roomMode?.dirty()) || confirm('Discard the unsaved edits to this map?');
   const opened = (what: string) => {
     view.flagged = [];
     view.frame(session.source);
@@ -580,9 +580,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     say(`Opened ${what}`);
   };
   const openRaw = (raw: unknown, what: string) => {
-    roomMode?.leave();
     try {
       session.open(raw);
+      // Room mode ends only once another map has opened (a Floor that fails to build leaves the room as it was).
+      roomMode?.leave();
       opened(what);
     } catch (e) {
       say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
@@ -1750,7 +1751,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } else if (mod && key === 'v') {
       paste(view.pointerAt);
     } else if (mod && key === 's') {
-      void save();
+      // A dungeon room is saved by its own Save (Stage 7g), never as a Battle map.
+      if (roomMode.active()) roomMode.save();
+      else void save();
     } else if (mod && e.key === 'Enter') {
       playtest();
     } else if (!mod && e.key === ' ') {

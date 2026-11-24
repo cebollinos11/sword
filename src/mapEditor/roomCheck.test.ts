@@ -8,13 +8,13 @@ const base = FIXTURE_ROOM_RAW as unknown as Record<string, unknown>;
 const brushes = FIXTURE_ROOM_RAW.brushes as unknown as Record<string, unknown>[];
 
 describe('Check room (docs/plans/delver.md, Stage 7g)', () => {
-  it('passes the fixture: both frames compile, walk-check and every AI leg arrives', () => {
+  it('passes the fixture: every frame compiles, walk-checks and every AI leg arrives', () => {
     const c = checkRoom(FIXTURE_ROOM_RAW, tuning);
     expect(c.issues, roomCheckText('fixture', c)).toEqual([]);
     expect(c.ok).toBe(true);
-    expect(c.frames.map((f) => f.frame)).toEqual([0, 5]);
+    expect(c.frames.map((f) => f.frame)).toEqual([0, 5, 2]);
     // 3 doorways: 6 legs out and back, 3 between them, a Platform and a Ramp's top: 11 a frame.
-    expect(c.frames.map((f) => f.legs.length)).toEqual([11, 11]);
+    expect(c.frames.map((f) => f.legs.length)).toEqual([11, 11, 11]);
   }, 60_000);
 
   it('refuses a room file its parse refuses, with the reason', () => {

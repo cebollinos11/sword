@@ -34,6 +34,7 @@ describe('parseRoom (docs/plans/delver.md, Stage 7g)', () => {
     ['a Hole in the floor with no lava under it', { ...base, brushes: brushes.filter((b) => b.id !== 'lava') }, /lava pool/],
     ['water', withBrush(3, { hazard: 'water' }), /lava only/],
     ['a duplicate id', withBrush(4, { id: 'ledge' }), /already "ledge"/],
+    ['a Block in a doorway\'s lane', withBrush(4, { rect: { x0: -1, z0: 5, x1: 1, z1: 7 } }), /pillar.*keeps out of the n doorway's lane/],
     ['a centre near a Brush', { ...base, centre: [2, -3] }, /centre.*up is nearer/],
     ['a centre near a wall', { ...base, centre: [-1, -7] }, /centre.*from every wall/],
   ])('refuses %s', (_name, raw, reason) => {

@@ -12,7 +12,8 @@
  */
 import { LAVA_DEPTH, LEVEL_RISE, PASSAGE_STOREY, roomFeature } from '../sim/delver/plan';
 import { framedRoom, frameHalf, parseRoom, ROOM_KINDS, type DrawnRoom, type RoomKind } from '../tuning/delverRooms';
-import { MAP_SOURCE_VERSION, SIDES, type Brush, type Doors, type MapSource, type Rect, type Side } from './source';
+import { array, record } from '../tuning/validate';
+import { MAP_SOURCE_VERSION, parseBrush, SIDES, type Brush, type Doors, type MapSource, type Rect, type Side } from './source';
 
 /** A room's own settings, edited in the Room folder; its Brushes are the stub map's. */
 export interface RoomMeta {
@@ -135,6 +136,28 @@ export function newRoomMeta(name: string, width: number, depth: number): RoomMet
 /** A parsed room's meta and its Brushes. */
 export function roomParts(room: DrawnRoom): { meta: RoomMeta; brushes: readonly Brush[] } {
   return { meta: { name: room.name, half: room.half, doorways: room.doorways, centre: room.centre, kinds: room.kinds }, brushes: room.brushes };
+}
+
+/**
+ * A room file's meta and Brushes as they stand, for a file `parseRoom` refuses (a rule it breaks, so it can be opened and fixed): its shape only is checked
+ * (a name, two whole halves within `halfSize` rounded to even sizes, the doorway levels, the centre, the kinds, and each Brush a Map Source Brush). Throws
+ * TuningDataError when even that fails.
+ */
+export function looseRoomParts(raw: unknown, halfSize: readonly [number, number]): { meta: RoomMeta; brushes: readonly Brush[] } {
+  const o = record(raw, 'room');
+  const name = typeof o.name === 'string' && /^[A-Za-z0-9-]+$/.test(o.name) ? o.name : 'room';
+  const hr = array(o.half, 'room.half');
+  const clampHalf = (v: unknown) => Math.max(halfSize[0], Math.min(halfSize[1], Math.round(typeof v === 'number' ? v : halfSize[0])));
+  const half: [number, number] = [clampHalf(hr[0]), clampHalf(hr[1])];
+  const dr = o.doorways === undefined ? {} : record(o.doorways, 'room.doorways');
+  const doorways: Partial<Record<Side, number>> = {};
+  for (const s of SIDES) if (typeof dr[s] === 'number') doorways[s] = Math.max(0, Math.min(3, Math.round(dr[s] as number)));
+  if (Object.keys(doorways).length === 0) doorways.s = 0;
+  const cr = Array.isArray(o.centre) ? o.centre : [0, 0];
+  const centre: [number, number] = [Math.round(Number(cr[0]) || 0), Math.round(Number(cr[1]) || 0)];
+  const kinds = Array.isArray(o.kinds) ? ROOM_KINDS.filter((k) => (o.kinds as unknown[]).includes(k)) : [...ROOM_KINDS];
+  const brushes = array(o.brushes ?? [], 'room.brushes').map((b, i) => parseBrush(b, `room.brushes[${i}]`, 0.5, 1000, (v) => v, []));
+  return { meta: { name, half, doorways, centre, kinds: kinds.length ? kinds : [...ROOM_KINDS] }, brushes };
 }
 
 /**

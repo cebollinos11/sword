@@ -268,6 +268,21 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
     return { s, r };
   });
   const cross = (p: Rect, q: Rect) => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
+  // A Block or a Wall stands in no doorway's lane (the doorway, DOOR_SIDE and DOOR_SHIFT each side, DOOR_LANE deep), as a Hall's pillars never do: the
+  // AI and a Formation snag on one there.
+  for (const b of brushes) {
+    if (b.kind !== 'block' && b.kind !== 'wall') continue;
+    const fp = brushFootprint(b);
+    for (const s of SIDES) {
+      if (doorways[s] === undefined) continue;
+      const w = passage / 2 + DOOR_SIDE + DOOR_SHIFT;
+      const r: Rect = s === 'n' ? { x0: -w, z0: hd - DOOR_LANE, x1: w, z1: hd } : s === 's' ? { x0: -w, z0: -hd, x1: w, z1: -hd + DOOR_LANE } : s === 'e' ? { x0: hw - DOOR_LANE, z0: -w, x1: hw, z1: w } : { x0: -hw, z0: -w, x1: -hw + DOOR_LANE, z1: w };
+      const across = fp.x0 < r.x1 && r.x0 < fp.x1 && fp.z0 < r.z1 && r.z0 < fp.z1;
+      // A Wall along a lane's edge (zero width) crosses it only where it enters it.
+      const touches = (fp.x0 === fp.x1 && fp.x0 > r.x0 && fp.x0 < r.x1 && fp.z0 < r.z1 && r.z0 < fp.z1) || (fp.z0 === fp.z1 && fp.z0 > r.z0 && fp.z0 < r.z1 && fp.x0 < r.x1 && r.x0 < fp.x1);
+      if (across || touches) fail(`${at}.brushes (${b.id})`, `a ${b.kind === 'block' ? 'Block' : 'Wall'} keeps out of the ${s} doorway's lane (${DOOR_LANE} m deep, the doorway and ${DOOR_SIDE + DOOR_SHIFT} m each side): the AI and Formations snag on it there`);
+    }
+  }
   for (const b of brushes) {
     if (b.kind !== 'hazard') continue;
     if (cross(b.rect, square)) fail(`${at}.brushes (${b.id})`, `a lava pool keeps ${LAVA_CENTRE} m from the centre (the Stairs zone, the pedestals and the Warband stand round it)`);

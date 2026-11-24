@@ -9,7 +9,7 @@ import { saveJsonFile } from '../../editor/save';
 import type { TuningData } from '../../tuning';
 import { ROOM_DOOR_MAX, ROOM_KINDS, type DrawnRoom, type RoomKind } from '../../tuning/delverRooms';
 import type { MapEditorSession } from '../session';
-import { EDIT_TOP, editOrigin, editSource, isFixed, newRoomMeta, ROOM_ENCLOSURE, ROOM_SNAP, roomFileText, roomFromSource, roomParts, roomStub, type RoomMeta } from '../room';
+import { EDIT_TOP, editOrigin, editSource, isFixed, looseRoomParts, newRoomMeta, ROOM_ENCLOSURE, ROOM_SNAP, roomFileText, roomFromSource, roomParts, roomStub, type RoomMeta } from '../room';
 import { checkRoom, roomCheckText, type RoomCheck } from '../roomCheck';
 import type { WalkLeg } from '../navWalk';
 import { SIDES, type Brush, type Rect, type Side } from '../source';
@@ -50,6 +50,10 @@ export interface RoomMode {
   readonly edited: () => DrawnRoom | null;
   /** Leave room mode (another map was opened). */
   readonly leave: () => void;
+  /** Save the room (its Save button's, and Ctrl+S's in room mode). */
+  readonly save: () => void;
+  /** Whether the room's settings changed since it was opened or saved (a change reopens the session, so the session's own `dirty` misses it). */
+  readonly dirty: () => boolean;
 }
 
 export function addRoomMode(host: RoomModeHost): RoomMode {
@@ -59,6 +63,8 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
   let meta: RoomMeta | null = null;
   /** The last Check room, and the source it checked. */
   let last: { of: unknown; check: RoomCheck } | null = null;
+  /** The room's settings changed since it was opened or saved. */
+  let changed = false;
   const ui = {
     newName: 'newroom',
     width: 2 * Math.max(minHalf, 10),
@@ -95,6 +101,7 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
     session.level = 0;
     meta = m;
     last = null;
+    changed = !fresh;
     ui.report = '';
     host.showLegs([]);
     if (fresh) host.opened(what);
@@ -127,19 +134,30 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
     if (!meta) return;
     const raw = rawNow()!;
     const m = { ...meta, ...next };
+    // The Brushes' undo history ends here (the stub is rebuilt round them); the room stays unsaved until Save.
+    const wasDirty = session.dirty || changed;
     show(m, raw.brushes as Brush[], '', false);
+    changed = changed || wasDirty;
   };
 
+  /** Open the room file `raw`: parsed when it parses; else as it stands (a room a newer rule refuses can still be opened and fixed), with the reason shown. */
   const openRoom = (raw: unknown, what: string, check = false) => {
+    let parts: { meta: RoomMeta; brushes: readonly Brush[] };
+    let refused: string | null = null;
+    const parsed = checkRoom(raw, tuning, { walk: false });
     try {
-      const room = checkRoom(raw, tuning, { walk: false }).room ?? null;
-      if (!room) throw new Error(checkRoom(raw, tuning, { walk: false }).issues[0]?.message ?? 'not a room file');
-      const { meta: m, brushes } = roomParts(room);
-      show(m, brushes, what, true);
-      if (check) runCheck();
+      if (parsed.room) parts = roomParts(parsed.room);
+      else {
+        refused = parsed.issues[0]?.message ?? 'not a room file';
+        parts = looseRoomParts(raw, f.halfSize);
+      }
     } catch (e) {
-      host.say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
+      host.say(`Not opened: ${refused ?? (e instanceof Error ? e.message : String(e))}`);
+      return;
     }
+    show(parts.meta, parts.brushes, what, true);
+    if (refused) host.say(`Opened ${what}, which Check room refuses: ${refused}`);
+    else if (check) runCheck();
   };
 
   // --- File ---
@@ -164,7 +182,16 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
   picker.addEventListener('change', () => {
     const fl = picker.files?.[0];
     picker.value = '';
-    if (fl) void fl.text().then((text) => openRoom(JSON.parse(text), `dungeon room ${fl.name}`));
+    if (!fl) return;
+    void fl.text().then((text) => {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text);
+      } catch (e) {
+        return host.say(`Not opened: ${fl.name} is not JSON (${e instanceof Error ? e.message : String(e)})`);
+      }
+      openRoom(raw, `dungeon room ${fl.name}`);
+    });
   });
   file.addButton({ title: 'Open room file…' }).on('click', () => host.discardOk() && picker.click());
 
@@ -241,6 +268,7 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
       const result = await saveJsonFile(`${name}.json`, roomFileText(raw));
       if (result === 'cancelled') return host.say('Save cancelled');
       session.markSaved();
+      changed = false;
       host.say(result === 'written' ? `Saved data/delver/rooms/${name}.json` : `Downloaded ${name}.json: move it to data/delver/rooms/${name}.json`);
     } catch (e) {
       host.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`);
@@ -258,12 +286,8 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
     // The room as edited, in place of the bundled file of its name (unsaved edits included).
     const rooms = [...tuning.delver.floor.drawnRooms.filter((r) => r.name !== room.name), room];
     const t = { ...tuning, delver: { ...tuning.delver, floor: { ...tuning.delver.floor, drawnRooms: rooms } } };
-    meta = null;
-    session.locked = () => false;
-    session.snapStep = null;
-    session.blockTop = null;
-    folder?.dispose();
-    folder = null;
+    // The Floor opens over the room (room mode ends once it has opened; a Floor that fails to build leaves the room as it is).
+    if ((session.dirty || changed) && !confirm('Try in a Floor opens the Floor in place of this room: discard its unsaved edits? (Save room first to keep them.)')) return;
     host.openFloor(t, seed, floor, room.name);
   };
 
@@ -275,6 +299,8 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
       openRoom(raw, `dungeon room ${name}`, check);
     },
     edited,
+    save: () => void save(),
+    dirty: () => meta !== null && changed,
     leave: () => {
       if (!meta) return;
       meta = null;
