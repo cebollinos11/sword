@@ -2878,6 +2878,11 @@ export interface DelverSpiral {
   - under each cross arm the ground is floor, and beside it lava.
 - **A failed rule rerolls the Floor.** The pick only makes what fits, so the target is 0 rerolls.
 - **`describeFloor`** adds `, s set pieces (c crosses, u uphills, p spirals)`.
+- **Amended 2026-11-24 (Task 4)**:
+  - The Entrance and Treasure parts of "while another Hall could have taken that kind" are judged exactly (another leaf that is not great with no Uphill or Spiral; another Fight or Empty Hall off the main path with none). A Rest's pool is not rebuilt by the judge (its second pick depends on the first), so an Uphill or Spiral on a Rest is counted by the slow test, never failed.
+  - A door's height and a Lava Bridge doorway's lane were already judged by 7c's `features` rule (through `floorAt`, which now knows both new features) and 7d's `lava` rule (a cross's lanes are taken as a river's bank lanes: each doorway ± 0.5 m on an arm). `setPieces` adds the arm's own check all the same.
+  - 7c's `features` and `tiers` rules skip an Uphill and a Spiral, which `setPieces` and `setPieceWalk` judge instead.
+  - `describeFloor`'s lava count leaves out the crosses, which it counts as set pieces.
 
 **11. The AI and the Crowd.** Nothing changes up front:
 - the Lava Bridge is 7d's lava, which the AI already handles;

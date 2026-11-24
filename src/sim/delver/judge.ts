@@ -38,6 +38,14 @@
  *     Boss post) keeps a full column Squad's reach (its widest place from the post, no trigonometry) and 1 m from every rect (only when the Battle Tuning is given).
  * 10. `lavaWalk` (Stage 7d, after `tiers`): at each lava rect's centre the ground under the Hall's floor is lava `LAVA_DEPTH` down (the Hole and the Hazard compiled), and the field to the
  *     Hall's centre reads at the point 1 m inside each doorway and, on a river, at each bridge's centre.
+ * 11. `setPieces` (Stage 7f, plan-only, after `lava`): an Uphill or a Spiral on no great hall, and on the Entrance or the Treasure Hall only when no other leaf (or Hall off the main path)
+ *     could take it; an Uphill's doors on its end walls only, its landings `UPHILL_FOOT` and `UPHILL_TOP` deep against them, its one Ramp from the low landing up to the high one no
+ *     steeper than `MAX_SLOPE` and the full width, the three filling its rect, its centre in the high landing's middle; a Spiral's five Ramps and five landings chained up from the
+ *     well (each Ramp `LEDGE_WIDE` wide along a wall, railed on it, no steeper than `MAX_SLOPE`; each landing a half level over the last), each door off the well on its landing's
+ *     span, and no marker within 2 m of the ledge; a Lava Bridge's Hall at least `CROSS_HALF` a half, its plaza holding the centre square, each arm from a wall to the plaza at least
+ *     `BRIDGE_MIN` wide, and each held doorway +- 0.5 m on an arm. Every edge on an odd metre. (7d's `lava` rule still runs on a Lava Bridge: its rects, markers and Warband homes.)
+ * 12. `setPieceWalk` (Stage 7f, after `lavaWalk`): the field to a set-piece Hall's centre reads 1 m inside each doorway, at each Spiral landing's and Uphill landing's centre (and, by
+ *     `lavaWalk`, on each arm); no Wall along a Spiral Ramp's open edge rises more than a step over it; each Lava Bridge arm is floor with lava beside it.
  *
  * Pure: no clock, so a verdict never hangs on a machine's speed.
  */
@@ -49,9 +57,9 @@ import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
-import { hallBase, spiralOrder } from './plan';
+import { CROSS_HALF, hallBase, LEDGE_WIDE, spiralOrder, UPHILL_FOOT, UPHILL_TOP } from './plan';
 import { BRIDGE_MIN, DAIS_RISE, DOOR_SIDE, DOOR_LANE, LAVA_BAND, LAVA_CENTRE, LAVA_DEPTH, LAVA_KEEP, LAVA_LANE, LAVA_MIN, LEVEL_RISE, MAX_SLOPE, PIT_RIM, RIVER_BANK, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
-import { lavaId, pieceId, pillarId, solidId, stepId } from './source';
+import { highId, landingId, lavaId, pieceId, pillarId, solidId, stepId } from './source';
 import { floorTuningOf } from './troops';
 import type { Rect, Side } from '../../mapEditor/source';
 
@@ -109,6 +117,112 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   out.push(...judgeShapes(plan));
   out.push(...judgeFeatures(plan));
   out.push(...judgeLava(plan, battle));
+  out.push(...judgeSetPieces(plan));
+  return out;
+}
+
+/**
+ * The `setPieces` rule (Stage 7f, see the module's rule 11): what a plan's Uphills, Spirals and Lava Bridges must keep, one line per failure. An Uphill or a Spiral the
+ * Entrance or the Treasure took for want of any other Hall (the plan's fallback) passes; one on a Rest Hall passes too (its pool is not rebuilt here), and is counted
+ * by the slow test.
+ */
+function judgeSetPieces(plan: FloorPlan): string[] {
+  const out: string[] = [];
+  const halls = plan.halls;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const ends = endsOf(plan);
+  const vertical = (h: DelverHall) => h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral';
+  const links = halls.map((_, k) => ends.filter((e) => e.hall === k).length);
+  const onMain = new Set(plan.mainPath);
+  const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
+  const span = (q: Rect, d: Side): [number, number] => (d === 'n' || d === 's' ? [q.x0, q.x1] : [q.z0, q.z1]);
+  const runOf = (st: { rect: Rect; up: Side }) => (st.up === 'n' || st.up === 's' ? st.rect.z1 - st.rect.z0 : st.rect.x1 - st.rect.x0);
+  const acrossOf = (st: { rect: Rect; up: Side }) => (st.up === 'n' || st.up === 's' ? st.rect.x1 - st.rect.x0 : st.rect.z1 - st.rect.z0);
+  const against = (q: Rect, r: Rect, d: Side) => (d === 'n' ? eq(q.z1, r.z1) : d === 's' ? eq(q.z0, r.z0) : d === 'e' ? eq(q.x1, r.x1) : eq(q.x0, r.x0));
+  const mks = markersOf(plan);
+  for (const [k, h] of halls.entries()) {
+    const f = h.feature;
+    const r = h.rect;
+    if (vertical(h)) {
+      if (h.great) out.push(`setPieces: ${h.id}'s ${f!.kind} is on a great hall`);
+      const plain = (o: DelverHall) => !vertical(o) && !o.great;
+      if (h.kind === 'Entrance' && halls.some((o, j) => j !== k && links[j] === 1 && plain(o))) out.push(`setPieces: ${h.id}'s ${f!.kind} is on the Entrance, though another leaf has none`);
+      if (h.kind === 'Treasure' && halls.some((o) => !onMain.has(halls.indexOf(o)) && (o.kind === 'Fight' || o.kind === 'Empty') && !vertical(o))) out.push(`setPieces: ${h.id}'s ${f!.kind} is on the Treasure Hall, though another Hall off the main path has none`);
+    }
+    if (f?.kind === 'uphill') {
+      const low = OPPOSITE[f.up];
+      for (const e of ends) if (e.hall === k && e.wall !== f.up && e.wall !== low) out.push(`setPieces: ${e.p.id} leaves ${h.id}'s Uphill by its side wall ${e.wall}`);
+      const st = f.steps[0];
+      if (f.steps.length !== 1 || !st) {
+        out.push(`setPieces: ${h.id}'s Uphill has ${f.steps.length} Ramps, one wanted`);
+        continue;
+      }
+      if ((st.hi - st.lo) / runOf(st) > MAX_SLOPE + 1e-9) out.push(`setPieces: ${h.id}'s Uphill rises ${m(st.hi - st.lo)} m over ${m(runOf(st))} m, steeper than ${MAX_SLOPE}`);
+      if (!eq(st.lo, h.y - f.rise * LEVEL_RISE) || !eq(st.hi, h.y) || st.up !== f.up) out.push(`setPieces: ${h.id}'s Uphill's Ramp does not run from its low landing up to its high one`);
+      const depth = (q: Rect) => (f.up === 'n' || f.up === 's' ? q.z1 - q.z0 : q.x1 - q.x0);
+      if (!eq(depth(f.low), UPHILL_FOOT) || !eq(depth(f.high), UPHILL_TOP) || !against(f.low, r, low) || !against(f.high, r, f.up)) out.push(`setPieces: ${h.id}'s Uphill's landings are not ${UPHILL_FOOT} and ${UPHILL_TOP} m deep at its ends`);
+      if (!eq(area(f.low) + area(st.rect) + area(f.high), area(r)) || !eq(acrossOf(st), f.up === 'n' || f.up === 's' ? r.x1 - r.x0 : r.z1 - r.z0)) out.push(`setPieces: ${h.id}'s Uphill does not fill its rect`);
+      if (!eq(h.cx, (f.high.x0 + f.high.x1) / 2) || !eq(h.cz, (f.high.z0 + f.high.z1) / 2)) out.push(`setPieces: ${h.id}'s centre is not in its high landing's middle`);
+      for (const [id, q] of [[highId(h), f.high], [stepId(h, 0), st.rect]] as const) if (!oddRect(q) || !inside(q, r)) out.push(`setPieces: ${id} is not inside ${h.id} on odd metres`);
+    }
+    if (f?.kind === 'spiral') {
+      const walls = spiralOrder(f.base, f.turn);
+      if (f.landings.length !== 5 || f.steps.length !== 5) {
+        out.push(`setPieces: ${h.id}'s Spiral has ${f.landings.length} landings and ${f.steps.length} Ramps, 5 of each wanted`);
+        continue;
+      }
+      f.steps.forEach((st, n) => {
+        const id = stepId(h, n);
+        const from = n === 0 ? h.y : f.landings[n - 1]!.y;
+        if (!eq(st.lo, from) || !eq(st.hi, f.landings[n]!.y)) out.push(`setPieces: ${id} does not run from ${m(from)} up to its landing at ${m(f.landings[n]!.y)}`);
+        if (!(runOf(st) > 0) || (st.hi - st.lo) / runOf(st) > MAX_SLOPE + 1e-9) out.push(`setPieces: ${id} rises ${m(st.hi - st.lo)} m over ${m(runOf(st))} m, steeper than ${MAX_SLOPE}`);
+        if (!eq(acrossOf(st), LEDGE_WIDE)) out.push(`setPieces: ${id} is ${m(acrossOf(st))} m wide, ${LEDGE_WIDE} wanted`);
+        if (st.rails.length !== 1 || !against(st.rect, r, st.rails[0]!)) out.push(`setPieces: ${id} is not along a wall of ${h.id}, open on its inner side`);
+        if (!oddRect(st.rect) || !inside(st.rect, r)) out.push(`setPieces: ${id} is not inside ${h.id} on odd metres`);
+      });
+      f.landings.forEach((l, n) => {
+        if (!eq(l.y, h.y + (n + 2) * (LEVEL_RISE / 2))) out.push(`setPieces: ${landingId(h, n)} is at ${m(l.y)}, ${m(h.y + (n + 2) * (LEVEL_RISE / 2))} wanted`);
+        if (!oddRect(l.rect) || !inside(l.rect, r)) out.push(`setPieces: ${landingId(h, n)} is not inside ${h.id} on odd metres`);
+      });
+      // Each door off the well is on its door landing's span.
+      for (const e of ends) {
+        if (e.hall !== k) continue;
+        const wj = walls.indexOf(e.wall);
+        if (wj <= 0) continue;
+        const [a, b] = span(f.landings[2 * (wj - 1)]!.rect, e.wall);
+        const [d0, d1] = span(e.q.rect, e.wall);
+        if (d0 < a - 1e-9 || d1 > b + 1e-9) out.push(`setPieces: ${e.p.id}'s door into ${h.id} is not on its landing's span`);
+      }
+      // No marker within 2 m of the ledge: its cell centre would lie under it.
+      const ledge = [...f.landings.map((l, n) => ({ id: landingId(h, n), rect: l.rect })), ...f.steps.map((st, n) => ({ id: stepId(h, n), rect: st.rect }))];
+      for (const mk of mks) {
+        if (mk.hall !== k) continue;
+        for (const q of ledge) if (rectDistance(q.rect, mk.x, mk.z) < 2) out.push(`setPieces: ${mk.name} stands within 2 m of ${q.id}`);
+      }
+    }
+    const lava = h.lava;
+    if (lava?.kind === 'cross') {
+      const plaza = lava.plaza;
+      const centre: Rect = { x0: h.cx - LAVA_CENTRE, z0: h.cz - LAVA_CENTRE, x1: h.cx + LAVA_CENTRE, z1: h.cz + LAVA_CENTRE };
+      if (r.x1 - r.x0 < 2 * CROSS_HALF || r.z1 - r.z0 < 2 * CROSS_HALF) out.push(`setPieces: ${h.id}'s Lava Bridge is on a Hall under ${CROSS_HALF} m a half`);
+      if (!plaza || !inside(centre, plaza) || !oddRect(plaza)) {
+        out.push(`setPieces: ${h.id}'s Lava Bridge's plaza does not hold its centre square on odd metres`);
+        continue;
+      }
+      const reach = (b: Rect, d: Side) => (d === 'n' ? eq(b.z1, r.z1) && eq(b.z0, plaza.z1) : d === 's' ? eq(b.z0, r.z0) && eq(b.z1, plaza.z0) : d === 'e' ? eq(b.x1, r.x1) && eq(b.x0, plaza.x1) : eq(b.x0, r.x0) && eq(b.x1, plaza.x0));
+      lava.bridges.forEach((b, n) => {
+        const d = (['n', 'e', 's', 'w'] as const).find((w) => reach(b, w));
+        if (!d) out.push(`setPieces: ${h.id}'s arm ${n} does not run from a wall to the plaza`);
+        else if (span(b, d)[1] - span(b, d)[0] < BRIDGE_MIN - 1e-9) out.push(`setPieces: ${h.id}'s arm ${n} is ${m(span(b, d)[1] - span(b, d)[0])} m wide, ${BRIDGE_MIN} wanted`);
+        if (!oddRect(b)) out.push(`setPieces: ${h.id}'s arm ${n} has an edge on the field's dots`);
+      });
+      for (const e of ends) {
+        if (e.hall !== k) continue;
+        const [d0, d1] = span(e.q.rect, e.wall);
+        if (!lava.bridges.some((b) => reach(b, e.wall) && span(b, e.wall)[0] <= d0 - 0.5 + 1e-9 && span(b, e.wall)[1] >= d1 + 0.5 - 1e-9)) out.push(`setPieces: ${e.p.id}'s doorway into ${h.id} is not on an arm`);
+      }
+    }
+  }
   return out;
 }
 
@@ -718,6 +832,76 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
     lava.bridges.forEach((q, n) => {
       if (!reaches((q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2, h.y)) out.push(`lavaWalk: ${h.id}'s bridge ${n} does not reach its centre`);
     });
+  });
+
+  // Stage 7f: each set piece. The field to the Hall's centre reads 1 m inside each doorway (at its door's height), at each landing's centre and on each arm; a Spiral's inner
+  // edge has no Wall more than a step over its ledge; under each Lava Bridge arm is floor, and lava beside it.
+  const stepUp = battle.levels.stepUp;
+  const walls = field.arena.walls;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  halls.forEach((h, k) => {
+    const f = h.feature;
+    const lava = h.lava;
+    const spiral = f?.kind === 'spiral' ? f : undefined;
+    const uphill = f?.kind === 'uphill' ? f : undefined;
+    if (!spiral && !uphill && lava?.kind !== 'cross') return;
+    const reaches = (x: number, z: number, y: number) => {
+      const s = floorNear(field.arena, x, z, y);
+      return s >= 0 && fieldAt(fields, to(k), x, z, s) >= 0;
+    };
+    const mid = (q: Rect) => ({ x: (q.x0 + q.x1) / 2, z: (q.z0 + q.z1) / 2 });
+    const r = h.rect;
+    if (spiral || uphill) {
+      for (const e of ends) {
+        if (e.hall !== k) continue;
+        const [a, b] = e.wall === 'n' || e.wall === 's' ? [e.q.rect.x0, e.q.rect.x1] : [e.q.rect.z0, e.q.rect.z1];
+        const line = (a + b) / 2;
+        const [x, z] = e.wall === 'n' ? [line, r.z1 - 1] : e.wall === 's' ? [line, r.z0 + 1] : e.wall === 'e' ? [r.x1 - 1, line] : [r.x0 + 1, line];
+        if (!reaches(x, z, e.y)) out.push(`setPieceWalk: ${e.p.id}'s doorway into ${h.id} does not reach its centre`);
+      }
+    }
+    const parts = spiral ? spiral.landings.map((l, n) => ({ name: landingId(h, n), rect: l.rect, y: l.y })) : uphill ? [{ name: `${h.id}'s low landing`, rect: uphill.low, y: hallBase(h) }, { name: highId(h), rect: uphill.high, y: h.y }] : [];
+    for (const p of parts) {
+      const c = mid(p.rect);
+      if (!reaches(c.x, c.z, p.y)) out.push(`setPieceWalk: ${p.name} (${m(c.x)}, ${m(c.z)}) at ${m(p.y)} does not reach ${h.id}'s centre`);
+    }
+    if (spiral) {
+      // Each Ramp's inner long side: the line across from its railed side. No Wall along it rises more than a step over the slope at its higher end.
+      spiral.steps.forEach((st, n) => {
+        const d = OPPOSITE[st.rails[0]!];
+        const q = st.rect;
+        const alongX = d === 'n' || d === 's';
+        const line = d === 'n' ? q.z1 : d === 's' ? q.z0 : d === 'e' ? q.x1 : q.x0;
+        const [u0, u1] = alongX ? [q.x0, q.x1] : [q.z0, q.z1];
+        // The slope's height at u along the run (it rises toward `up`).
+        const rising = st.up === 'e' || st.up === 'n';
+        const at = (u: number) => st.lo + ((st.hi - st.lo) * (rising ? u - u0 : u1 - u)) / (u1 - u0);
+        for (const w of walls) {
+          const onLine = alongX ? eq(w.a.z, line) && eq(w.b.z, line) : eq(w.a.x, line) && eq(w.b.x, line);
+          if (!onLine) continue;
+          const [wa, wb] = alongX ? [Math.min(w.a.x, w.b.x), Math.max(w.a.x, w.b.x)] : [Math.min(w.a.z, w.b.z), Math.max(w.a.z, w.b.z)];
+          const lo = Math.max(wa, u0);
+          const hi = Math.min(wb, u1);
+          if (hi - lo <= 1e-6) continue;
+          if (w.top > Math.max(at(lo), at(hi)) + stepUp + 1e-6) out.push(`setPieceWalk: ${w.id} rises to ${m(w.top)} along ${stepId(h, n)}'s open edge`);
+        }
+      });
+    }
+    if (lava?.kind === 'cross') {
+      lava.bridges.forEach((b, n) => {
+        const c = mid(b);
+        const under = groundBelow(field.arena, c.x, c.z, h.y + stepUp);
+        if (!under || deadly(field.arena.walk[under.surface]!) || Math.abs(under.y - h.y) > 1e-6) out.push(`setPieceWalk: ${h.id}'s arm ${n} is not floor`);
+        // Beside it, across its run: lava on at least one side.
+        const runsX = eq(b.x0, r.x0) || eq(b.x1, r.x1);
+        const beside = runsX ? [[c.x, b.z0 - 1], [c.x, b.z1 + 1]] : [[b.x0 - 1, c.z], [b.x1 + 1, c.z]];
+        const lavaAt = (x: number, z: number) => {
+          const g = groundBelow(field.arena, x, z, h.y + stepUp);
+          return !!g && deadly(field.arena.walk[g.surface]!) === 'Lava';
+        };
+        if (!beside.some(([x, z]) => lavaAt(x!, z!))) out.push(`setPieceWalk: ${h.id}'s arm ${n} has no lava beside it`);
+      });
+    }
   });
   return out;
 }
