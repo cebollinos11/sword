@@ -56,14 +56,26 @@ function whole(params: URLSearchParams, name: string, min: number): number | nul
  * or with either missing or bad. With `delverPiece=cross`, `uphill` or `spiral` too (Stage 7f) the Floor is dealt with every Hall rolled for that set
  * piece (`piece`); any other value is left out.
  */
-export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number; piece?: 'cross' | 'uphill' | 'spiral' } | null {
+export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number; piece?: 'cross' | 'uphill' | 'spiral' | 'room'; room?: string } | null {
   if (!devMode(search, hash)) return null;
   const params = query(search, hash);
   const seed = whole(params, 'delverSeed', 0);
   const floor = whole(params, 'delverFloor', 1);
   const piece = params.get('delverPiece');
   if (seed === null || floor === null) return null;
+  // Stage 7g: `delverPiece=room&delverRoom=<name>` deals every Hall where it fits that drawn room (without `delverRoom`, any of them).
+  const room = params.get('delverRoom');
+  if (piece === 'room') return room && /^[A-Za-z0-9-]+$/.test(room) ? { seed, floor, piece, room } : { seed, floor, piece };
   return piece === 'cross' || piece === 'uphill' || piece === 'spiral' ? { seed, floor, piece } : { seed, floor };
+}
+
+/** Dev mode only (docs/plans/delver.md, Stage 7g): `room=<name>` opens that bundled dungeon room in the Map Editor, and `roomcheck=1` checks it at once. */
+export function devRoom(search: string = location.search, hash: string = location.hash): { name: string; check: boolean } | null {
+  if (!devMode(search, hash)) return null;
+  const params = query(search, hash);
+  const name = params.get('room');
+  if (!name || !/^[A-Za-z0-9-]+$/.test(name)) return null;
+  return { name, check: params.get('roomcheck') === '1' };
 }
 
 /** Dev mode only: `aiwalk=1` in the Map Editor walks the AI over the map it opens (with `delverSeed`, the Floor) once it is checked. */

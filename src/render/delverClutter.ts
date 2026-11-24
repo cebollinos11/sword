@@ -388,6 +388,8 @@ function keepOuts(h: DelverHall, hi: number, plan: FloorPlan, fireRadius: number
     for (const s of f.steps) add(s.rect);
     if (f.kind === 'pit') add(f.pit);
     if (f.kind === 'dais') add(f.rect);
+    // Stage 7g: a drawn room's Platforms and Blocks (its Ramps are its steps).
+    if (f.kind === 'room') for (const b of f.brushes) if (b.kind === 'platform' || b.kind === 'block') add(b.rect);
   }
   // Lava (Stage 7d) is a Hole in the floor with the Hazard 4 m under it: nothing stands on or over it, nor within `LAVA_CLEAR` of it.
   for (const q of h.lava?.rects ?? []) add(q, LAVA_CLEAR);

@@ -42,12 +42,13 @@ import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
 import { delverFloor, describeFloor, onlySetPiece, setPieceLines, setPieceOf, type DelverFloor, type DelverHall, type SetPieceKind } from '../../sim/delver';
 import { floorName, isFloorName } from '../../sim/delver/source';
-import { devAiWalk, devDelverFloor } from '../../devMode';
+import { devAiWalk, devDelverFloor, devRoom } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { compileDraft, MapCompileError, type DraftMap } from '../compile';
 import { draftTuning, type Draft } from '../playtest';
 import { floorTargets, mapTargets, navIssues, probeRoutes, type NavIssue, type NavProbe } from '../navProbe';
-import { AiWalk, walkIssues } from '../navWalk';
+import { AiWalk, walkIssues, type WalkLeg } from '../navWalk';
+import { addRoomMode } from './roomMode';
 import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../quickCheck';
 import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
@@ -86,8 +87,9 @@ const TOOL_LABELS: Record<Tool, string> = {
   enclosure: 'Enclosure (E): a room',
   objective: 'Objective (O): click to place',
   prop: 'Prop (T): click to place',
+  lava: 'Lava (K): a pool, its Hole and its Hazard',
 };
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', e: 'enclosure', o: 'objective', t: 'prop' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', e: 'enclosure', o: 'objective', t: 'prop', k: 'lava' };
 
 /** The sky choices as the Look folder shows them: each the look of an existing Arena or of the Battlefield. */
 const SKY_LABELS: Record<BattleSky, string> = { dusk: 'dusk (the Battlefield)', mystic: 'mystic space (the Kit)', sunset: 'wasteland sunset (the train)', fog: 'sea fog (the ship)', snow: 'snowstorm (the summit)', ember: 'lava glow (the chamber)', crypt: 'torchlit crypt (the Delver)' };
@@ -235,6 +237,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     delverFloor: 1,
     /** Stage 7f: deal the Floor with every Hall rolled for this set piece (`onlySetPiece`), editor only; 'off' deals it as a Run does. */
     delverPiece: 'off' as 'off' | SetPieceKind,
+    /** Stage 7g: with the Set piece `room`, the drawn room (`onlySetPiece`'s name; '' for every bundled room). */
+    delverRoom: '',
     /** The opened Floor's set pieces, one per line (`setPieceLines`). */
     setPieces: '',
     look3d: true,
@@ -419,7 +423,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view.overlays = overlays;
     view.clearance = overlays.clearance ? clearance : null;
     view.levels = tuning.battle.levels;
-    view.nav = checks ? { probe: probed?.of === checks.source ? probed.probe : null, legs: walked?.of === checks.source ? walked.walk.legs : [] } : null;
+    view.nav = checks ? { probe: probed?.of === checks.source ? probed.probe : null, legs: walked?.of === checks.source ? walked.walk.legs : roomLegs } : null;
     view.redraw();
     if (ui.view !== 'top' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels, ui.look3d ? lookModel(checks) : null);
   };
@@ -428,6 +432,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     checkTimer = 0;
     const t0 = performance.now();
     checks = checkMap(session.source, checkTuning(), { edges: overlays.edges });
+    // A dungeon room's editing stub keeps its walls on even metres (its 2 m snap from the walls); a Floor puts them on odd ones, which Check room checks.
+    if (roomMode?.active()) checks = { ...checks, issues: checks.issues.filter((i) => i.kind !== 'centre') };
     checkMs = performance.now() - t0;
     clearance = null;
     fieldMs = null;
@@ -469,6 +475,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   // --- The AI: the navmesh probe and the AI walk (`navProbe.ts`, `navWalk.ts`) ---
   /** The Floor Open Delver Floor built: its plan's markers are the AI's targets (the source carries only D and E, for the eye). */
   let openFloor: DelverFloor | null = null;
+  /** Stage 7g: the AI's legs of the last Check room, drawn over the room being edited. */
+  let roomLegs: readonly WalkLeg[] = [];
   /** Its set-piece Halls (Stage 7f), and the one last framed (-1: none yet). */
   let pieceHalls: DelverHall[] = [];
   let pieceAt = -1;
@@ -563,7 +571,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   document.head.appendChild(style);
 
   // --- File ---------------------------------------------------------------
-  const discardOk = () => !session.dirty || confirm('Discard the unsaved edits to this map?');
+  const discardOk = () => !(session.dirty || roomMode?.dirty()) || confirm('Discard the unsaved edits to this map?');
   const opened = (what: string) => {
     view.flagged = [];
     view.frame(session.source);
@@ -574,6 +582,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const openRaw = (raw: unknown, what: string) => {
     try {
       session.open(raw);
+      // Room mode ends only once another map has opened (a Floor that fails to build leaves the room as it was).
+      roomMode?.leave();
       opened(what);
     } catch (e) {
       say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
@@ -648,6 +658,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const file = pane.addFolder({ title: 'File' });
   file.addButton({ title: 'New map' }).on('click', () => {
     if (!discardOk()) return;
+    roomMode?.leave();
     session.open(blankSource());
     opened('a new map (the whole field at 0)');
   });
@@ -657,16 +668,18 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
   file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0, max: 4294967295 });
   file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: tuning.delver.tiers * tuning.delver.floorsPerTier });
-  file.addBinding(ui, 'delverPiece', { label: 'Set piece', options: { off: 'off', 'Lava Bridge': 'cross', Uphill: 'uphill', Spiral: 'spiral' } });
+  file.addBinding(ui, 'delverPiece', { label: 'Set piece', options: { off: 'off', 'Lava Bridge': 'cross', Uphill: 'uphill', Spiral: 'spiral', 'Drawn room': 'room' } });
+  file.addBinding(ui, 'delverRoom', { label: 'Drawn room', options: { 'every room': '', ...Object.fromEntries(tuning.delver.floor.drawnRooms.map((r) => [r.name, r.name])) } });
   /**
    * Builds and opens Floor `floor` of `seed`; with a set piece (Stage 7f), dealt on `onlySetPiece`, so that every Hall where it fits holds one (never a Run's
    * Floor). The build takes a few hundred ms, so the status shows first and it runs on the next task.
    */
-  const openDelverFloor = (seed: number, floor: number, piece: 'off' | SetPieceKind = 'off') => {
-    say(`Building Floor ${floor} of seed ${seed}${piece === 'off' ? '' : ` (every Hall a ${piece} where it fits)`}…`);
+  const openDelverFloor = (seed: number, floor: number, piece: 'off' | SetPieceKind = 'off', room = '', dealt: TuningData = tuning) => {
+    // Stage 7g: a drawn room's Floor deals on `dealt` (the room being edited in place of its file), with only that room (`room`) or every one.
+    say(`Building Floor ${floor} of seed ${seed}${piece === 'off' ? '' : ` (every Hall a ${piece === 'room' && room ? `drawn room ${room}` : piece} where it fits)`}…`);
     setTimeout(() => {
       try {
-        const f = delverFloor(piece === 'off' ? tuning : onlySetPiece(tuning, piece), seed >>> 0, floor);
+        const f = delverFloor(piece === 'off' ? dealt : onlySetPiece(dealt, piece, piece === 'room' && room ? room : undefined), seed >>> 0, floor);
         openFloor = f;
         ui.setPieces = setPieceLines(f.plan).join('\n');
         pieceHalls = f.plan.halls.filter((h) => setPieceOf(h));
@@ -677,8 +690,34 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       }
     }, 0);
   };
-  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor, ui.delverPiece));
-  file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => void save());
+  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor, ui.delverPiece, ui.delverRoom));
+  file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => {
+    if (roomMode.active()) return say('A dungeon room is saved with Save room, in the Room folder.');
+    void save();
+  });
+  // Stage 7g: the dungeon rooms (File → New dungeon room, Open dungeon room) and the Room folder.
+  const roomMode = addRoomMode({
+    pane,
+    file,
+    session,
+    tuning,
+    say,
+    opened,
+    rebuild: () => rebuild(),
+    discardOk,
+    frameRoom: (rect) => view.frameRect({ x0: rect.x0 - 10, z0: rect.z0 - 10, x1: rect.x1 + 10, z1: rect.z1 + 10 }),
+    flag: (ids) => {
+      view.flagged = ids;
+      view.redraw();
+    },
+    showLegs: (legs) => {
+      roomLegs = legs;
+      overlays.walk = true;
+      drawChecks();
+    },
+    openFloor: (dealt, seed, floor, room) => openDelverFloor(seed, floor, 'room', room, dealt),
+    floorAsked: () => ({ seed: ui.delverSeed, floor: ui.delverFloor }),
+  });
 
   // --- Play-test and the Quick check ---------------------------------------
   /** Ends the play-test running over the editor, if one is. */
@@ -1674,9 +1713,13 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     ui.delverSeed = asked.seed;
     ui.delverFloor = asked.floor;
     ui.delverPiece = asked.piece ?? 'off';
+    ui.delverRoom = asked.room ?? '';
     refreshPane();
-    openDelverFloor(asked.seed, asked.floor, ui.delverPiece);
+    openDelverFloor(asked.seed, asked.floor, ui.delverPiece, ui.delverRoom);
   }
+  // `?dev=1&room=<name>[&roomcheck=1]` (Stage 7g): that bundled dungeon room opens at once, and is checked.
+  const askedRoom = devRoom();
+  if (askedRoom && !asked) roomMode.openBundled(askedRoom.name, askedRoom.check);
 
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();
@@ -1708,7 +1751,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } else if (mod && key === 'v') {
       paste(view.pointerAt);
     } else if (mod && key === 's') {
-      void save();
+      // A dungeon room is saved by its own Save (Stage 7g), never as a Battle map.
+      if (roomMode.active()) roomMode.save();
+      else void save();
     } else if (mod && e.key === 'Enter') {
       playtest();
     } else if (!mod && e.key === ' ') {

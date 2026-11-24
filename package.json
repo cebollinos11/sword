@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "motions:two-handed": "node tools/two-handed-motions/gen.mjs",
     "quick-check": "node tools/quick-check/quick-check.mjs",
-    "ai-walk": "node tools/ai-walk/ai-walk.mjs"
+    "ai-walk": "node tools/ai-walk/ai-walk.mjs",
+    "room-check": "node tools/room-check/room-check.mjs"
   },
   "dependencies": {
     "peerjs": "^1.5.5",

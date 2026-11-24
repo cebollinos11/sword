@@ -7,6 +7,7 @@ import type { BattleTuning } from './battle';
 import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
 import { DEFAULT_STYLE } from './style';
 import { array, finiteNumber, record, TuningDataError } from './validate';
+import { parseRooms, type DrawnRoom } from './delverRooms';
 /** The most Relics one list names: a Variant's own, or an elite template's set. An elite Soldier wears both (its Variant's, then the set's it lacks), so up to twice this. */
 export const MAX_ENEMY_RELICS = 2;
 
@@ -59,6 +60,8 @@ export interface DelverFloorTuning {
   readonly lava: DelverLavaTuning;
   /** Set pieces (docs/plans/delver.md, Stage 7f). */
   readonly setPieces: DelverSetPiecesTuning;
+  /** The drawn rooms (docs/plans/delver.md, Stage 7g): `data/delver/rooms/*.json` in file order, the set-piece kind `room`'s pool. [] for none. */
+  readonly drawnRooms: readonly DrawnRoom[];
 }
 
 /**
@@ -68,8 +71,8 @@ export interface DelverFloorTuning {
 export interface DelverSetPiecesTuning {
   /** Per Run tier (the last for any deeper tier): the chance (in 100) that a Hall is rolled for a set piece. Non-empty. */
   readonly percent: readonly number[];
-  /** The weights of a Lava Bridge, an Uphill and a Spiral (whole, at least 0, summing to at least 1). */
-  readonly weights: { readonly cross: number; readonly uphill: number; readonly spiral: number };
+  /** The weights of a Lava Bridge, an Uphill, a Spiral and a drawn room (Stage 7g; the rooms picked evenly within it) (whole, at least 0, summing to at least 1). */
+  readonly weights: { readonly cross: number; readonly uphill: number; readonly spiral: number; readonly room: number };
 }
 
 /**
@@ -724,7 +727,10 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     if (typeof d !== 'number' || !Number.isInteger(d) || d < 0 || d > 100) fail(`${sw}.percent[${i}]`, 'a whole number 0 to 100', d);
     return d;
   });
-  const setPieces = { percent: spPercent, weights: weights(sp.weights, `${sw}.weights`, ['cross', 'uphill', 'spiral'] as const) };
+  const setPieces = { percent: spPercent, weights: weights(sp.weights, `${sw}.weights`, ['cross', 'uphill', 'spiral', 'room'] as const) };
+  // Stage 7g: the drawn rooms, parsed against the Halls' half sizes and the doorway width.
+  const drawnRooms = parseRooms(f.drawnRooms === undefined ? [] : array(f.drawnRooms, `${w}.drawnRooms`), halfSize, passage);
+  if (setPieces.weights.room > 0 && drawnRooms.length === 0) fail(`${sw}.weights.room`, '0 when there is no room file in data/delver/rooms/ (a drawn room needs one to be picked from)', setPieces.weights.room);
   // A Spiral's doors stand 0 to 3 levels over its well, an Uphill's high end 1 or 2 over its low end.
   if (spPercent.some((d) => d > 0) && setPieces.weights.spiral > 0 && levelMax < 3) fail(`${sw}.weights.spiral`, '0 when levels.max is under 3 (a Spiral\'s last door stands 3 levels over its well)', setPieces.weights.spiral);
   if (spPercent.some((d) => d > 0) && setPieces.weights.uphill > 0 && levelMax < 1) fail(`${sw}.weights.uphill`, '0 when levels.max is 0 (an Uphill\'s high end stands a level or two over its low end)', setPieces.weights.uphill);
@@ -771,6 +777,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     sizeHp,
     skillTints,
     traitor: parseTraitor(root.traitor),
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
   };
 }

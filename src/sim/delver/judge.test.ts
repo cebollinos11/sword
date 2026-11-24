@@ -7,7 +7,8 @@ import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
 import { flatRooms, fullFloors, noSetPieces, plainHalls } from './flat.testdata';
-import { BRIDGE_MIN, onlySetPiece, setPieceOf, type DelverLava, type DelverSpiral, type DelverUphill, type SetPieceKind } from './plan';
+import { withFixtureRoom } from './rooms.testdata';
+import { BRIDGE_MIN, onlySetPiece, setPieceOf, type DelverRoom, type DelverLava, type DelverSpiral, type DelverUphill, type SetPieceKind } from './plan';
 import { holeId, lavaId, stepId } from './source';
 import type { Rect } from '../../mapEditor/source';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
@@ -62,7 +63,7 @@ const withPlan = (b: BuiltFloor, plan: FloorPlan): BuiltFloor => ({ ...b, plan }
 /** `describeFloor`'s set-piece counts (Stage 7f) for `plan`. */
 const setPieceText = (plan: FloorPlan): string => {
   const kinds = plan.halls.flatMap((h) => (setPieceOf(h) ? [setPieceOf(h)!] : []));
-  return `${kinds.length} set pieces (${kinds.filter((k) => k === 'cross').length} crosses, ${kinds.filter((k) => k === 'uphill').length} uphills, ${kinds.filter((k) => k === 'spiral').length} spirals)`;
+  return `${kinds.length} set pieces (${kinds.filter((k) => k === 'cross').length} crosses, ${kinds.filter((k) => k === 'uphill').length} uphills, ${kinds.filter((k) => k === 'spiral').length} spirals, ${kinds.filter((k) => k === 'room').length} drawn rooms)`;
 };
 
 /** Somewhere in the abyss between the Halls (whole metres, not on any Hall or Passage). */
@@ -874,7 +875,7 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
       // Stage 7d adds the lava Halls at the end of the vertical summary.
       const lavas = hs.flatMap((h) => (h.lava ? [h.lava] : []));
       const rivers = lavas.filter((l) => l.kind === 'river');
-      const lavaText = `${lavas.filter((l) => l.kind !== 'cross').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((a, l) => a + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
+      const lavaText = `${lavas.filter((l) => l.kind !== 'cross' && l.kind !== 'room').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((a, l) => a + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
       expect(describeFloor(f)).toContain(`, ${text}, ${lavaText}, ${setPieceText(b.plan)}; passes the judge`);
     }
   });
@@ -1061,10 +1062,10 @@ describe('the judge on Floors with lava (Stage 7d)', () => {
     for (const f of lavaFloors) {
       const lavas = f.plan.halls.flatMap((h) => (h.lava ? [h.lava] : []));
       const rivers = lavas.filter((l) => l.kind === 'river');
-      const text = `, ${lavas.filter((l) => l.kind !== 'cross').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls), ${setPieceText(f.plan)}; passes the judge`;
+      const text = `, ${lavas.filter((l) => l.kind !== 'cross' && l.kind !== 'room').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls), ${setPieceText(f.plan)}; passes the judge`;
       expect(describeFloor(f)).toContain(text);
     }
-    expect(describeFloor(lavaFloors[2]!)).toMatch(/, [1-9]\d* lava Halls \(\d+ pits, [1-9]\d* rivers with [2-9]\d* bridges, \d+ trough Halls\), \d+ set pieces \(\d+ crosses, \d+ uphills, \d+ spirals\); passes the judge$/);
+    expect(describeFloor(lavaFloors[2]!)).toMatch(/, [1-9]\d* lava Halls \(\d+ pits, [1-9]\d* rivers with [2-9]\d* bridges, \d+ trough Halls\), \d+ set pieces \(\d+ crosses, \d+ uphills, \d+ spirals, \d+ drawn rooms\); passes the judge$/);
   });
 });
 
@@ -1173,6 +1174,82 @@ describe('the judge on Floors with set pieces (Stage 7f)', () => {
 
   it('describeFloor counts the set pieces by kind', () => {
     for (const f of floors) expect(describeFloor(f)).toContain(`, ${setPieceText(f.plan)}; passes the judge`);
-    expect(describeFloor(first('spiral'))).toMatch(/, [1-9]\d* set pieces \(0 crosses, 0 uphills, [1-9]\d* spirals\); passes the judge$/);
+    expect(describeFloor(first('spiral'))).toMatch(/, [1-9]\d* set pieces \(0 crosses, 0 uphills, [1-9]\d* spirals, 0 drawn rooms\); passes the judge$/);
+  });
+});
+
+describe('the judge on Floors with drawn rooms (Stage 7g)', () => {
+  const on = onlySetPiece(withFixtureRoom(noSetPieces(loadTuningData())), 'room');
+  const size = on.battle.field.size;
+  const ft = (floor: number) => floorTuningOf(on.delver, floor);
+  const planOn = (seed: number, floor: number) => planFloor(floorTuningOf(on.delver, floor), seed, floor, 0, isBossFloor(on.delver, floor), tierOf(on.delver, floor));
+  const roomReasons = (plan: FloorPlan) => judgePlan(ft(plan.floor), plan, size, on.battle).filter((r) => r.startsWith('drawnRooms: '));
+  const withHall = (plan: FloorPlan, k: number, patch: Partial<FloorPlan['halls'][number]>): FloorPlan => ({ ...plan, halls: plan.halls.map((h, i) => (i === k ? { ...h, ...patch } : h)) });
+  /** A room Hall with a Passage. */
+  const roomHall = (plan: FloorPlan) => plan.halls.findIndex((h, k) => h.feature?.kind === 'room' && plan.passages.some((p) => p.a === k || p.b === k));
+  let floors: DelverFloor[];
+  beforeAll(() => {
+    floors = [[1, 5], [2, 7], [3, 1]].map(([seed, floor]) => delverFloor(on, seed!, floor!));
+  }, 300_000);
+
+  it('deals drawn-room Floors that pass the judge, and `drawnRooms` is quiet on 36 plans', () => {
+    for (const f of floors) {
+      expect(f.judgement.ok, f.judgement.reasons.join('; ')).toBe(true);
+      expect(f.plan.halls.some((h) => h.feature?.kind === 'room')).toBe(true);
+    }
+    for (let seed = 1; seed <= 12; seed++) for (const floor of [1, 5, 9]) expect(roomReasons(planOn(seed, floor)), `${seed}/${floor}`).toEqual([]);
+  });
+
+  it('`drawnRooms` fires on a door moved along its wall, a Passage on a wall with no doorway, a door at the wrong height and a Hall not the room\'s size', () => {
+    const plan = floors[0]!.plan;
+    const k = roomHall(plan);
+    const h = plan.halls[k]!;
+    const f = h.feature as DelverRoom;
+    const p = plan.passages.findIndex((q) => q.a === k || q.b === k);
+    const q = plan.passages[p]!;
+    const side = q.a === k ? q.sideA : q.sideB;
+    const along = side === 'n' || side === 's' ? { dx: 2, dz: 0 } : { dx: 0, dz: 2 };
+    const mv = (r: Rect): Rect => ({ x0: r.x0 + along.dx, z0: r.z0 + along.dz, x1: r.x1 + along.dx, z1: r.z1 + along.dz });
+    const moved = { ...plan, passages: plan.passages.map((o, i) => (i !== p ? o : { ...o, pieces: o.pieces.map((pc) => ({ ...pc, rect: mv(pc.rect) })) })) };
+    expect(roomReasons(moved).some((r) => r.startsWith(`drawnRooms: ${q.id}'s door into ${h.id} is at`) && r.includes('along its'))).toBe(true);
+    const ways = { ...f.doorways };
+    delete ways[side];
+    expect(roomReasons(withHall(plan, k, { feature: { ...f, doorways: ways } }))).toContain(`drawnRooms: ${q.id} leaves ${h.id} by its ${side} wall, which its room ${f.name} holds no doorway on`);
+    const up = { ...f.doorways, [side]: (f.doorways[side] ?? 0) + 1 };
+    expect(roomReasons(withHall(plan, k, { feature: { ...f, doorways: up } })).some((r) => r.startsWith(`drawnRooms: ${q.id}'s door into ${h.id} is at`) && r.includes(`its room's ${side} doorway`))).toBe(true);
+    expect(roomReasons(withHall(plan, k, { rect: { ...h.rect, x1: h.rect.x1 + 2 } })).some((r) => r.startsWith(`drawnRooms: ${h.id}'s room ${f.name} is `))).toBe(true);
+  });
+
+  it('`roomWalk` is quiet on every drawn-room Floor, and fires on a doorway that stands on no floor', () => {
+    const walk = (b: BuiltFloor) => judgeFields(ft(b.plan.floor), b).filter((r) => r.startsWith('roomWalk: '));
+    for (const f of floors) expect(walk(f)).toEqual([]);
+    // (A Block across a doorway is refused by the compile's own walk check before this rule runs.) A lava pool cut into the floor just inside a level-0 doorway of a room
+    // Hall with another way in: the Passage is still walked to from its other end, but the doorway no longer leads to the Hall's centre.
+    for (const b of floors) {
+      for (const [k, h] of b.plan.halls.entries()) {
+        if (h.feature?.kind !== 'room' || b.plan.passages.filter((o) => o.a === k || o.b === k).length < 2) continue;
+        const q = b.plan.passages.find((o) => (o.a === k ? o.ya : o.b === k ? o.yb : NaN) === h.y)!;
+        if (!q) continue;
+        const side = q.a === k ? q.sideA : q.sideB;
+        const piece = q.a === k ? q.pieces[0]! : q.pieces[q.pieces.length - 1]!;
+        const r = h.rect;
+        const line = side === 'n' || side === 's' ? (piece.rect.x0 + piece.rect.x1) / 2 : (piece.rect.z0 + piece.rect.z1) / 2;
+        const rect: Rect = side === 'n' ? { x0: line - 3, z0: r.z1 - 2, x1: line + 3, z1: r.z1 } : side === 's' ? { x0: line - 3, z0: r.z0, x1: line + 3, z1: r.z0 + 2 } : side === 'e' ? { x0: r.x1 - 2, z0: line - 3, x1: r.x1, z1: line + 3 } : { x0: r.x0, z0: line - 3, x1: r.x0 + 2, z1: line + 3 };
+        let cut: BuiltFloor;
+        try {
+          cut = buildFromSource(on, b.plan, { ...b.source, brushes: [...b.source.brushes, { kind: 'hole', id: 'moat', rect, y: h.y }, { kind: 'hazard', id: 'moatlava', rect, y: h.y - 4, hazard: 'lava' }] });
+        } catch {
+          continue;
+        }
+        expect(walk(cut).some((m) => m.startsWith(`roomWalk: ${q.id}'s doorway into ${h.id}`)), walk(cut).join('; ')).toBe(true);
+        return;
+      }
+    }
+    throw new Error('no room Hall with a level-0 doorway and another way in, among the Floors');
+  });
+
+  it('describeFloor counts the drawn rooms', () => {
+    for (const f of floors) expect(describeFloor(f)).toContain(`, ${setPieceText(f.plan)}; passes the judge`);
+    expect(describeFloor(floors[0]!)).toMatch(/0 spirals, [1-9]\d* drawn rooms\); passes the judge$/);
   });
 });

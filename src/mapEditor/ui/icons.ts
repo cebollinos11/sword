@@ -45,6 +45,7 @@ export const TOOL_ICONS: Readonly<Record<Tool, string>> = {
   enclosure: svgUrl(`<rect x="3" y="3" width="14" height="14" fill="${LOW}"/><path d="M3 3 H7.5 M12.5 3 H17 V7.5 M17 12.5 V17 H12.5 M7.5 17 H3 V12.5 M3 7.5 V3" fill="none" stroke="#e8e8e8" stroke-width="2.5"/>`),
   objective: svgUrl('<circle cx="10" cy="10" r="7.5" fill="#eee" stroke="#e0c040" stroke-width="2"/><text x="10" y="13.5" font-family="system-ui,sans-serif" font-size="10" font-weight="700" text-anchor="middle" fill="#111">A</text>'),
   prop: svgUrl('<circle cx="10" cy="10" r="7" fill="#3f9a3a" stroke="#111"/><text x="10" y="13.5" font-family="system-ui,sans-serif" font-size="9" font-weight="700" text-anchor="middle" fill="#111">T</text>'),
+  lava: svgUrl('<rect x="3" y="3" width="14" height="14" fill="#ff5a1f" stroke="#16161a" stroke-width="2" stroke-dasharray="3 2"/><path d="M4 12 Q7 9 10 12 T16 12" fill="none" stroke="#ffd04a" stroke-width="1.5"/>'),
 };
 
 /** Each prop kind's icon: its top-view mark. */

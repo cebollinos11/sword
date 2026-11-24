@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { commonItem, createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devDelverFloor, devDelverStart, devMode, devRunRelics } from './devMode';
+import { devAutopilot, devDelverFloor, devRoom, devDelverStart, devMode, devRunRelics } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -76,6 +76,15 @@ describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in
     for (const piece of ['cross', 'uphill', 'spiral'] as const) expect(devDelverFloor(`?dev=1&delverSeed=7&delverFloor=1&delverPiece=${piece}`, '')).toEqual({ seed: 7, floor: 1, piece });
     expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=7&delverFloor=1&delverPiece=moat')).toEqual({ seed: 7, floor: 1 });
     expect(devDelverFloor('?dev=1&delverPiece=spiral', '')).toBeNull();
+  });
+
+  it('reads a drawn room to deal (Stage 7g), and opens a bundled room to check', () => {
+    expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=7&delverFloor=5&delverPiece=room&delverRoom=crucible')).toEqual({ seed: 7, floor: 5, piece: 'room', room: 'crucible' });
+    expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=7&delverFloor=5&delverPiece=room')).toEqual({ seed: 7, floor: 5, piece: 'room' });
+    expect(devRoom('', '#/mapeditor?dev=1&room=crucible&roomcheck=1')).toEqual({ name: 'crucible', check: true });
+    expect(devRoom('', '#/mapeditor?dev=1&room=crucible')).toEqual({ name: 'crucible', check: false });
+    expect(devRoom('', '#/mapeditor?room=crucible')).toBeNull();
+    expect(devRoom('', '#/mapeditor?dev=1&room=a/b')).toBeNull();
   });
 
   it('refuses a bad or missing value', () => {

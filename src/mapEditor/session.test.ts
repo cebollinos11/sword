@@ -4,6 +4,10 @@
  * editor's top view and panels call, saves to the same two files as the hand-written sample compiles to.
  */
 import { describe, expect, it } from 'vitest';
+import { FIXTURE_ROOM } from '../sim/delver/rooms.testdata';
+import { LAVA_DEPTH } from '../sim/delver/plan';
+import { parseRoom } from '../tuning/delverRooms';
+import { editSource, isFixed, ROOM_ENCLOSURE, ROOM_SNAP, roomFromSource, roomParts } from './room';
 import { loadTuningData } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import { compileMap, mapFileText, MapCompileError } from './compile';
@@ -436,5 +440,48 @@ describe('making levels', () => {
     const e = s.addBrush('enclosure', { x: 0, z: 0 }, { x: 10, z: 10 });
     expect(e.kind === 'enclosure' && e.y).toBe(4);
     expect(s.source.levels).toEqual([0, 4, 8]);
+  });
+});
+
+describe('the room mode (docs/plans/delver.md, Stage 7g)', () => {
+  const t = loadTuningData();
+  const { meta, brushes } = roomParts(FIXTURE_ROOM);
+  const fresh = () => {
+    const s = new MapEditorSession(editSource(meta, brushes, t.delver.floor.passage, t.battle.field.size));
+    s.locked = isFixed;
+    s.snapStep = ROOM_SNAP;
+    return s;
+  };
+
+  it('refuses a move, a resize, a turn, an edit and a delete of the room\'s locked Enclosure, changing nothing', () => {
+    const s = fresh();
+    const before = s.source;
+    const room = s.source.brushes.find((b) => b.id === ROOM_ENCLOSURE)!;
+    expect(() => s.moveBrush(ROOM_ENCLOSURE, 2, 0)).toThrow(/locked/);
+    expect(() => s.resizeBrush(ROOM_ENCLOSURE, 'e', 20, 0)).toThrow(/locked/);
+    expect(() => s.rotateBrush(ROOM_ENCLOSURE)).toThrow(/locked/);
+    expect(() => s.replaceBrush(ROOM_ENCLOSURE, { ...room, y: 2 } as Brush)).toThrow(/locked/);
+    expect(() => s.deleteBrush(ROOM_ENCLOSURE)).toThrow(/locked/);
+    expect(s.source).toBe(before);
+    // The room's own Brushes move, on 2 m steps from the walls.
+    s.moveBrush('pillar', 2.6, 0);
+    expect(s.source.brushes.find((b) => b.id === 'pillar')).toMatchObject({ rect: { x0: -9 + 1 + 2, x1: -7 + 1 + 2 } });
+  });
+
+  it('writes a lava pool with the Lava tool: a Hole at the level and its Hazard LAVA_DEPTH under it, one undo step', () => {
+    const s = fresh();
+    s.level = 0;
+    const n = s.source.brushes.length;
+    const hole = s.addLava({ x: -4.2, z: 4.4 }, { x: 1.6, z: 7.7 });
+    const [h, z] = s.source.brushes.slice(n);
+    expect(h).toEqual({ kind: 'hole', id: hole.id, rect: { x0: -4, z0: 4, x1: 2, z1: 8 }, y: 0 });
+    expect(z).toMatchObject({ kind: 'hazard', rect: h!.kind === 'hole' ? h!.rect : null, y: -LAVA_DEPTH, hazard: 'lava' });
+    s.undo();
+    expect(s.source.brushes.length).toBe(n);
+  });
+
+  it('reads the room back out of its stub as it was drawn', () => {
+    const s = fresh();
+    expect(parseRoom(roomFromSource(meta, s.source), [7, 14], 3)).toEqual(FIXTURE_ROOM);
   });
 });

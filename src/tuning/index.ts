@@ -1011,6 +1011,8 @@ const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eag
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
 /** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path: not the Map Sources beside them (`<map>.source.json`, the Map Editor's, not Tuning Data). */
 const battleMapFiles = import.meta.glob<unknown>(['../../data/battlemaps/*.json', '!../../data/battlemaps/*.source.json'], { eager: true, import: 'default' });
+/** Raw drawn room files bundled from `data/delver/rooms/` (docs/plans/delver.md, Stage 7g), keyed by repo path. */
+const roomFiles = import.meta.glob<unknown>('../../data/delver/rooms/*.json', { eager: true, import: 'default' });
 /** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
 const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 
@@ -1033,7 +1035,7 @@ function namedMotionFile(path: string, raw: unknown): unknown {
  * ones, keyed by path as the glob keys them (`../../data/battlemaps/<map>.json`), and read by the same rules: a test reads a map the Map
  * Editor saves as the game will once it is in `data/battlemaps/`.
  */
-export function loadTuningData({ battleMapFiles: added = {} }: { readonly battleMapFiles?: Readonly<Record<string, unknown>> } = {}): TuningData {
+export function loadTuningData({ battleMapFiles: added = {}, roomFiles: addedRooms = {} }: { readonly battleMapFiles?: Readonly<Record<string, unknown>>; readonly roomFiles?: Readonly<Record<string, unknown>> } = {}): TuningData {
   const motions = inFileOrder(motionFiles).map(([path, raw]) => namedMotionFile(path, raw));
   // Weapon files are named after their Weapon; override folders after their Weapon's file.
   const weaponByStem = new Map<string, string>();
@@ -1078,7 +1080,19 @@ export function loadTuningData({ battleMapFiles: added = {} }: { readonly battle
     block: blockJson,
     match: matchJson,
     dungeon: dungeonJson,
-    delver: delverJson,
+    // Stage 7g: each drawn room file, named after its room, read as `delver.floor.drawnRooms` (`addedRooms`, keyed as the glob keys them, adds to or replaces them).
+    delver: {
+      ...delverJson,
+      floor: {
+        ...delverJson.floor,
+        drawnRooms: inFileOrder({ ...roomFiles, ...addedRooms }).map(([path, raw]) => {
+          const file = path.slice(path.lastIndexOf('/') + 1);
+          const name = record(raw, `data/delver/rooms/${file}`).name;
+          if (typeof name !== 'string' || `${name}.json` !== file) throw new TuningDataError(`data/delver/rooms/${file}: a room must live in <its name>.json`);
+          return raw;
+        }),
+      },
+    },
     relics: relicsJson,
     consumables: consumablesJson,
     battle: {

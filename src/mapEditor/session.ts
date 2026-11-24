@@ -30,6 +30,7 @@ import { TuningDataError } from '../tuning/validate';
 import type { RepoFile } from '../editor/session';
 import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
 import { compileMap, list, mapFileText, MapCompileError, type CompileWarning } from './compile';
+import { LAVA_DEPTH } from '../sim/delver/plan';
 import { brushesTwin, inMirrorOrder, objectivesTwin, propsTwin, turnBrush, turnObjective, turnPoint, turnProp } from './mirror';
 import { DOOR_WIDTH, enclosureTop, parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
 
@@ -342,6 +343,24 @@ export class MapEditorSession {
   level: number;
   /** Whether the top view shows and picks the Brushes of every level, or only those of `level`. */
   showAll = true;
+  /**
+   * Stage 7g's room mode: the Brushes the session never moves, resizes, turns, edits or deletes (a drawn room's Enclosure and its stub map's own), and
+   * the step (m) places snap to instead of `grid.step` (null: the grid's).
+   */
+  locked: (id: string) => boolean = () => false;
+  snapStep: number | null = null;
+  /** Stage 7g's room mode: a new Block's top (the room's ceiling, which a Block in its Enclosure must reach); null: 3 m over the level, as ever. */
+  blockTop: number | null = null;
+
+  /** Refuse an edit of a locked Brush. */
+  private unlocked(id: string): void {
+    if (this.locked(id)) throw new TuningDataError(`${id} is locked: it is the room's own (change the room's size and doorways in the Room folder)`);
+  }
+
+  /** The step (m) places snap to. */
+  private get step(): number {
+    return this.snapStep ?? this.current.grid.step;
+  }
 
   constructor(source: MapSource = blankSource()) {
     this.current = parseMapSource(source);
@@ -458,7 +477,7 @@ export class MapEditorSession {
 
   /** `v` on the fine grid, inside the field. */
   snap(v: number): number {
-    const { step } = this.current.grid;
+    const step = this.step;
     const half = this.current.size / 2;
     return Math.max(-half, Math.min(half, Math.round(v / step) * step));
   }
@@ -530,7 +549,7 @@ export class MapEditorSession {
         case 'block':
           // The Simulation stands a Block's Walls from -1 m to its top: its top is a height over 0.
           if (y + NEW_HEIGHT <= 0) throw new TuningDataError(`a Block's top is a height over 0 (its Walls stand from -1 m): draw it on a level over ${-NEW_HEIGHT} m, or draw a Platform`);
-          brush = { kind, id, rect, top: y + NEW_HEIGHT };
+          brush = { kind, id, rect, top: this.blockTop ?? y + NEW_HEIGHT };
           break;
         case 'ramp': {
           const { lo, hi } = this.rise(levels);
@@ -544,6 +563,23 @@ export class MapEditorSession {
     this.apply({ ...this.current, levels, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
     this.select(id);
     return brush;
+  }
+
+  /**
+   * Stage 7g: a lava pool, the Lava tool's: a Hole in the floor at the level being edited and the lava Hazard `LAVA_DEPTH` under it, on one rect, painted
+   * one after the other (the level under is added when the source has not got it). Returns the Hole. One undo step.
+   */
+  addLava(from: GroundPoint, to: GroundPoint): Brush {
+    let rect = this.rectOf(from, to);
+    if (rect.x0 === rect.x1 || rect.z0 === rect.z1) rect = this.rectOf(from, { x: from.x + this.step, z: from.z + this.step });
+    const y = this.level;
+    const lavaY = y - LAVA_DEPTH;
+    const levels = this.current.levels.includes(lavaY) ? this.current.levels : [...this.current.levels, lavaY].sort((p, q) => p - q);
+    const hole: Brush = { kind: 'hole', id: this.freshId('hole'), rect, y };
+    const lava: Brush = { kind: 'hazard', id: this.freshId('hazard'), rect, y: lavaY, hazard: 'lava' };
+    this.apply({ ...this.current, levels, brushes: [...this.current.brushes, hole, lava] });
+    this.select(hole.id);
+    return hole;
   }
 
   /**
@@ -580,6 +616,7 @@ export class MapEditorSession {
    * its long sides, so turning it keeps it valid. Throws TuningDataError, changing nothing, where the parser refuses the result.
    */
   replaceBrush(id: string, brush: Brush): void {
+    this.unlocked(id);
     const k = this.indexOf(id);
     const was = this.current.brushes[k]!;
     const shaped: Brush = brush.kind === 'ramp' ? { ...brush, rails: brush.rails.filter((s) => rampLongSides(brush.up).includes(s)) } : brush;
@@ -594,6 +631,7 @@ export class MapEditorSession {
 
   /** Take the Brush `id` away, and its twin with it. */
   deleteBrush(id: string): void {
+    this.unlocked(id);
     const k = this.indexOf(id);
     const t = twinOf(this.current.brushes, k);
     this.apply({ ...this.current, brushes: this.current.brushes.filter((_, i) => i !== k && i !== t) });
@@ -651,6 +689,7 @@ export class MapEditorSession {
    * midpoint. Its twin turns with it. Throws TuningDataError, changing nothing, where the parser refuses the result.
    */
   rotateBrush(id: string): void {
+    this.unlocked(id);
     const b = this.current.brushes[this.indexOf(id)]!;
     const half = this.current.size / 2;
     let next: Brush;
@@ -747,20 +786,20 @@ export class MapEditorSession {
    * TuningDataError, changing nothing, where the parser refuses the result.
    */
   moveBrush(id: string, dx: number, dz: number): void {
+    this.unlocked(id);
     this.dragging((base) => {
       const k = base.brushes.findIndex((b) => b.id === id);
       if (k < 0) throw new TuningDataError(`no Brush "${id}"`);
       const b = base.brushes[k]!;
       const r = boundsOf(b);
       const half = base.size / 2;
-      const { step } = base.grid;
       // A Brush that is its own twin stays centred: it does not move (the UI shows why).
       if (b.twin === b.id) {
         if (dx !== 0 || dz !== 0) throw new TuningDataError(`${id} is its own twin, so it stays centred: resize it, or unlink it to move it`);
         return;
       }
-      const sx = Math.max(-half - r.x0, Math.min(half - r.x1, Math.round(dx / step) * step));
-      const sz = Math.max(-half - r.z0, Math.min(half - r.z1, Math.round(dz / step) * step));
+      const sx = Math.max(-half - r.x0, Math.min(half - r.x1, Math.round(dx / this.step) * this.step));
+      const sz = Math.max(-half - r.z0, Math.min(half - r.z1, Math.round(dz / this.step) * this.step));
       this.dragTo(base, k, shifted(b, sx, sz));
     });
   }
@@ -770,6 +809,7 @@ export class MapEditorSession {
    * side across), a segment's end goes there (never onto its other end). Throws TuningDataError, changing nothing, where the parser refuses it.
    */
   resizeBrush(id: string, handle: Handle, x: number, z: number): void {
+    this.unlocked(id);
     this.dragging((base) => {
       const k = base.brushes.findIndex((b) => b.id === id);
       if (k < 0) throw new TuningDataError(`no Brush "${id}"`);
@@ -786,7 +826,7 @@ export class MapEditorSession {
         return;
       }
       if (handle === 'a' || handle === 'b') return;
-      const { step } = base.grid;
+      const step = this.step;
       let { x0, z0, x1, z1 } = b.rect;
       if (b.twin === b.id) {
         // A rectangle that is its own twin stays centred: the opposite side moves with the one dragged (at least two steps across).

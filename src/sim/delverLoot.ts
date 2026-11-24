@@ -134,7 +134,9 @@ export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuni
     for (const e of dry) if (gap2(e, x, z) < gap2(r, x, z)) r = e;
     y = plan.halls[hall]!.y;
   }
-  const pillars = hall >= 0 ? plan.halls[hall]!.pillars : [];
+  // A Hall's pillars, and (Stage 7g) a drawn room's Blocks: no spot within `DROP_MARGIN` of either.
+  const h = hall >= 0 ? plan.halls[hall]! : undefined;
+  const pillars = h ? [...h.pillars, ...(h.feature?.kind === 'room' ? h.feature.brushes.flatMap((b) => (b.kind === 'block' ? [b.rect] : [])) : [])] : [];
   // A rect narrower than twice the margin shrinks to its middle line.
   const span = (lo: number, hi: number): [number, number] => (lo + DROP_MARGIN > hi - DROP_MARGIN ? [(lo + hi) / 2, (lo + hi) / 2] : [lo + DROP_MARGIN, hi - DROP_MARGIN]);
   const [x0, x1] = span(r.x0, r.x1);

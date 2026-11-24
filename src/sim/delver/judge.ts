@@ -47,6 +47,12 @@
  * 12. `setPieceWalk` (Stage 7f, after `lavaWalk`): the field to a set-piece Hall's centre reads 1 m inside each doorway, at each Spiral landing's and Uphill landing's centre (and, by
  *     `lavaWalk`, on each arm); no Wall along a Spiral Ramp's open edge rises more than a step over it; each Lava Bridge arm is floor with lava beside it.
  *
+ * 13. `drawnRooms` (Stage 7g, plan-only, after `setPieces`): a drawn room's Hall is its frame's size, on no great hall, its Walls on odd metres, shifted at most 1 m off its lattice
+ *     point, its centre the room's centre point; every Passage leaves it by a wall its room holds a doorway on, at that doorway's height, on the doorway's line (the wall's centre less
+ *     the shift); every Brush inside the Hall and named for it. (7d's `lava` rule runs on its pools: their markers, lanes and Warband homes; 7f's `setPieces` keeps it off the Entrance and
+ *     the Treasure while another Hall could take them.)
+ * 14. `roomWalk` (Stage 7g, after `setPieceWalk`): the field to a drawn room's Hall's centre reads 1 m inside each held doorway, at its door's height.
+ *
  * Pure: no clock, so a verdict never hangs on a machine's speed.
  */
 import { MapCompileError } from '../../mapEditor/compile';
@@ -118,6 +124,48 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   out.push(...judgeFeatures(plan));
   out.push(...judgeLava(plan, battle));
   out.push(...judgeSetPieces(plan));
+  out.push(...judgeRooms(plan));
+  return out;
+}
+
+/**
+ * The `drawnRooms` rule (Stage 7g, see the module's rule 13): what a plan's drawn rooms must keep, one line per failure. A room on the Entrance, a Rest or the Treasure, or on a
+ * kind its file does not name, is the plan's fallback (no other Hall could take that kind) and passes here.
+ */
+function judgeRooms(plan: FloorPlan): string[] {
+  const out: string[] = [];
+  const ends = endsOf(plan);
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  for (const [k, h] of plan.halls.entries()) {
+    const f = h.feature;
+    if (f?.kind !== 'room') continue;
+    const r = h.rect;
+    const at = `drawnRooms: ${h.id}'s room ${f.name}`;
+    if (!eq(r.x1 - r.x0, 2 * f.half[0]) || !eq(r.z1 - r.z0, 2 * f.half[1])) out.push(`${at} is ${m(2 * f.half[0])} x ${m(2 * f.half[1])} m, its Hall ${m(r.x1 - r.x0)} x ${m(r.z1 - r.z0)} m`);
+    if (h.great) out.push(`${at} is on a great hall`);
+    if (!f.shift.every((v) => v === -1 || v === 0 || v === 1)) out.push(`${at} is shifted (${f.shift.join(', ')}), at most 1 m wanted`);
+    if (![r.x0, r.x1, r.z0, r.z1].every(odd)) out.push(`${at} has a Wall on the field's dots`);
+    const cx = (r.x0 + r.x1) / 2;
+    const cz = (r.z0 + r.z1) / 2;
+    if (!eq(h.cx, f.centre[0]) || !eq(h.cz, f.centre[1])) out.push(`${at}'s Hall centre (${m(h.cx)}, ${m(h.cz)}) is not the room's centre point (${m(f.centre[0])}, ${m(f.centre[1])})`);
+    for (const e of ends) {
+      if (e.hall !== k) continue;
+      const lv = f.doorways[e.wall];
+      if (lv === undefined) {
+        out.push(`drawnRooms: ${e.p.id} leaves ${h.id} by its ${e.wall} wall, which its room ${f.name} holds no doorway on`);
+        continue;
+      }
+      if (!eq(e.y, h.y + lv * LEVEL_RISE)) out.push(`drawnRooms: ${e.p.id}'s door into ${h.id} is at ${m(e.y)}, its room's ${e.wall} doorway at ${m(h.y + lv * LEVEL_RISE)}`);
+      const [a, b] = e.wall === 'n' || e.wall === 's' ? [e.q.rect.x0, e.q.rect.x1] : [e.q.rect.z0, e.q.rect.z1];
+      const want = e.wall === 'n' || e.wall === 's' ? cx - f.shift[0] : cz - f.shift[1];
+      if (!eq((a + b) / 2, want)) out.push(`drawnRooms: ${e.p.id}'s door into ${h.id} is at ${m((a + b) / 2)} along its ${e.wall} wall, its doorway at ${m(want)}`);
+    }
+    for (const br of f.brushes) {
+      const q = br.kind === 'rail' || br.kind === 'wall' ? { x0: Math.min(br.a.x, br.b.x), z0: Math.min(br.a.z, br.b.z), x1: Math.max(br.a.x, br.b.x), z1: Math.max(br.a.z, br.b.z) } : br.rect;
+      if (!inside(q, r)) out.push(`${at}'s ${br.id} is not inside ${h.id}`);
+      if (!br.id.startsWith(`${h.id}-`)) out.push(`${at}'s ${br.id} is not named for ${h.id}`);
+    }
+  }
   return out;
 }
 
@@ -131,7 +179,7 @@ function judgeSetPieces(plan: FloorPlan): string[] {
   const halls = plan.halls;
   const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
   const ends = endsOf(plan);
-  const vertical = (h: DelverHall) => h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral';
+  const vertical = (h: DelverHall) => h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral' || h.feature?.kind === 'room';
   const links = halls.map((_, k) => ends.filter((e) => e.hall === k).length);
   const onMain = new Set(plan.mainPath);
   const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
@@ -345,6 +393,8 @@ function floorAt(h: DelverHall, side: Side): number {
     const n = spiralOrder(f.base, f.turn).indexOf(side);
     return n <= 0 ? h.y : f.landings[2 * (n - 1)]!.y;
   }
+  // Stage 7g: a drawn room's doorway floor stands at its level.
+  if (f?.kind === 'room') return h.y + (f.doorways[side] ?? 0) * LEVEL_RISE;
   if (f?.kind === 'split') {
     const end = f.axis === 'x' ? (side === 'w' ? 0 : side === 'e' ? 1 : -1) : side === 's' ? 0 : side === 'n' ? 1 : -1;
     const tier = end < 0 ? f.tiers.find((t) => t.level === h.level) : f.tiers[end === 0 ? 0 : f.tiers.length - 1];
@@ -364,7 +414,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
   for (const [k, h] of halls.entries()) {
     const f = h.feature;
     // An Uphill and a Spiral are set pieces (Stage 7f), judged by `setPieces`.
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     const plain = h.shape === 'rect' && !h.gallery && h.solids.length === 0 && h.pillars.length === 0;
     if (f.kind === 'dais' ? !plain : !(plain && h.cells.length === 1 && !h.great)) out.push(`features: ${h.id}'s ${f.kind} is not on a ${f.kind === 'dais' ? '' : 'one-cell '}rect Hall without a gallery`);
     // Each part's rect, named, for the odd-metre rule.
@@ -444,7 +494,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const floor = floorAt(h, wall);
     if (!eq(y, floor)) out.push(`features: ${p.id}'s door into ${h.id} is at ${m(y)}, its floor there at ${m(floor)}`);
     const f = h.feature;
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     const lane = doorLane(q.rect, side);
     f.steps.forEach((s, n) => {
       if (overlap(lane, s.rect)) out.push(`features: ${p.id}'s doorway into ${h.id} is blocked by ${stepId(h, n)}`);
@@ -462,7 +512,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const shrunk = (q: Rect): boolean => mk.x >= q.x0 + 1 && mk.x <= q.x1 - 1 && mk.z >= q.z0 + 1 && mk.z <= q.z1 - 1;
     const at = (y: number) => eq(mk.y, y);
     let [ok, what] = [shrunk(h.rect), 'wall'];
-    if (f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     if (f.kind === 'split') [ok, what] = [f.tiers.some((t) => at(t.y) && shrunk(t.rect)), 'tier edge'];
     else if (f.kind === 'pit' && at(h.y)) [ok, what] = [shrunk(f.pit), 'pit edge'];
     else if (f.kind === 'dais' && at(f.y)) [ok, what] = [shrunk(f.rect), 'dais edge'];
@@ -524,8 +574,10 @@ function judgeLava(plan: FloorPlan, battle: Pick<BattleTuning, 'squad'> | undefi
     if (!lava) continue;
     const r = h.rect;
     const may = h.kind === 'Fight' || h.kind === 'Empty' || h.kind === 'Boss' || h.kind === 'Stairs';
-    if (!may || h.shape !== 'rect' || h.gallery || h.feature || h.solids.length > 0 || h.pillars.length > 0) {
-      out.push(`lava: ${h.id}'s lava is not on a plain Fight, Empty, Boss or Stairs Hall`);
+    // Stage 7g: a drawn room's lava is its own pools, on its Hall whatever its kind (the room's kinds are the `drawnRooms` rule's).
+    const drawn = lava.kind === 'room';
+    if (drawn ? h.feature?.kind !== 'room' : !may || h.shape !== 'rect' || h.gallery || h.feature || h.solids.length > 0 || h.pillars.length > 0) {
+      out.push(drawn ? `lava: ${h.id}'s room lava is not in a drawn room` : `lava: ${h.id}'s lava is not on a plain Fight, Empty, Boss or Stairs Hall`);
       continue;
     }
     const named = lava.rects.map((rect, n) => ({ id: lavaId(h, n), rect }));
@@ -575,8 +627,8 @@ function judgeLava(plan: FloorPlan, battle: Pick<BattleTuning, 'squad'> | undefi
         const mid = d === 'n' ? [(r.x0 + r.x1) / 2, r.z1 - LAVA_CENTRE] : d === 's' ? [(r.x0 + r.x1) / 2, r.z0 + LAVA_CENTRE] : d === 'e' ? [r.x1 - LAVA_CENTRE, (r.z0 + r.z1) / 2] : [r.x0 + LAVA_CENTRE, (r.z0 + r.z1) / 2];
         if (!eq(h.cx, mid[0]!) || !eq(h.cz, mid[1]!)) out.push(`lava: ${h.id}'s centre is not in the middle of its pit's ${d} band`);
       }
-    } else if (lava.kind === 'cross') {
-      // A Lava Bridge's own geometry is the `setPieces` rule's (Stage 7f).
+    } else if (lava.kind === 'cross' || drawn) {
+      // A Lava Bridge's own geometry is the `setPieces` rule's (Stage 7f), a drawn room's the `drawnRooms` rule's (Stage 7g).
     } else if (lava.kind === 'trough') {
       const [w0, w1] = lava.walls;
       const opposite: Record<Side, Side> = { n: 's', s: 'n', e: 'w', w: 'e' };
@@ -787,7 +839,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   halls.forEach((h, k) => {
     const f = h.feature;
     // An Uphill's and a Spiral's floors are `setPieceWalk`'s (Stage 7f).
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') return;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') return;
     const mid = (r: Rect) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
     const parts = f.kind === 'split' ? f.tiers.map((t, n) => ({ name: `tier ${n}`, ...mid(t.rect), y: t.y }))
       : f.kind === 'pit' ? [{ name: 'floor', ...mid(f.pit), y: h.y }, { name: 'rim', ...mid(f.rims[0]!), y: f.rim }]
@@ -901,6 +953,19 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
         };
         if (!beside.some(([x, z]) => lavaAt(x!, z!))) out.push(`setPieceWalk: ${h.id}'s arm ${n} has no lava beside it`);
       });
+    }
+  });
+  // Stage 7g: each drawn room. The field to the Hall's centre reads 1 m inside each held doorway, at its door's height.
+  halls.forEach((h, k) => {
+    if (h.feature?.kind !== 'room') return;
+    const r = h.rect;
+    for (const e of ends) {
+      if (e.hall !== k) continue;
+      const [a, b] = e.wall === 'n' || e.wall === 's' ? [e.q.rect.x0, e.q.rect.x1] : [e.q.rect.z0, e.q.rect.z1];
+      const line = (a + b) / 2;
+      const [x, z] = e.wall === 'n' ? [line, r.z1 - 1] : e.wall === 's' ? [line, r.z0 + 1] : e.wall === 'e' ? [r.x1 - 1, line] : [r.x0 + 1, line];
+      const s = floorNear(field.arena, x, z, e.y);
+      if (s < 0 || fieldAt(fields, to(k), x, z, s) < 0) out.push(`roomWalk: ${e.p.id}'s doorway into ${h.id} (room ${h.feature.name}) does not reach its centre`);
     }
   });
   return out;

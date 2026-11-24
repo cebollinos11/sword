@@ -34,7 +34,8 @@ import type { NavProbe } from '../navProbe';
 import type { WalkLeg } from '../navWalk';
 
 /** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective or a prop. */
-export type Tool = 'select' | BrushKind | 'objective' | 'prop';
+/** `lava` (Stage 7g): a lava pool, a Hole and its lava Hazard together (`addLava`). */
+export type Tool = 'select' | BrushKind | 'objective' | 'prop' | 'lava';
 
 /** A prop's drawn size (px). */
 const PROP_PX = 6;
@@ -371,7 +372,8 @@ export class TopView {
     } else if (g.kind === 'draw') {
       const p = this.toGround(e.clientX, e.clientY);
       const tool = this.tool();
-      if (tool !== 'select' && tool !== 'objective' && tool !== 'prop') this.edit(() => this.session.addBrush(tool, g.start, p));
+      if (tool === 'lava') this.edit(() => this.session.addLava(g.start, p));
+      else if (tool !== 'select' && tool !== 'objective' && tool !== 'prop') this.edit(() => this.session.addBrush(tool, g.start, p));
     }
     this.redraw();
   }
