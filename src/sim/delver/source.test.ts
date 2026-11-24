@@ -3,7 +3,8 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, highId, holeId, isFloorName, landingId, lavaId, onlySetPiece, pieceId, planFloor, floorSource, stepId, type BuiltFloor, type DelverFloor, type DelverHall, type DelverPassage, type SetPieceKind } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, fullFloors, noLava, noSetPieces, plainHalls } from './flat.testdata';
+import { flatHalls, flatRooms, fullFloors, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
+import { withFixtureRoom } from './rooms.testdata';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { deadly, groundBelow } from '../arena';
 import { groundNear, trace, walled, walkCheck } from '../levels';
@@ -656,6 +657,83 @@ describe('a Floor\'s source with set pieces (Stage 7f)', () => {
     for (const [seed, floor] of [[1, 1], [1, 7], [4, 7], [3, 1]] as const) {
       const off = planOf(noSetPieces(onlySetPiece(bundled, 'spiral')), seed, floor);
       expect(JSON.stringify(floorSource(off, bundled.battle.field.size))).toBe(JSON.stringify(floorSource(planOf(noSetPieces(bundled), seed, floor), bundled.battle.field.size)));
+    }
+  });
+});
+
+describe('a Floor\'s source with drawn rooms (Stage 7g)', () => {
+  const bundled = loadTuningData();
+  const on = onlySetPiece(withFixtureRoom(noSetPieces(bundled)), 'room');
+  const planOf = (tuning: typeof bundled, seed: number, floor: number) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+  // The first Floors 7 (seeds 1 up) that hold the fixture room, until every frame is among them.
+  const plans: ReturnType<typeof planOf>[] = [];
+  const frames = new Set<number>();
+  for (let seed = 1; frames.size < 8 && seed < 60; seed++) {
+    const p = planOf(on, seed, 7);
+    const fs = p.halls.flatMap((h) => (h.feature?.kind === 'room' ? [h.feature.frame] : []));
+    if (fs.some((f) => !frames.has(f))) {
+      plans.push(p);
+      for (const f of fs) frames.add(f);
+    }
+  }
+  let built: BuiltFloor[];
+  beforeAll(() => {
+    built = plans.map((p) => buildFloor(on, p));
+  }, 120_000);
+  const rooms = (b: BuiltFloor) => b.plan.halls.flatMap((h) => (h.feature?.kind === 'room' ? [{ h, f: h.feature }] : []));
+  const lv = bundled.battle.levels;
+
+  it('holds the fixture in every frame, some above level 0', () => {
+    expect(frames.size).toBe(8);
+    expect(built.some((b) => rooms(b).some(({ h }) => h.y > 0))).toBe(true);
+  });
+
+  it('writes the room\'s Brushes as the plan placed them, together, after the Hall\'s other features; `levels` holds their heights; no 7d lava Brush for its pools', () => {
+    for (const b of built) {
+      const ids = b.source.brushes.map((br) => br.id);
+      for (const { h, f } of rooms(b)) {
+        const at = ids.indexOf(f.brushes[0]!.id);
+        expect(b.source.brushes.slice(at, at + f.brushes.length)).toEqual(f.brushes);
+        expect(ids.filter((id) => id === holeId(h, 0) || id === lavaId(h, 0))).toEqual([]);
+        expect(b.source.levels).toEqual(expect.arrayContaining([h.y, h.y + 2, h.y - LAVA_DEPTH, h.top]));
+        expect(f.brushes.find((br) => br.kind === 'block')).toMatchObject({ top: h.top });
+        expect(b.source.brushes.find((br) => br.id === h.id)).toMatchObject({ kind: 'enclosure', y: h.y });
+      }
+    }
+  });
+
+  it('compiles (its walk check included), passes `walkCheck`, and puts no Wall on a 2 m field cell centre', () => {
+    const at2 = { ...bundled, battle: { ...bundled.battle, crowd: { ...bundled.battle.crowd, flowCell: 2 } } };
+    for (const b of built) {
+      expect(walkCheck(b.field.arena, lv), b.source.name).toBeNull();
+      expect(checkMap(b.source, at2).issues.filter((i) => i.kind === 'centre'), b.source.name).toEqual([]);
+    }
+  }, 120_000);
+
+  it('lets a Soldier walk from the room\'s centre up its Ramp onto its ledge, and puts lava under its pool', () => {
+    for (const b of built)
+      for (const { h, f } of rooms(b)) {
+        const arena = b.field.arena;
+        const st = f.steps[0]!;
+        const foot = st.up === 'n' ? { x: (st.rect.x0 + st.rect.x1) / 2, z: st.rect.z0 + 0.5 } : st.up === 's' ? { x: (st.rect.x0 + st.rect.x1) / 2, z: st.rect.z1 - 0.5 } : st.up === 'e' ? { x: st.rect.x0 + 0.5, z: (st.rect.z0 + st.rect.z1) / 2 } : { x: st.rect.x1 - 0.5, z: (st.rect.z0 + st.rect.z1) / 2 };
+        const top = st.up === 'n' ? { x: foot.x, z: st.rect.z1 + 1 } : st.up === 's' ? { x: foot.x, z: st.rect.z0 - 1 } : st.up === 'e' ? { x: st.rect.x1 + 1, z: foot.z } : { x: st.rect.x0 - 1, z: foot.z };
+        let s = groundNear(arena, lv, h.cx, h.cz, h.y, false);
+        expect(s).toBeGreaterThanOrEqual(0);
+        s = trace(arena, lv, s, h.cx, h.cz, foot.x, foot.z, false);
+        expect(arena.walk[s]?.id, `${b.source.name} ${h.id}`).toBe(`WALK_${h.id}-up`);
+        s = trace(arena, lv, s, foot.x, foot.z, top.x, top.z, false);
+        expect(arena.walk[s]?.id ?? 'none').toMatch(new RegExp(`^WALK_${h.id}-ledge`));
+        const pool = f.lava[0]!;
+        const g = groundBelow(arena, (pool.x0 + pool.x1) / 2, (pool.z0 + pool.z1) / 2, h.y);
+        expect(g && deadly(arena.walk[g.surface]!)).toBe('Lava');
+        expect(g!.y).toBe(h.y - LAVA_DEPTH);
+      }
+  });
+
+  it('writes today\'s source, byte for byte, with no room', () => {
+    for (const [seed, floor] of [[1, 1], [1, 7], [4, 7]] as const) {
+      expect(JSON.stringify(floorSource(planOf(noRooms(withFixtureRoom(bundled)), seed, floor), bundled.battle.field.size))).toBe(JSON.stringify(floorSource(planOf(noRooms(bundled), seed, floor), bundled.battle.field.size)));
     }
   });
 });
