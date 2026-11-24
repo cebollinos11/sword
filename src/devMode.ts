@@ -63,6 +63,11 @@ export function devDelverFloor(search: string = location.search, hash: string = 
   return seed === null || floor === null ? null : { seed, floor };
 }
 
+/** Dev mode only: `aiwalk=1` in the Map Editor walks the AI over the map it opens (with `delverSeed`, the Floor) once it is checked. */
+export function devAiWalk(search: string = location.search, hash: string = location.hash): boolean {
+  return devMode(search, hash) && query(search, hash).get('aiwalk') === '1';
+}
+
 /**
  * Dev mode only (docs/plans/delver.md, Stage 4): `delverStart=F` (a whole number from 1) starts a solo Run on Floor F instead of Floor 1
  * (`MatchOptions.delverStart`; the sim refuses one past the last Floor). Nothing without `dev=1` or with a bad value.

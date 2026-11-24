@@ -40,12 +40,14 @@ import { maxArmySize, type TuningData } from '../../tuning';
 import { saveGlbFile, saveJsonFile } from '../../editor/save';
 import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
-import { delverFloor, describeFloor } from '../../sim/delver';
-import { isFloorName } from '../../sim/delver/source';
-import { devDelverFloor } from '../../devMode';
+import { delverFloor, describeFloor, type DelverFloor } from '../../sim/delver';
+import { floorName, isFloorName } from '../../sim/delver/source';
+import { devAiWalk, devDelverFloor } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { compileDraft, MapCompileError, type DraftMap } from '../compile';
 import { draftTuning, type Draft } from '../playtest';
+import { floorTargets, mapTargets, navIssues, probeRoutes, type NavIssue, type NavProbe } from '../navProbe';
+import { AiWalk, walkIssues } from '../navWalk';
 import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../quickCheck';
 import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
@@ -53,7 +55,7 @@ import { fortPortSource } from '../fortPort.testdata';
 import { blankSource, boundsOf, brushLevels, isSegment, levelStep, MapEditorSession, rampLongSides, type Marker } from '../session';
 import { BATTLE_SKIES, BRUSH_KINDS, DOOR_WIDTH, enclosureTop, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type GroundPoint, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
 import { materialOf } from '../look';
-import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
+import { EDGE_COLOURS, EDGE_LABELS, LEG_COLOURS, LINK_COLOURS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
 import { closeMenu, showMenu, type MenuItem } from './contextMenu';
 import { hazardSwatch, loadSwatches, materialSwatch, pictureGrid, PROP_ICONS, TOOL_ICONS, type PictureGrid } from './icons';
@@ -233,8 +235,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     delverFloor: 1,
     look3d: true,
     mirror: false,
+    walkSheathed: true,
+    walkOnly: false,
   };
-  const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
+  const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true, navmesh: false, routes: false, walk: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
   let syncing = false;
   /** The toolbar, once made (it reads the panel's state, so it follows every refresh). */
@@ -329,6 +333,43 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       row.onclick = () => focusIssue(issue);
       list.appendChild(row);
     });
+    // The AI's (navProbe.ts, navWalk.ts): the probe's while its overlays are on, the last walk's.
+    const ai = [...(overlays.navmesh || overlays.routes ? (probed?.of === c.source ? probed.issues : []) : []), ...(walked?.of === c.source ? walked.issues : [])];
+    if (!ai.length && !(walked?.of === c.source && walked.walk.done) && probed?.of !== c.source) return;
+    const aiHead = document.createElement('div');
+    aiHead.style.cssText = 'padding:4px 8px;font-weight:600;border-top:1px solid #333;border-bottom:1px solid #333';
+    const aiCount = (v: NavIssue['severity']) => ai.filter((i) => i.severity === v).length;
+    aiHead.textContent = ai.length === 0 ? '✓ AI: no route or walk problem' : `AI: ${aiCount('error')} errors · ${aiCount('warning')} warnings · ${aiCount('note')} notes`;
+    aiHead.style.color = aiCount('error') ? '#ff6b6b' : aiCount('warning') ? '#ffc04d' : '#7fdc8f';
+    list.appendChild(aiHead);
+    for (const issue of ai) {
+      const row = document.createElement('div');
+      const [mark, colour] = SEVERITY[issue.severity];
+      row.style.cssText = 'padding:3px 8px;cursor:pointer;display:flex;gap:6px';
+      row.title = 'Frame it (at its level)';
+      row.onmouseenter = () => (row.style.background = 'rgba(255,255,255,0.08)');
+      row.onmouseleave = () => (row.style.background = '');
+      const m = document.createElement('span');
+      m.textContent = mark;
+      m.style.cssText = `color:${colour};font-weight:700;width:10px;flex:none`;
+      const t = document.createElement('span');
+      t.textContent = issue.message;
+      row.append(m, t);
+      row.onclick = () => focusPoint(issue);
+      list.appendChild(row);
+    }
+  };
+  /** Frame an AI issue's point in both views, editing the level at or just under its height. */
+  const focusPoint = (issue: NavIssue) => {
+    const { x, z } = issue.at;
+    if (issue.y !== undefined) {
+      const under = session.source.levels.filter((y) => y <= issue.y! + 0.5);
+      if (under.length) session.level = under[under.length - 1]!;
+    }
+    const rect = { x0: x - 8, z0: z - 8, x1: x + 8, z1: z + 8 };
+    view.frameRect(rect);
+    view3d.focus(rect, session.level, session.source.name);
+    rebuild();
   };
   /** Select an issue's first Brush (at its level), outline all of them, and frame them in both views. */
   const focusIssue = (issue: MapIssue) => {
@@ -374,6 +415,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view.overlays = overlays;
     view.clearance = overlays.clearance ? clearance : null;
     view.levels = tuning.battle.levels;
+    view.nav = checks ? { probe: probed?.of === checks.source ? probed.probe : null, legs: walked?.of === checks.source ? walked.walk.legs : [] } : null;
     view.redraw();
     if (ui.view !== 'top' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels, ui.look3d ? lookModel(checks) : null);
   };
@@ -389,13 +431,21 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     showIssues();
     drawChecks();
     refreshPane();
+    if (walked && walked.of !== checks.source) stopWalk('the map changed under it');
+    // `?aiwalk=1`: the AI walks the map asked for once it is checked.
+    if (walkWhenChecked && checks.ok && (!walkWhenChecked.name || checks.source.name === walkWhenChecked.name)) {
+      walkWhenChecked = null;
+      walkAi();
+    }
     // The fields' clearance (when its overlay is on) waits for the edits to pause: on a big map it is the slowest thing here.
     window.clearTimeout(measureTimer);
     const measured = checks;
-    if (overlays.clearance)
+    if (overlays.clearance || overlays.navmesh || overlays.routes)
       measureTimer = window.setTimeout(() => {
         if (checks !== measured) return;
         buildClearance();
+        buildProbe();
+        showIssues();
         costLine();
         drawChecks();
         refreshPane();
@@ -411,6 +461,82 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     navFor = checks;
     costLine();
     refreshPane();
+  };
+  // --- The AI: the navmesh probe and the AI walk (`navProbe.ts`, `navWalk.ts`) ---
+  /** The Floor Open Delver Floor built: its plan's markers are the AI's targets (the source carries only D and E, for the eye). */
+  let openFloor: DelverFloor | null = null;
+  /** The probe of a source's draft, and the AI walk over one (running or done), each with what it found. */
+  let probed: { of: MapChecks['source']; probe: NavProbe; issues: NavIssue[] } | null = null;
+  let walked: { of: MapChecks['source']; walk: AiWalk; issues: NavIssue[] } | null = null;
+  let walkTimer = 0;
+  /** `?aiwalk=1`: walk the AI once the map asked for (a Floor's name, or any) is checked. */
+  let walkWhenChecked: { name: string | null } | null = null;
+  /** The start and targets on `c`'s draft: a Floor's Entrance spawn, Hall centres and markers; else Team 0's Base, the Objectives and Team 1's Base. */
+  const aiTargets = (c: MapChecks) => {
+    const d = c.draft!;
+    const name = c.source.name;
+    const asked = /^delver(\d+)s(\d+)$/.exec(name);
+    if (asked && isFloorName(name)) {
+      if (openFloor?.source.name !== name) {
+        try {
+          openFloor = delverFloor(tuning, Number(asked[2]), Number(asked[1]));
+        } catch {
+          openFloor = null;
+        }
+      }
+      if (openFloor) return floorTargets(openFloor.plan);
+    }
+    return mapTargets(d.map, d.arena);
+  };
+  /** The navmesh probe of the checks' draft, when its overlays want it and it is not built for this source yet. */
+  const buildProbe = () => {
+    const c = checks;
+    if (!(overlays.navmesh || overlays.routes) || !c?.ok || !c.draft || probed?.of === c.source) return;
+    const { start, targets } = aiTargets(c);
+    const probe = probeRoutes(c.draft.arena, tuning, start, targets);
+    probed = { of: c.source, probe, issues: navIssues(c.draft.arena, tuning, probe, c.reach) };
+  };
+  const stopWalk = (why?: string) => {
+    window.clearTimeout(walkTimer);
+    const running = walkTimer !== 0;
+    walkTimer = 0;
+    if (running && why) say(`AI walk stopped: ${why}`);
+    if (walked && checks?.source !== walked.of) walked = null;
+  };
+  /** Walk one AI Fighter from the start to every target, nearest first, a chunk of Ticks a task so the editor stays live. */
+  const walkAi = () => {
+    const c = checks;
+    if (!c?.ok || !c.draft) return say('The AI walks a map Save accepts: fix the errors first');
+    stopWalk();
+    const { start, targets } = aiTargets(c);
+    const walk = new AiWalk(tuning, c.draft.arena, start, targets, { sheathed: ui.walkSheathed, walkOnly: ui.walkOnly });
+    const run = { of: c.source, walk, issues: [] as NavIssue[] };
+    walked = run;
+    overlays.walk = true;
+    const t0 = performance.now();
+    let shown = -1;
+    const chunk = () => {
+      if (walked !== run) return;
+      const done = walk.step(1200);
+      const { done: n, of } = walk.progress;
+      if (n !== shown) {
+        shown = n;
+        run.issues = walkIssues(walk.legs);
+        showIssues();
+      }
+      drawChecks();
+      if (!done) {
+        say(`AI walk: leg ${n + 1} of ${of}…`);
+        walkTimer = window.setTimeout(chunk, 0);
+        return;
+      }
+      walkTimer = 0;
+      const bad = walk.legs.filter((l) => l.outcome !== 'arrived').length;
+      say(`AI walk: ${of} legs, ${bad ? `${bad} did not arrive (the list under the view)` : 'every one arrived'}, in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
+      refreshPane();
+    };
+    say('AI walk: starting…');
+    walkTimer = window.setTimeout(chunk, 0);
   };
   /** Check the source again a moment after it changes (each edit restarts the wait, so a drag checks once it rests). */
   const scheduleChecks = () => {
@@ -530,6 +656,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     setTimeout(() => {
       try {
         const f = delverFloor(tuning, seed >>> 0, floor);
+        openFloor = f;
         openRaw(JSON.parse(JSON.stringify(f.source)), describeFloor(f));
       } catch (e) {
         say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
@@ -1080,6 +1207,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     // The edges' runs are worked out only while their overlay is on.
     if (overlays.edges && checks?.draft && checks.edges.length === 0) return runChecks();
     buildClearance();
+    buildProbe();
+    showIssues();
     costLine();
     drawChecks();
     refreshPane();
@@ -1089,6 +1218,13 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   for (const k of EDGE_KINDS) checksFolder.addBinding(overlays.edgeKinds, k, { label: `  ${EDGE_LABELS[k]}` }).on('change', overlayChanged);
   checksFolder.addBinding(overlays, 'clearance', { label: 'clearance' }).on('change', overlayChanged);
   checksFolder.addBinding(overlays, 'centres', { label: 'field cell centres' }).on('change', overlayChanged);
+  // The Fighters' AI (an ally, the Delver pilot, a promoted enemy): the navmesh it paths on, its routes, and a real walk over them.
+  checksFolder.addBinding(overlays, 'navmesh', { label: 'AI navmesh' }).on('change', overlayChanged);
+  checksFolder.addBinding(overlays, 'routes', { label: 'AI routes' }).on('change', overlayChanged);
+  checksFolder.addBinding(overlays, 'walk', { label: 'AI walk traces' }).on('change', overlayChanged);
+  checksFolder.addBinding(ui, 'walkSheathed', { label: 'walk Sheathed (run)' });
+  checksFolder.addBinding(ui, 'walkOnly', { label: 'walk only (no Jumps)' });
+  checksFolder.addButton({ title: 'Walk the AI (every target)' }).on('click', walkAi);
   checksFolder.addBinding(ui, 'cost', { readonly: true, multiline: true, rows: 5, label: 'cost' });
   checksFolder.addButton({ title: 'Measure navmesh build' }).on('click', measureNavmesh);
   const legend = document.createElement('div');
@@ -1099,6 +1235,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     `edges: ${EDGE_KINDS.map((k) => swatch(EDGE_COLOURS[k], k)).join('')}`,
     `clearance (files a Formation fits): ${swatch('#ff3b3b', '1')}${swatch('#ffb03f', '3')}${swatch('#5fc050', '6+')}${swatch('#4a78c8', 'open')}`,
     `centres: ${swatch('#ff3b3b', 'a Wall cuts the node off')}`,
+    `AI navmesh: ${swatch('#3fbf5f', 'reached')}${swatch('#ff3b3b', 'unreached')}${swatch('#ff9a2f', 'no way back')}${swatch(LINK_COLOURS.jump, 'jump only / jump')}${swatch(LINK_COLOURS.shortcut, 'shortcut')}${swatch(LINK_COLOURS.drop, 'drop')}`,
+    `AI routes: ${swatch(LINK_COLOURS.route, 'route')}${swatch(LINK_COLOURS.noRoute, '✕ none')}${swatch('#ff9a2f', '✕ no way back')}`,
+    `AI walk: ${swatch(LEG_COLOURS.arrived, 'arrived')}${swatch(LEG_COLOURS.slow, 'slow')}${swatch(LEG_COLOURS.stuck, 'stuck')}${swatch(LEG_COLOURS.fell, 'died')}`,
   ].join('<br>');
   checksFolder.element.appendChild(legend);
 
@@ -1503,6 +1642,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   void loadSwatches().then(() => materialGrid?.refresh());
   // `?dev=1&delverSeed=S&delverFloor=F`: that Floor opens at once.
   const asked = devDelverFloor();
+  if (devAiWalk()) walkWhenChecked = { name: asked ? floorName(asked.seed, asked.floor) : null };
   if (asked) {
     ui.delverSeed = asked.seed;
     ui.delverFloor = asked.floor;

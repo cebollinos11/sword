@@ -82,6 +82,13 @@ Since the Dungeon plan, three things exist that make this possible:
 - **AI allies** (`allyAi.ts`): follow the nearest Player, as after a Clear today, and fight what the Bubble promotes. They walk to the Stairs only once no Player lives.
 - **Render**: the Floor's look comes from `mapModel`, as Map Editor maps do. Fog of war belongs on the minimap and the Floor Map, plus perhaps dimming unrevealed Halls in the world (open question 6).
 
+## Testing the generator (agreed 2026-11-24)
+Work on the Floor generator (`src/sim/delver/`: the plan, the source, the judge) is tested in the Map Editor and with the AI check, **not by playing a Run**. Playing a Run was the old loop, and it is much slower.
+- **Look at a Floor**: `npm run dev`, open `/sword/#/mapeditor?dev=1&delverSeed=S&delverFloor=F` (or File, Delver seed and floor, Open Delver Floor). The checks list the Soldiers' problems (reachability, edges, clearance, cell centres).
+- **Check the AI on it**: add `&aiwalk=1`, or press **Walk the AI** in the Checks folder, and switch on **AI navmesh** and **AI routes**. The AI's problems are listed under the map's, and the traces show where a leg stuck, was slow or died (`docs/plans/map-editor.md`, "the AI check").
+- **Soak many Floors after a change**: `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` (add `--drawn`, `--walk-only` or `--difficulty Beginner` to vary the AI). It exits 1 on a problem and prints an editor link for each Floor that has one; open the link to see it.
+- The judge's soak (`src/sim/delver/delverGen.slow.test.ts`) and the tests stay as they are. Play a Run only to judge what the editor cannot show: how a Floor feels, fights and Warbands.
+
 ## Stages
 Run each Stage with `docs/plans/delver-prompt.md`: an Opus session designs the Stage (a `#### Design` section under it) and Sonnet subagents write the code. A Stage's **Model** line says how much design it needs from the orchestrator. Each Stage is one chat, solo and offline until Stage 8. Determinism tests run from Stage 1: same seed, same bytes; whole Floors hashed in slow tests.
 

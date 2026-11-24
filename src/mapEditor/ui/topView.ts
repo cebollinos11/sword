@@ -29,7 +29,9 @@ import type { ClearanceNode, MapChecks } from '../checks';
 import { boundsOf, brushesAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, propsOf, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
 import type { Brush, BrushKind, GroundPoint, MapSource, PropKind, Rect } from '../source';
 import { PROP_MARKS } from './icons';
-import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
+import { clearanceColour, EDGE_COLOURS, LEG_COLOURS, LINK_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
+import type { NavProbe } from '../navProbe';
+import type { WalkLeg } from '../navWalk';
 
 /** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective or a prop. */
 export type Tool = 'select' | BrushKind | 'objective' | 'prop';
@@ -86,6 +88,8 @@ export class TopView {
   checks: MapChecks | null = null;
   overlays: Overlays | null = null;
   clearance: readonly ClearanceNode[] | null = null;
+  /** The AI's navmesh probe of the checks' draft, and the last AI walk on it, for the navmesh, routes and walk overlays. */
+  nav: { readonly probe: NavProbe | null; readonly legs: readonly WalkLeg[] } | null = null;
   levels: LevelsTuning | null = null;
   /** The Battle's capture circles, to draw each Objective's. */
   objectiveRadii: Pick<ObjectivesTuning, 'radius' | 'spawnRadius'> | null = null;
@@ -577,6 +581,7 @@ export class TopView {
       }
       ctx.lineCap = 'butt';
     }
+    this.drawNav(span, order, walk);
     if (on.centres) {
       const { cell, layered, hits } = checks.centres;
       const half = checks.source.size / 2;
@@ -592,6 +597,110 @@ export class TopView {
         ctx.beginPath();
         ctx.arc(this.sx(h.x), this.sy(h.z), 3.5, 0, 2 * Math.PI);
         ctx.fill();
+      }
+    }
+  }
+
+  /** The AI overlays (`navProbe.ts`, `navWalk.ts`): the navmesh's reach and Links, the routes, the walk's traces. Off the level shown, faint. */
+  private drawNav(span: readonly { lo: number; hi: number }[], order: readonly number[], walk: readonly { points: readonly { x: number; z: number }[] }[]): void {
+    const { ctx } = this;
+    const on = this.overlays!;
+    const nav = this.nav;
+    if (!nav) return;
+    const probe = nav.probe;
+    const alphaAt = (y: number) => (this.shownAt(y, y) ? 1 : 0.18);
+    const line = (pts: readonly { x: number; z: number; y: number }[], colour: string, width: number) => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = width;
+      for (let k = 1; k < pts.length; k++) {
+        const a = pts[k - 1]!;
+        const b = pts[k]!;
+        ctx.globalAlpha = Math.max(alphaAt(a.y), alphaAt(b.y));
+        ctx.beginPath();
+        ctx.moveTo(this.sx(a.x), this.sy(a.z));
+        ctx.lineTo(this.sx(b.x), this.sy(b.z));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    };
+    const cross = (x: number, z: number, colour: string, r = 6) => {
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(this.sx(x) - r, this.sy(z) - r);
+      ctx.lineTo(this.sx(x) + r, this.sy(z) + r);
+      ctx.moveTo(this.sx(x) + r, this.sy(z) - r);
+      ctx.lineTo(this.sx(x) - r, this.sy(z) + r);
+      ctx.stroke();
+    };
+    if (on.navmesh && probe) {
+      for (const i of order) {
+        const r = probe.reach[i]!;
+        if (r === 'deadly' || r === 'roof' || !this.shownAt(span[i]!.lo, span[i]!.hi)) continue;
+        // Reached only by a Jump (a walking pilot never gets there): outlined in the jump colour.
+        ctx.globalAlpha = r === 'reached' ? 0.14 : 0.45;
+        ctx.fillStyle = REACH_COLOURS[r];
+        this.polygon(walk[i]!.points);
+        ctx.fill();
+        if (r === 'reached' && !probe.walkReach[i]) {
+          ctx.globalAlpha = 0.5;
+          ctx.strokeStyle = LINK_COLOURS.jump;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+      for (const l of probe.links) {
+        if (l.kind === 'walk') continue;
+        ctx.globalAlpha = this.shownAt(span[l.from]!.lo, span[l.from]!.hi) || this.shownAt(span[l.to]!.lo, span[l.to]!.hi) ? 0.9 : 0.15;
+        if (l.kind === 'drop') {
+          // The portal, and a tick out of it the way it drops.
+          ctx.strokeStyle = LINK_COLOURS.drop;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(this.sx(l.left.x), this.sy(l.left.z));
+          ctx.lineTo(this.sx(l.right.x), this.sy(l.right.z));
+          const mx = (l.left.x + l.right.x) / 2;
+          const mz = (l.left.z + l.right.z) / 2;
+          ctx.moveTo(this.sx(mx), this.sy(mz));
+          ctx.lineTo(this.sx(mx + l.normal.x * 0.8), this.sy(mz + l.normal.z * 0.8));
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = l.shortcut ? LINK_COLOURS.shortcut : LINK_COLOURS.jump;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(this.sx(l.takeoff.x), this.sy(l.takeoff.z));
+          ctx.lineTo(this.sx(l.lands.x), this.sy(l.lands.z));
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.fillRect(this.sx(l.lands.x) - 2, this.sy(l.lands.z) - 2, 4, 4);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (on.routes && probe) {
+      for (const r of probe.routes) {
+        if (r.there) line(r.there.corners, LINK_COLOURS.route, 1.5);
+        else cross(r.target.x, r.target.z, LINK_COLOURS.noRoute);
+        if (r.there && !r.back) cross(r.target.x, r.target.z, '#ff9a2f');
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(this.sx(probe.start.x), this.sy(probe.start.z), 5, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    if (on.walk) {
+      for (const leg of nav.legs) line(leg.trace, LEG_COLOURS[leg.outcome], leg.outcome === 'arrived' ? 1.5 : 3);
+      for (const leg of nav.legs) {
+        if (leg.outcome === 'arrived') continue;
+        ctx.strokeStyle = LEG_COLOURS[leg.outcome];
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.sx(leg.at.x), this.sy(leg.at.z), 9, 0, 2 * Math.PI);
+        ctx.stroke();
+        cross(leg.target.x, leg.target.z, LEG_COLOURS[leg.outcome], 4);
       }
     }
   }
