@@ -886,7 +886,7 @@ export function isAiMemory(v: unknown): boolean {
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
   const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until);
   const st = v.strafe;
-  const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop);
+  const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop) && (st.cross === undefined || isInt(st.cross));
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
   const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread));

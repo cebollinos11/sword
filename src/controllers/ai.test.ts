@@ -581,6 +581,28 @@ describe('AI Controller: repertoire', () => {
     expect(seen.has('Left') || seen.has('Right')).toBe(true);
   });
 
+  it('with crossOver it jumps clean over an idle enemy and lands behind it or at its side, in reach', () => {
+    const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, throwRate: 0, aggression: 0 } };
+    let crossed = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const ai = createAiController(eager, { ...sharp, footwork: 0.5, aggression: 0, crossOver: 1, jumpNav: 30 });
+      const run = runControllers(eager, createInitialState(eager, seed, duelPlacements(2.6)), [scriptedController(wait(1)), ai], 400);
+      const jump = run.events.find((e) => e.type === 'Jump' && e.fighter === 1);
+      if (!jump) continue;
+      const them = run.states[jump.tick]!.fighters[0]!;
+      // Down again: the first Tick after it left the ground that it is on it.
+      const down = run.states.findIndex((s, t) => t > jump.tick + 5 && !s.fighters[1]!.air);
+      expect(down, `seed ${seed}`).toBeGreaterThan(0);
+      const me = run.states[down]!.fighters[1]!;
+      const w = { x: me.position.x - them.position.x, z: me.position.z - them.position.z };
+      const d = Math.hypot(w.x, w.z);
+      const cos = (w.x * Math.sin(them.facing) + w.z * Math.cos(them.facing)) / d;
+      expect(cos, `seed ${seed}`).toBeLessThanOrEqual(Math.cos((80 * Math.PI) / 180) + 0.15);
+      crossed++;
+    }
+    expect(crossed).toBeGreaterThan(0);
+  });
+
   it('with chainRate 1 it Chains a second Attack while its target is still in reach', () => {
     const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, aggression: 0.2 } };
     const ai = createAiController(eager, { ...sharp, chainRate: 1 });
@@ -1092,7 +1114,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, whirlwindRate: _wr, whirlwindRead: _wd, leapSides: _ls, pressEarly: _pe, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, whirlwindRate: _wr, whirlwindRead: _wd, leapSides: _ls, pressEarly: _pe, crossOver: _co, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
       expect(pressAhead, tier).toBe(1);
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
@@ -1905,7 +1927,7 @@ describe('AI Stage 4: the Flail spins up and reads a spin (docs/plans/flail.md)'
   });
 
   it('an AI with a Flail saves and restores its memory mid-spin and plays on to the same hash', () => {
-    const expert = aiDifficulty(repo, 'Expert');
+    const expert = { ...aiDifficulty(repo, 'Expert'), crossOver: 0 };
     const ai = createAiController(repo, expert);
     const script = scriptedController(still(600));
     let s = createInitialState(repo, 3, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 2.6 }, facing: Math.PI }], [defaultWeapon, FLAIL]);

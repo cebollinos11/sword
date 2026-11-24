@@ -130,6 +130,8 @@
  *    - Human mistakes (`humanMistakes`, rolled once per Attack it defends): its mistake is a Block raised a few Ticks late,
  *      or one beside the right Direction, a little likelier just after its own Attack or being hit (`shaken`).
  *    - Idle life (`idleLife`, rolled with its circling side): a spacing of its own, no circling for a while, a short pause.
+ *    - Cross-over (`crossOver`, a chance per Tick, Beginner, Skilled and Expert only): a held Jump clean over the head of an idle enemy
+ *      it faces, landing behind it or at its side within its reach (`crossOver` method).
  *    - Jump steps (`jumpStep`, rolled with its circling side, one hop each): a tapped Jump out of a pincer, or round to its
  *      flank slot when the walk round is blocked (`hopStep`). A hop is no quicker than a walk and cannot Block, so never
  *      with an enemy Attack or Kick seen coming in reach (as seen Reaction Time ago, jitter or not), and only where
@@ -201,6 +203,7 @@ import {
   type Vec2,
 } from '../sim';
 import { arenaTuning, parseFloorArena } from '../sim/delver';
+import { sizedTuning } from '../tuning';
 import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
@@ -341,6 +344,8 @@ interface Strafe {
   readonly pause: number;
   /** It rolled to hop to reposition (`jumpStep`): the next hop it finds a reason and a safe way for, it takes (once). */
   readonly hop: boolean;
+  /** A jump over an enemy (`crossOver`): it keeps Jump held in the air before this Tick. Absent when it is on no such jump. */
+  readonly cross?: number;
 }
 
 /**
@@ -625,6 +630,16 @@ const ALLY_ASIDE = 0.8;
 const HOP_CLEAR = 0.1;
 const ALLY_CLEAR = 0.6;
 const HOP_THREAT = 0.5;
+
+/** A jump over an enemy (`crossOver`) starts from this far (m, flat) from it at the least and at the most... */
+const CROSS_MIN = 1.4;
+const CROSS_MAX = 3.6;
+/** ...from within 60 degrees of straight in front of it (the cosine), and lands at least 80 degrees off its facing (behind it or to its side). */
+const CROSS_FRONT = 0.5;
+const CROSS_BEHIND = Math.cos(80 * DEG);
+/** The jump may bear this far to either side of the enemy, and clears its head by this much (m). */
+const CROSS_SKEW = 30 * DEG;
+const CROSS_CLEAR = 0.1;
 /** ...a pincer is two enemies within this much (m) beyond their reach. */
 const PINCER_NEAR = 0.3;
 
@@ -720,6 +735,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     whirlwindRead: 0,
     leapSides: 0,
     pressEarly: 0,
+    crossOver: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -1445,6 +1461,10 @@ class RuleAi implements AiController {
     const hop = this.hopStep(state, self, enemies, focused, team, base);
     if (hop) return hop;
 
+    // Over its head, to land behind it or at its side.
+    const cross = this.crossOver(state, self, enemies, focused, team, base);
+    if (cross) return cross;
+
     // Far off: close in along the navmesh.
     const longer = Math.max(myReach, theirReach);
     if (dist > longer + SWING_IN + 1.5) return { ...base, ...this.approach(state, self, target) };
@@ -1688,7 +1708,7 @@ class RuleAi implements AiController {
       const sign = this.random() < 0.5 ? 1 : -1;
       const until = tick + 40 + Math.floor(this.random() * 100);
       const flank = this.chance(this.skill.teamwork);
-      this.strafe = { sign, until, flank, ...this.idleLife(tick), hop: this.chance(this.skill.jumpStep) };
+      this.strafe = { sign, until, flank, ...this.idleLife(tick), hop: this.chance(this.skill.jumpStep), ...(this.strafe.cross !== undefined ? { cross: this.strafe.cross } : {}) };
     }
   }
 
@@ -2327,6 +2347,77 @@ class RuleAi implements AiController {
     return this.pick(options);
   }
 
+  /** The longest it could reach: Thrusting, if its Weapon has a Thrust. */
+  private longReach(o: Sighting): number {
+    return this.reach(o) + (this.attacksOf(o).includes('Thrust') ? THRUST_REACH : 0);
+  }
+
+  /** An enemy Attack or Kick coming within its reach and HOP_THREAT of where it stands, as seen Reaction Time ago, even one it has yet to notice (`reactionJitter`): in the air it could not Block it. */
+  private threatened(state: SimState, self: FighterState, enemies: readonly Enemy[]): boolean {
+    const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
+    return enemies.some(({ i }) => {
+      const o = fresh.fighters[i];
+      return o !== undefined && (isThreat(o.action) || isKickThreat(o.action)) && Math.abs(o.y - self.y) < DEFEND_LEVEL && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= this.longReach(o) + HOP_THREAT;
+    });
+  }
+
+  /**
+   * A jump clean over `focused`'s head (`crossOver`, a chance per Tick): Idle on the ground, level with an enemy standing Idle or
+   * Blocking CROSS_MIN to CROSS_MAX away and facing it, with no Attack or Kick coming, it takes the shortest held Jump (and one
+   * bearing a little to either side, its circling side first) that carries it over: its feet above the enemy's head (plus CROSS_CLEAR)
+   * all the while their bodies overlap (as seen, the enemy carrying on at the walk it was seen at), landing safely
+   * (`jumpIsSafe`) within its reach of it, off its facing by CROSS_BEHIND (behind it, or to its side), and out of every other enemy's reach and ALLY_CLEAR
+   * from every ally. It keeps Jump held for the hold (`strafe.cross`). It draws from the generator only once all the cheap tests pass.
+   */
+  private crossOver(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
+    if (this.skill.crossOver <= 0 || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle' || self.sheathed || !focused.level || this.tactic.mode === 'Disengage') return null;
+    const t = focused.o;
+    if ((t.action.kind !== 'Idle' && t.action.kind !== 'Block') || t.airborne || focused.flat < CROSS_MIN || focused.flat > CROSS_MAX) return null;
+    const at = self.position;
+    const face = { x: Math.sin(t.facing), z: Math.cos(t.facing) };
+    const out = unit({ x: at.x - t.position.x, z: at.z - t.position.z });
+    if (face.x * out.x + face.z * out.z < CROSS_FRONT) return null;
+    if (this.threatened(state, self, enemies) || !this.chance(this.skill.crossOver)) return null;
+    const { tuning: tn, arena } = this.world(state);
+    const body = sizedTuning(tn, t.size).fighter;
+    const gap = tn.fighter.radius + body.radius;
+    const reach = this.reach(self);
+    const lead = this.reactionTicks;
+    const toward = unit({ x: t.position.x - at.x, z: t.position.z - at.z });
+    const sign = this.strafe.sign;
+    for (const hold of this.leapHolds()) {
+      if (levelJump(tn, hold).apex < body.height + CROSS_CLEAR) continue;
+      for (const skew of [0, sign * CROSS_SKEW, -sign * CROSS_SKEW]) {
+        const heading = skew === 0 ? toward : rotate(toward, skew);
+        const plan = { at, y: self.y, heading, holdTicks: hold };
+        const arc = jumpArc(arena, tn, plan);
+        if (!arc.lands) continue;
+        const where = (o: Sighting, k: number) => ({ x: o.position.x + o.velocity.x * (lead + k), z: o.position.z + o.velocity.z * (lead + k) });
+        // Over its head whenever the bodies overlap.
+        let over = true;
+        for (let k = 1; k <= arc.ticks && over; k++) {
+          const p = arc.path[k - 1]!;
+          const q = where(t, k);
+          if (Math.hypot(p.x - q.x, p.z - q.z) < gap + 0.1) over = p.y - t.y >= body.height + CROSS_CLEAR;
+        }
+        if (!over) continue;
+        // Down behind it or at its side, in its reach, and clear of everyone else.
+        const end = where(t, arc.ticks);
+        const land = arc.lands;
+        const d = Math.hypot(land.x - end.x, land.z - end.z);
+        if (d < gap + 0.15 || d > reach + 0.2 || Math.abs(land.y - t.y) > LEVEL) continue;
+        const w = { x: (land.x - end.x) / d, z: (land.z - end.z) / d };
+        if (face.x * w.x + face.z * w.z > CROSS_BEHIND) continue;
+        const others = enemies.every((e) => e.i === focused.i || !e.level || Math.hypot(land.x - where(e.o, arc.ticks).x, land.z - where(e.o, arc.ticks).z) > this.longReach(e.o) + HOP_CLEAR);
+        const friends = (team?.allies ?? []).every(({ o }) => Math.hypot(land.x - where(o, arc.ticks).x, land.z - where(o, arc.ticks).z) > ALLY_CLEAR);
+        if (!others || !friends || !jumpIsSafe(arena, tn, plan)) continue;
+        this.strafe = { ...this.strafe, cross: state.tick + hold };
+        return { ...base, move: heading, jump: true, jumpHeld: hold > 0 };
+      }
+    }
+    return null;
+  }
+
   /**
    * A hop to reposition (`jumpStep`: rolled with its circling side, taken once), a tapped Jump. A hop is no quicker than a
    * walk (it carries on at walk speed, then lands) and cannot Block, so it hops only where walking does worse: out from
@@ -2339,15 +2430,8 @@ class RuleAi implements AiController {
    */
   private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
     if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
-    // The longest it could reach: Thrusting, if its Weapon has a Thrust.
-    const reachOf = (o: Sighting) => this.reach(o) + (this.attacksOf(o).includes('Thrust') ? THRUST_REACH : 0);
-    // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
-    const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
-    const coming = enemies.some(({ i }) => {
-      const o = fresh.fighters[i];
-      return o !== undefined && (isThreat(o.action) || isKickThreat(o.action)) && Math.abs(o.y - self.y) < DEFEND_LEVEL && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT;
-    });
-    if (coming) return null;
+    const reachOf = (o: Sighting) => this.longReach(o);
+    if (this.threatened(state, self, enemies)) return null;
     const { tuning: tn, arena } = this.world(state);
     const at = self.position;
     const t = focused.o.position;
@@ -2409,6 +2493,7 @@ class RuleAi implements AiController {
   /** Keep Jump held through a jumping Attack's hold, while in the air. */
   private holdingJump(tick: number, self: FighterState, intent: Intent): Intent {
     const plan = this.attackPlan;
+    if (self.air && this.strafe.cross !== undefined && tick < this.strafe.cross) return { ...intent, jumpHeld: true };
     return plan && self.air && tick < plan.holdJumpUntil ? { ...intent, jumpHeld: true } : intent;
   }
 

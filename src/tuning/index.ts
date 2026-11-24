@@ -490,10 +490,12 @@ export interface AiDifficulty {
   readonly leapSides?: number;
   /** 0..1: above 0, `pressAhead` counts a win by PRESS_EARLY_LEAD Ticks (not 10) and an enemy a little beyond its reach (it is closing), so it swings on rather than Feint into a Block. 0 = as before. */
   readonly pressEarly?: number;
+  /** 0..1 (a chance per Tick): in the right spot, in front of an enemy standing idle, it jumps clean over its head to land behind it or to its side. 0 = never. */
+  readonly crossOver?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead', 'leapSides', 'pressEarly'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead', 'leapSides', 'pressEarly', 'crossOver'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];
