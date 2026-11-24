@@ -11,3 +11,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Testing the Delver Floor generator
+
+When working on the dungeon (Delver Floor) generator (`src/sim/delver/`), test it in the Map Editor and with the AI check, not by playing a Run: it is much faster. See "Testing the generator" in `docs/plans/delver.md`.
