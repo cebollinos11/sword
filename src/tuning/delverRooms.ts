@@ -258,7 +258,8 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
   });
   if (roomFloorAt(room0, centre[0], centre[1]) !== 0) fail(`${at}.centre`, 'on the room\'s floor (y 0)');
 
-  return { name: name as string, half, doorways, centre, kinds, brushes, top };
+  // A Block stands from the floor to the room's ceiling, whatever `top` the file gives it.
+  return { name: name as string, half, doorways, centre, kinds, brushes: brushes.map((b) => (b.kind === 'block' ? { ...b, top } : b)), top };
 }
 
 const sameRect = (a: Rect, b: Rect): boolean => a.x0 === b.x0 && a.z0 === b.z0 && a.x1 === b.x1 && a.z1 === b.z1;
