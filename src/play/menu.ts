@@ -39,6 +39,7 @@ type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lob
 import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
 import { getMasterVolume, setMasterVolume } from '../audio/volume';
 import { goreEnabled, setGoreEnabled } from '../render/gore';
+import { damageNumbersEnabled, setDamageNumbersEnabled } from '../render/damageNumbers';
 import { dustEnabled, setDustEnabled } from '../render/dustfall';
 import { clutterEnabled, setClutterEnabled } from '../render/delverClutter';
 
@@ -414,6 +415,17 @@ export class Menu {
     return b;
   }
 
+  /** Damage Numbers toggle (on by default): the damage a Fighter takes floats over it, drawn or not from the next frame on; remembered. */
+  private damageNumbersItem(): HTMLButtonElement {
+    const on = damageNumbersEnabled();
+    const b = this.navItem(`Damage Numbers: ${on ? 'On' : 'Off'}`, on ? 'Damage floats over a hurt Fighter' : 'No numbers', () => {
+      setDamageNumbersEnabled(!damageNumbersEnabled());
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  }
+
   /** Dust & Embers toggle (on by default): the motes and embers in a torchlit Delver Floor's air, drawn or not from the next frame on; remembered. */
   private dustItem(): HTMLButtonElement {
     const on = dustEnabled();
@@ -474,6 +486,7 @@ export class Menu {
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
       this.goreItem(),
+      this.damageNumbersItem(),
       this.battleItem(),
       this.battlePlayItem(),
       this.mapEditorItem(),
@@ -743,6 +756,7 @@ export class Menu {
     nav.append(this.volumeItem());
     nav.append(this.sensitivityItem());
     nav.append(this.goreItem());
+    nav.append(this.damageNumbersItem());
     nav.append(this.dustItem());
     nav.append(this.clutterItem());
     const colliders = this.colliderItem();
