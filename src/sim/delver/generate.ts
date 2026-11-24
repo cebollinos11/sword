@@ -7,7 +7,7 @@ import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
-import { planFloor, setPieceOf, type FloorPlan, type HallShape } from './plan';
+import { galleryFloorTuning, galleryReasons, planFloor, setPieceOf, type FloorPlan, type HallShape } from './plan';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
@@ -20,22 +20,26 @@ export interface DelverFloor extends BuiltFloor {
  * The first layout of Floor `floor` of `seed` that builds and passes the judge. Failing all `maxAttempts` (default
  * `delver.floor.maxAttempts`), the built one (rule 1 passed, the source compiled) with the fewest reasons (ties: the first) comes back with `judgement.ok` false and
  * `attempts` = `maxAttempts`. Throws, naming the seed, the Floor and the last reason, if none even built. `opts.judge` stands
- * in for rules 3 to 7 (a test's refusals); a plan rule 1 refuses, or a source that does not compile, is refused all the same.
+ * in for rules 3 to 7 (a test's refusals); a plan rule 1 refuses, or a source that does not compile, is refused all the same. `opts.gallery` (dev only)
+ * deals the Set Piece Gallery's Floor instead (`galleryFloorTuning`, never a Boss Floor), refusing a layout where a set piece did not fit.
  */
 export function delverFloor(
   tuning: Pick<TuningData, 'battle' | 'delver'>,
   seed: number,
   floor: number,
-  opts: { maxAttempts?: number; judge?: (t: DelverFloorTuning, b: BuiltFloor) => string[] } = {},
+  opts: { maxAttempts?: number; judge?: (t: DelverFloorTuning, b: BuiltFloor) => string[]; gallery?: boolean } = {},
 ): DelverFloor {
+  if (opts.gallery) tuning = galleryTuning(tuning);
   const t = floorTuningOf(tuning.delver, floor);
   const maxAttempts = opts.maxAttempts ?? t.maxAttempts;
-  const boss = isBossFloor(tuning.delver, floor);
+  const boss = !opts.gallery && isBossFloor(tuning.delver, floor);
   let best: { built: BuiltFloor; reasons: string[] } | null = null;
   let last = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const plan = planFloor(t, seed, floor, attempt, boss, tierOf(tuning.delver, floor));
-    const { reasons, built } = judgeAttempt(tuning, plan, opts.judge);
+    const judged = judgeAttempt(tuning, plan, opts.judge);
+    const built = judged.built;
+    const reasons = built ? [...judged.reasons, ...galleryReasons(t, plan)] : judged.reasons;
     if (!built) {
       last = reasons[reasons.length - 1]!;
       continue;
@@ -45,6 +49,18 @@ export function delverFloor(
   }
   if (!best) throw new Error(`No Floor ${floor} of seed ${seed >>> 0} built in ${maxAttempts} attempts: ${last}`);
   return { ...best.built, attempts: maxAttempts, judgement: { ok: false, reasons: best.reasons } };
+}
+
+const galleries = new WeakMap<object, Pick<TuningData, 'battle' | 'delver'>>();
+
+/** `tuning` with the Set Piece Gallery's Floor Tuning for every Floor (`floorTuningOf` gives it): what a gallery Floor is planned and judged under. The same object for the same `tuning`. */
+function galleryTuning(tuning: Pick<TuningData, 'battle' | 'delver'>): Pick<TuningData, 'battle' | 'delver'> {
+  let g = galleries.get(tuning);
+  if (!g) {
+    const { tierRooms: _, ...delver } = tuning.delver;
+    galleries.set(tuning, (g = { ...tuning, delver: { ...delver, floor: galleryFloorTuning(tuning.delver.floor) } }));
+  }
+  return g;
 }
 
 /**

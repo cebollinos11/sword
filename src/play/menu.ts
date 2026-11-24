@@ -11,6 +11,8 @@ import { isTouchDevice } from './touch';
 export interface MenuHandlers {
   /** Set up a Skirmish (you and AIs): the game opens its Lobby. */
   onSkirmish(): void;
+  /** Start the Set Piece Gallery (offered only with ?dev=1): a solo Delver Run of one Floor holding every set piece, one after another. */
+  onSetPieceGallery(): void;
   onCreateRoom(broker: string): void;
   /** `room`: a Room code or link, as typed or pasted. */
   onJoinRoom(room: string, broker: string): void;
@@ -403,7 +405,12 @@ export class Menu {
     return this.navItem('Map Editor (dev)', 'Author a Battle map', () => (location.hash = '#/mapeditor?dev=1'));
   }
 
-  /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
+  /** Starts the Set Piece Gallery (docs/plans/delver.md, "Testing the generator"): a solo Run whose one Floor holds every set piece in turn. Null without ?dev=1. */
+  private galleryItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    return this.navItem('Set Piece Gallery (dev)', 'A Delver Floor with every special room, one after another', () => this.handlers.onSetPieceGallery());
+  }
+
   /** Blood & gore toggle (on by default): blood and Dismemberment, drawn or not from the next frame on; remembered. */
   private goreItem(): HTMLButtonElement {
     const on = goreEnabled();
@@ -448,6 +455,7 @@ export class Menu {
     return b;
   }
 
+  /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
     const b = this.navItem(`Show Colliders: ${this.colliders ? 'On' : 'Off'}`, 'Walk Surfaces and Walls over a see-through Arena', () => {
@@ -490,6 +498,7 @@ export class Menu {
       this.battleItem(),
       this.battlePlayItem(),
       this.mapEditorItem(),
+      this.galleryItem(),
       this.colliderItem(),
       editor,
     );

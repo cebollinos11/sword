@@ -101,6 +101,11 @@ export interface MatchConfig {
    */
   readonly delverStart?: number;
   /**
+   * Dev mode only (the main menu's Set Piece Gallery, solo): the Run is one Floor, the Set Piece Gallery's (`galleryFloorTuning`, Arena
+   * `battle:delver1g<S>`): every set piece one after another. Absent otherwise. Refused outside a Gauntlet, with a start Floor, and online.
+   */
+  readonly delverGallery?: true;
+  /**
    * A Delver Run's traitors (docs/plans/delver.md, Stage 8a): the Players on Team 1, one entry each with its own Size, in Lineup order. Traitor j
    * plays in Pool slot `teams.length + j` (`traitorSlot`), as the Warband Soldiers it takes over. Absent when there are none, so every other Match's
    * config is as it always was. Only a Gauntlet, at most MAX_TEAM_SIZE, and `humans` plus traitors at most MAX_TEAM_SIZE (the Players a Match fields).
@@ -374,6 +379,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     humans,
     ...(gauntlet ? { players: [...(options.players ?? runPlayers({ teams, humans }))] } : {}),
     ...(options.delverStart === undefined ? {} : { delverStart: options.delverStart }),
+    ...(options.delverGallery ? { delverGallery: true as const } : {}),
     ...(options.traitors?.length ? { traitors: options.traitors.map((t) => (storedSize(t.size) ? { size: storedSize(t.size)! } : {})) } : {}),
   };
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
@@ -395,13 +401,15 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   const seed = options.seed ?? 1;
   if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
   if (options.delverStart !== undefined && !gauntlet) throw new RangeError('Only a Run has a start Floor');
+  if (options.delverGallery && (!gauntlet || options.delverStart !== undefined)) throw new RangeError('Only a Run from Floor 1 is the Set Piece Gallery');
   if (config.traitors) {
     if (!gauntlet) throw new RangeError('Only a Run has traitors');
     if (config.traitors.length > MAX_TEAM_SIZE || config.humans + config.traitors.length > MAX_TEAM_SIZE) throw new RangeError(`A Delver Run fields at most ${MAX_TEAM_SIZE} Players, its traitors among them, got ${config.humans} and ${config.traitors.length} traitor(s)`);
   }
   if (gauntlet) {
     // A Run: Floor 1 of the generated Dungeon (or the dev `delverStart` Floor), built here (behind the menu), Team 0 at its Entrance.
-    const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
+    // The Set Piece Gallery is one Floor.
+    const floors = config.delverGallery ? 1 : tuning.delver.tiers * tuning.delver.floorsPerTier;
     const floor = config.delverStart ?? 1;
     if (!Number.isInteger(floor) || floor < 1 || floor > floors) throw new RangeError(`delverStart must be a Floor from 1 to ${floors}, got ${floor}`);
     const { run: delver, duel } = firstFloor(tuning, config, floors, floorDuel(tuning, config, floor, null, createRng(seed), options.relics), floor);
@@ -436,7 +444,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (!teams.every((t) => t === 0 || t === 1)) throw new RangeError(`Every Fighter's team must be 0 or 1, got [${teams.join(', ')}]`);
   for (const t of [0, 1]) if (teams.filter((team) => team === t).length > MAX_TEAM_SIZE) throw new RangeError(`A Battle fields at most ${MAX_TEAM_SIZE} Fighters on Team ${t}`);
   if (options.rematchTicks != null) throw new RangeError('A Battle has no Rematch: rematchTicks must be null');
-  if (options.delverStart !== undefined || options.relics?.length) throw new RangeError('Only a Run has a start Floor or Relics');
+  if (options.delverStart !== undefined || options.delverGallery || options.relics?.length) throw new RangeError('Only a Run has a start Floor, the Set Piece Gallery or Relics');
   const seed = options.seed ?? 1;
   const arena = options.arena ?? battleArenaName(seed);
   if (!battlefieldOf(tuning.battle, arena)) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed> or a map of battle.maps), got "${arena}"`);

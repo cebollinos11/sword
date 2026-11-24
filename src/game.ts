@@ -235,6 +235,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let warmed = new Set<string>();
   /** The Skirmish setup, kept for the next Skirmish. */
   let skirmish: HostLobby | null = null;
+  /** Dev mode only: the Set Piece Gallery's solo Lobby while it is in use (`onSetPieceGallery`); each Run it starts is the gallery's one Floor. */
+  let galleryLobby: HostLobby | null = null;
   let room: HostedRoom | null = null;
   let invite: RoomInvite | null = null;
   let attempt: Attempt | null = null;
@@ -259,6 +261,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       else skirmish = new HostLobby(tuning, lobbyOptions(false));
       adopt(skirmish);
       menu.showLobby(skirmish);
+    },
+    onSetPieceGallery() {
+      if (!devMode()) return;
+      leave();
+      // A solo Run (no AI ally, no traitor): its seed sizes and turns the Halls; every Run from this Lobby is the gallery's.
+      const settings = { arena: randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)), bestOf: 3, format: 'Gauntlet' as const };
+      const l = new HostLobby(tuning, { ...lobbyOptions(false), settings });
+      l.edit((s) => ({ ...s, teams: s.teams.map((row, team) => (team === 0 ? row : row.map(() => ({ kind: 'Closed' as const })))) }));
+      galleryLobby = l;
+      adopt(l);
+      const problem = l.start(false);
+      if (problem) menu.showLobby(l, null, problem);
     },
     onCreateRoom(broker) {
       void createRoom(broker);
@@ -327,6 +341,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (lobby && lobby !== skirmish) lobby.close();
     skirmish?.backToLobby();
     lobby = null;
+    galleryLobby = null;
     setPlayed(null);
     room?.cancel();
     room = null;
@@ -359,6 +374,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   /** The Weapon and Map picked last, for the next Lobby. */
   function remember(l: Lobby, s: LobbyState): void {
+    // (The Set Piece Gallery's Lobby is not a setup to come back to.)
+    if (l === galleryLobby) return;
     const me = s.members.find((m) => m.id === l.me);
     if (me) store(WEAPON_STORAGE_KEY, me.weapon);
     if (l.isHost) {
@@ -434,7 +451,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // In dev mode a Run may start deeper in (`?dev=1&delverStart=F`), for tuning: only a Run stepped here, never an online one.
       // ...and the player's Fighter may be on the Delver pilot (`?dev=1&autopilot=1`), to check a Run in a headless browser.
       const run = match.format === 'Gauntlet';
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(run ? { ...devDelverStart(), ...devRunRelics() } : {}), ...(run && devAutopilot() ? { autopilot: true } : {}), ...(run && devImmortal() ? { immortal: true } : {}) });
+      // ...or be the Set Piece Gallery (the main menu's dev button), one Floor from Floor 1.
+      const gallery = run && l === galleryLobby;
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(gallery ? { delverGallery: true as const, ...devRunRelics() } : run ? { ...devDelverStart(), ...devRunRelics() } : {}), ...(run && devAutopilot() ? { autopilot: true } : {}), ...(run && devImmortal() ? { immortal: true } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);

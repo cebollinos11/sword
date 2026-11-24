@@ -8,6 +8,7 @@ import type { TuningData } from '../../tuning';
 import type { BattleTuning } from '../../tuning/battle';
 import type { DelverTuning } from '../../tuning/delver';
 import { delverFloor, type DelverFloor } from './generate';
+import { runSeed } from '../dungeon';
 import { floorName, isFloorName } from './source';
 
 /** How many Floors one Tuning Data keeps built: the current, the next (warmed) and slack. A dropped one is built again (the same Floor). */
@@ -15,16 +16,20 @@ export const KEPT_FLOORS = 4;
 
 const PREFIX = 'battle:';
 
-/** The Arena name of Floor `floor` (1-based) of Run seed `seed`: `battle:delver<F>s<S>`. */
-export const floorArenaName = (seed: number, floor: number): string => `${PREFIX}${floorName(seed, floor)}`;
+/** The Arena name of Floor `floor` (1-based) of Run seed `seed`: `battle:delver<F>s<S>`, or for the Set Piece Gallery (dev only) `battle:delver<F>g<S>`. */
+export const floorArenaName = (seed: number, floor: number, gallery = false): string => `${PREFIX}${floorName(seed, floor, gallery)}`;
 
-/** The Run seed and Floor a Floor's Arena name gives (the inverse of `floorArenaName`), or null for any other name. */
-export function parseFloorArena(name: string): { seed: number; floor: number } | null {
+/** The Arena name of Floor `floor` of a Run with `config`: its Run seed's (`config.arena`), the Set Piece Gallery's for a gallery Run. */
+export const runFloorArena = (config: { readonly arena: string; readonly delverGallery?: true }, floor: number): string => floorArenaName(runSeed(config.arena), floor, config.delverGallery === true);
+
+/** The Run seed and Floor a Floor's Arena name gives, and whether it is the Set Piece Gallery's (the inverse of `floorArenaName`), or null for any other name. */
+export function parseFloorArena(name: string): { seed: number; floor: number; gallery: boolean } | null {
   if (!name.startsWith(PREFIX)) return null;
   const map = name.slice(PREFIX.length);
   if (!isFloorName(map)) return null;
-  const [floor, seed] = map.slice('delver'.length).split('s');
-  return { seed: Number(seed), floor: Number(floor) };
+  const gallery = /^delver\d+g/.test(map);
+  const [floor, seed] = map.slice('delver'.length).split(gallery ? 'g' : 's');
+  return { seed: Number(seed), floor: Number(floor), gallery };
 }
 
 /** Built Floors per (Battles' Tuning, Delver Tuning): a Floor depends on those two alone. Most recently used last. */
@@ -40,7 +45,7 @@ function makeRoom(m: Map<string, unknown>): void {
 }
 
 /** The built Floor of arena `name` under the base's Battles' and Delver Tuning, built if need be (and marked most recently used). */
-function builtFloor(base: TuningData, name: string, parsed: { seed: number; floor: number }): DelverFloor {
+function builtFloor(base: TuningData, name: string, parsed: { seed: number; floor: number; gallery: boolean }): DelverFloor {
   let byDelver = floors.get(base.battle);
   if (!byDelver) floors.set(base.battle, (byDelver = new WeakMap()));
   let kept = byDelver.get(base.delver);
@@ -49,7 +54,7 @@ function builtFloor(base: TuningData, name: string, parsed: { seed: number; floo
   if (floor) {
     kept.delete(name);
   } else {
-    floor = delverFloor(base, parsed.seed, parsed.floor);
+    floor = delverFloor(base, parsed.seed, parsed.floor, parsed.gallery ? { gallery: true } : {});
     makeRoom(kept);
   }
   kept.set(name, floor);

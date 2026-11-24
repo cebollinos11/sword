@@ -10,7 +10,7 @@ import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial
 import { hallBase, PASSAGE_STOREY, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
-export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
+export const floorName = (seed: number, floor: number, gallery = false): string => `delver${floor}${gallery ? 'g' : 's'}${seed >>> 0}`;
 
 /** The Brush id of piece `k` (from 0, in order from `a`) of Passage `p`: the Passage's own id when it has one piece, else `<id>-<k>`. */
 /** The id of Hall `hall`'s solid `n` and pillar `n` as Blocks (the Brush ids `floorSource` writes). */
@@ -49,7 +49,7 @@ function brushHeights(b: Brush): number[] {
 }
 
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
-export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
+export const isFloorName = (name: string): boolean => /^delver[1-9]\d*[sg]\d+$/.test(name);
 
 /** How each kind of Hall is drawn (render-only). */
 const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
@@ -181,7 +181,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
 
   return {
     version: 1,
-    name: floorName(plan.seed, plan.floor),
+    name: floorName(plan.seed, plan.floor, plan.gallery),
     size: fieldSize,
     grid: { step: 0.5, cell: 2 },
     levels,
