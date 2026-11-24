@@ -14,7 +14,7 @@
 - [x] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
 - [x] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [x] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
-- [ ] Stage 7f: set-piece rooms (Lava Bridge, Uphill Room, Spiral Stair; designed 2026-11-24, not started)
+- [ ] Stage 7f: set-piece rooms (Lava Bridge, Uphill Room, Spiral Stair; designed 2026-11-24; Tasks 1 to 5 done 2026-11-24, Tasks 6 and 7 left)
 - [ ] Stage 7e: archetypes (procedural room recipes per Hall kind) (parked)
 - [x] Stage 8: online co-op (up to four Players, Input Delay, soak)
 - [x] Stage 8a: traitors (humans on Team 1 driving Warband Soldiers; issue #134)
@@ -2849,6 +2849,15 @@ export interface DelverSpiral {
 - **No Uphill or Spiral on a Boss Hall**: under the shipped Tuning a Boss Floor's Boss Hall is always a great hall (`great.count[0]` ≥ 1). So §13's and the slow test's "each kind on a Boss Hall" holds for the Lava Bridge only; the Uphill and the Spiral must show on a Stairs Hall.
 - **The fallback is not 0**: tier 1's Floors have 7 Halls and often a single leaf, so the Entrance's pool can be only an Uphill (23 in the 1800 Floors of `plan.test.ts`, on the 7f values). The Hall keeps its set piece, as §4 says. The judge counts these rather than failing them (§10), and the slow test reports the count instead of expecting 0.
 - **A probe before tuning** (attempt 0, the 500 pairs, `percent` [15, 20, 25]): set pieces on 2.3 %, 2.4 % and 4.8 % of the Halls by tier. Most rolls drop for size (Halls under the least halves), so Task 5's `percent` will be well above the first estimates.
+
+**Amended 2026-11-24 (Task 5, the switch):**
+- **The rate**: on the plan-only probe (attempt 0, the 500 pairs) `percent` [40, 45, 35] gave 6.9 / 6.6 / 6.6 %, [55, 55, 40] 9.3 / 8.3 / 7.6 %, and **[60, 60, 50] 10.2 / 8.9 / 9.1 %**, which ships. Every kind is at least 21 % of the set pieces on every tier (crosses 21.7 / 29.5 / 24.4 %), so the weights stay 1, 1, 1.
+- **What the set pieces take from 7c and 7d**: picked first, a set-piece Hall (and a Hall reserved for a Lava Bridge that did not fit) takes no other feature and no 7d lava. So the shipped Floors hold fewer of both: Halls with a split, pit or dais fall from 23.9 % to 15.3 % (22.3 % counting the Uphills and Spirals), and the Halls that may hold 7d lava which do from 16.2 / 25.2 / 33.6 % to 13.7 / 20.2 / 25.9 % by tier. The slow test now checks 7c's and 7d's shares on the same pairs planned with set pieces off (what their knobs control) and prints the shipped ones. **Raising `features.percent` or `lava.percent` to win them back is the user's call**; nothing was retuned.
+- **The existing soak cases** play `loadTuningData()`, so from this switch they meet set pieces. They were not rerun (the Design's flow), so their Floors are no longer 7d's.
+
+**Resuming at Task 6** (2026-11-24, the session stopped for context): Tasks 1 to 5 are committed; `npm test` passed (3507) and `delverGen.slow.test.ts` passed once after the switch. Left:
+- **Task 6**: `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` on the shipped data. Already done in Task 3: `--piece cross|uphill|spiral` and the AI check aims at every Spiral landing, Uphill low landing and Lava Bridge arm; seeds 1 to 3, Floors 1 and 7, each kind: 0 problems.
+- **Task 7**: §14's soak case. A draft was written (a `setPieceWatcher` beside `lavaWatcher`: party feet on an Uphill Ramp, an arm and L5; Hits on a plaza; falls off a ledge into the well classified by the lava watcher's push rule; Pickups and revives within 1 m of both ledge and well) but not committed, since its Floors were not yet found. Pick the first two Floors per kind (Runs `gen:greybox:<n>`) whose set piece is on the main path (a Lava Bridge in a Fight Hall; a Spiral whose main-path way uses its last door), list them, then `/code-review high` over the Stage and write the Result.
 
 **9. The Map Editor** (the user's test loop, "Testing the generator"): the Delver seed and floor dialog gains a **Set piece** choice (off, cross, uphill, spiral). The URL form is `&delverPiece=spiral`. It opens the Floor on `onlySetPiece(tuning, kind)`, editor only, never in a Run. So the user can open a Floor with many of one set piece and walk the AI on it (`&aiwalk=1`). The checks folder lists them under "Set pieces" (Hall id, kind, rise or base and turn, arms).
 

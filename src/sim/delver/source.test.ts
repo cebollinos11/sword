@@ -152,7 +152,8 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
 });
 
 describe('a Floor\'s source with vertical features and wrapped galleries (Stage 7c)', () => {
-  const tuning = fullFloors(loadTuningData());
+  // Stage 7f's set pieces off (`noSetPieces`): these Floors were found, and the Brush order written, on 7c's Floors.
+  const tuning = noSetPieces(fullFloors(loadTuningData()));
   let floors: DelverFloor[];
   beforeAll(() => {
     // Seeds 1 to 4 of Floors 1 to 3 (Floor 3 a Boss Floor): they hold every kind of feature and both wraps (asserted below).
@@ -316,7 +317,8 @@ import { distanceTo } from '../destinations';
 const distToCentre = (b: BuiltFloor, x: number, z: number, s: number) => distanceTo(b.fields, x, z, s);
 
 describe('a Floor\'s source with lava (Stage 7d)', () => {
-  const bundled = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+  const bundled = noSetPieces(loadTuningData());
   const on = bundled;
   const planOf = (tuning: typeof on, seed: number, floor: number) =>
     planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
@@ -653,7 +655,7 @@ describe('a Floor\'s source with set pieces (Stage 7f)', () => {
   it('writes today\'s source, byte for byte, with set pieces off', () => {
     for (const [seed, floor] of [[1, 1], [1, 7], [4, 7], [3, 1]] as const) {
       const off = planOf(noSetPieces(onlySetPiece(bundled, 'spiral')), seed, floor);
-      expect(JSON.stringify(floorSource(off, bundled.battle.field.size))).toBe(JSON.stringify(floorSource(planOf(bundled, seed, floor), bundled.battle.field.size)));
+      expect(JSON.stringify(floorSource(off, bundled.battle.field.size))).toBe(JSON.stringify(floorSource(planOf(noSetPieces(bundled), seed, floor), bundled.battle.field.size)));
     }
   });
 });

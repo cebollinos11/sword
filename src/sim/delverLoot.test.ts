@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { LAVA_KEEP } from './delver/plan';
-import { flatFloors, noLava } from './delver/flat.testdata';
+import { flatFloors, noLava, noSetPieces } from './delver/flat.testdata';
 import { arenaOf, deadly, surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { delverFloor } from './delver';
@@ -363,7 +363,8 @@ describe('dropSpots round pillars and in a shaped Hall (Stage 7b)', () => {
 });
 
 describe('dropSpots and lava (Stage 7d)', () => {
-  const shipped = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+  const shipped = noSetPieces(loadTuningData());
   const KEEP2 = LAVA_KEEP * LAVA_KEEP;
   /** Found by scanning seeds 1 to 40: Floors with a pit (10, 1), a river with one bridge (16, 1), a river with two (10, 5), a trough on one wall (1, 3) and on two (10, 3). */
   const FLOORS = [[10, 1, 'pit'], [16, 1, 'river'], [10, 5, 'river'], [1, 3, 'trough'], [10, 3, 'trough']] as const;

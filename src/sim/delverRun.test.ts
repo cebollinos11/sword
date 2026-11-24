@@ -17,7 +17,7 @@ import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFight
 import { IDLE_INTENT, type Intent } from './intent';
 import { addItem, commonItem, holdInventory, inventoryMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
-import { flatFloors } from './delver/flat.testdata';
+import { flatFloors, noSetPieces } from './delver/flat.testdata';
 
 const base = flatFloors(loadTuningData());
 /** `t` with every tier's Boss removed: its last Floor is an ordinary Floor, whose Stairs are the Victory. */
@@ -988,7 +988,8 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
 });
 
 describe('a Resurrection Stone and the Inventory beside lava (Stage 7d)', { timeout: 120_000 }, () => {
-  const shipped = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+  const shipped = noSetPieces(loadTuningData());
   const lt: TuningData = { ...shipped, delver: { ...shipped.delver, tiers: 1, floorsPerTier: 3, postFill: 0, patrolFill: 0 } };
   const planOf2 = (m: MatchState) => floorOf(lt, m.arena)!.plan;
   const KEEP2 = LAVA_KEEP * LAVA_KEEP;

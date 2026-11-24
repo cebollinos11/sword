@@ -6,7 +6,7 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
-import { flatRooms, fullFloors, plainHalls } from './flat.testdata';
+import { flatRooms, fullFloors, noSetPieces, plainHalls } from './flat.testdata';
 import { BRIDGE_MIN, onlySetPiece, setPieceOf, type DelverLava, type DelverSpiral, type DelverUphill, type SetPieceKind } from './plan';
 import { holeId, lavaId, stepId } from './source';
 import type { Rect } from '../../mapEditor/source';
@@ -519,7 +519,8 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
 });
 
 describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning7b = bundled;
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7b's Floors.
+  const tuning7b = noSetPieces(bundled);
   const tb = tuning7b.delver.floor;
   const size = tuning7b.battle.field.size;
   /** The first attempt's plan of each of seeds 1 to 6 of Floors 1 to 9. */
@@ -642,7 +643,8 @@ describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => 
 });
 
 describe('the judge on Floors with vertical features and wrapped galleries (Stage 7c)', () => {
-  const t7 = bundled;
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7c's Floors.
+  const t7 = noSetPieces(bundled);
   const tc = t7.delver.floor;
   const size = t7.battle.field.size;
   const at2 = { ...t7, battle: { ...t7.battle, crowd: { ...t7.battle.crowd, flowCell: 2 } } };
@@ -879,8 +881,8 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
 });
 
 describe('the judge on Floors with lava (Stage 7d)', () => {
-  // The data as shipped (lava on, the tiers' own Hall counts).
-  const shipped = loadTuningData();
+  // The data as shipped (lava on, the tiers' own Hall counts), with Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+  const shipped = noSetPieces(loadTuningData());
   const size = shipped.battle.field.size;
   const planOf = (seed: number, floor: number, attempt = 0) =>
     planFloor(floorTuningOf(shipped.delver, floor), seed, floor, attempt, isBossFloor(shipped.delver, floor), tierOf(shipped.delver, floor));

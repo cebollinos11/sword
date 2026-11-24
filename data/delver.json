@@ -163,6 +163,6 @@
     "shapes": { "percent": 50, "weights": { "L": 3, "T": 2, "cross": 2, "ring": 2 } },
     "pillars": { "percent": 40, "weights": { "colonnade": 1, "grid": 1 } },
     "lava": { "percent": [20, 55, 70], "weights": { "pit": 2, "river": 2, "trough": 3 }, "twoPercent": 40 },
-    "setPieces": { "percent": [0, 0, 0], "weights": { "cross": 1, "uphill": 1, "spiral": 1 } }
+    "setPieces": { "percent": [60, 60, 50], "weights": { "cross": 1, "uphill": 1, "spiral": 1 } }
   }
 }

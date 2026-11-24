@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { arenaOf } from '../sim/arena';
-import { arenaTuning, floorArenaName, floorOf } from '../sim/delver';
+import { arenaTuning, floorArenaName, floorOf, hallBase } from '../sim/delver';
 import * as THREE from 'three';
 import { sconcesOf, TorchLights } from './delverTorches';
 
@@ -19,10 +19,10 @@ describe('sconcesOf', () => {
       const own = sconces.filter((s) => s.x > h.rect.x0 && s.x < h.rect.x1 && s.z > h.rect.z0 && s.z < h.rect.z1);
       expect(own.length, h.id).toBeGreaterThan(0);
       for (const s of own) {
-        // A Hall's sconce is on its own floor's wall, not where a Passage meets it, and burns between its floor and its roof.
+        // A Hall's sconce is on its own floor's wall, not where a Passage meets it, and burns between its floor and its roof (its Enclosure's floor: an Uphill's is its low landing, under the Hall's `y`).
         const wall = { x: s.x - s.nx * 0.6, z: s.z - s.nz * 0.6 };
         expect(pieces.some((r) => wall.x > r.x0 && wall.x < r.x1 && wall.z > r.z0 && wall.z < r.z1), `${h.id} (${s.x}, ${s.z})`).toBe(false);
-        expect(s.y).toBeGreaterThan(h.y);
+        expect(s.y).toBeGreaterThan(hallBase(h));
         expect(s.y).toBeLessThan(h.top);
       }
     }

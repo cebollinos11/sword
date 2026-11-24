@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, noLava, noSetPieces, plainHalls, setPieces7f } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, noLava, noSetPieces, plainHalls } from './flat.testdata';
 import { SHORTCUT_RISE } from '../nav';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import {
@@ -1232,7 +1232,8 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
 });
 
 describe('splits and pits (Stage 7c)', () => {
-  const bundled7c = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found, and their rules written, on 7c's Floors.
+  const bundled7c = noSetPieces(loadTuningData());
   const t7c = bundled7c;
   const f7c = t7c.delver.floor;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
@@ -1704,7 +1705,8 @@ describe('daises (Stage 7c)', () => {
 });
 
 describe('lava (Stage 7d)', () => {
-  const bundled7d = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7d's Floors, and a Lava Bridge is 7f's lava, not 7d's.
+  const bundled7d = noSetPieces(loadTuningData());
   const on = bundled7d;
   const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
   const SIDE_OF: Record<Side, number> = { n: 0, e: 1, s: 2, w: 3 };
@@ -2013,7 +2015,7 @@ describe('lava (Stage 7d)', () => {
 
 describe('set pieces (Stage 7f)', () => {
   const base7f = loadTuningData();
-  const on = setPieces7f(base7f);
+  const on = base7f;
   const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
   const odd = (v: number) => Math.abs(v % 2) === 1;
   const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
@@ -2039,12 +2041,13 @@ describe('set pieces (Stage 7f)', () => {
   const spirals = () => ofKind('spiral').map((e) => ({ ...e, f: e.h.feature as DelverSpiral }));
   const crosses = () => ofKind('cross').map((e) => ({ ...e, lava: e.h.lava! }));
 
-  it('has the constants and salts the Design fixes, and ships set pieces off until the switch', () => {
+  it('has the constants and salts the Design fixes, and ships set pieces on', () => {
     expect([UPHILL_FOOT, UPHILL_TOP, LEDGE_WIDE, SPIRAL_FOOT, SPIRAL_HALF, CROSS_HALF]).toEqual([6, 10, 4, 4, 9, 11]);
     expect([SALT.setPiece, SALT.setPieceKind, SALT.uphillAxis, SALT.uphillEnd, SALT.spiralBase, SALT.spiralTurn]).toEqual([78, 79, 80, 81, 82, 83]);
     expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83]);
     expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
-    expect(base7f.delver.floor.setPieces.percent).toEqual([0, 0, 0]);
+    // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
+    expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1 } });
     expect(noSetPieces(on).delver.floor.setPieces.percent).toEqual([0]);
     expect(onlySetPiece(base7f, 'spiral').delver.floor.setPieces).toEqual({ percent: [100], weights: { cross: 0, uphill: 0, spiral: 1 } });
   });
@@ -2195,9 +2198,11 @@ describe('set pieces (Stage 7f)', () => {
   it('on noSetPieces makes no pick: a plan is today\'s whatever the 7f salts, and holds no set piece', () => {
     const salts = SALT as unknown as Record<string, number>;
     const saved = { ...salts };
+    const zero = { ...on, delver: { ...on.delver, floor: { ...on.delver.floor, setPieces: { percent: [0, 0, 0], weights: { cross: 0, uphill: 1, spiral: 0 } } } } };
     for (const { seed, floor } of pairs.filter((_, k) => k % 11 === 0)) {
-      const want = JSON.stringify(planOf(base7f, seed, floor));
-      expect(JSON.stringify(planOf(noSetPieces(on), seed, floor))).toBe(want);
+      const want = JSON.stringify(planOf(noSetPieces(on), seed, floor));
+      expect(want).not.toMatch(/"kind":"(uphill|spiral|cross)"/);
+      expect(JSON.stringify(planOf(zero, seed, floor))).toBe(want);
       try {
         for (const key of ['setPiece', 'setPieceKind', 'uphillAxis', 'uphillEnd', 'spiralBase', 'spiralTurn']) salts[key] = 9000 + salts[key]!;
         expect(JSON.stringify(planOf(noSetPieces(on), seed, floor))).toBe(want);
