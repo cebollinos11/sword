@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
+import { noRooms } from '../sim/delver/flat.testdata';
 import { arenaOf } from '../sim/arena';
 import { arenaTuning, floorArenaName, floorOf, hallBase } from '../sim/delver';
 import * as THREE from 'three';
 import { sconcesOf, TorchLights } from './delverTorches';
 
-const tuning = loadTuningData();
+// Stage 7g's drawn rooms off: these Floors are 7f's.
+const tuning = noRooms(loadTuningData());
 
 describe('sconcesOf', () => {
   it('hangs sconces in every Hall and along the Passages, never in a doorway, the same each time', () => {

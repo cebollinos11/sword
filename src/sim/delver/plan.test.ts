@@ -2016,7 +2016,8 @@ describe('lava (Stage 7d)', () => {
 });
 
 describe('set pieces (Stage 7f)', () => {
-  const base7f = loadTuningData();
+  // Stage 7g's drawn rooms off (`noRooms`): these cases count 7f's three set pieces on 7f's Floors.
+  const base7f = noRooms(loadTuningData());
   const on = base7f;
   const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
   const odd = (v: number) => Math.abs(v % 2) === 1;
@@ -2050,7 +2051,7 @@ describe('set pieces (Stage 7f)', () => {
     expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83, 84, 85]);
     expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
     // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
-    expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } });
+    expect(loadTuningData().delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 1 } });
     expect(noSetPieces(on).delver.floor.setPieces.percent).toEqual([0]);
     expect(onlySetPiece(base7f, 'spiral').delver.floor.setPieces).toEqual({ percent: [100], weights: { cross: 0, uphill: 0, spiral: 1, room: 0 } });
   });

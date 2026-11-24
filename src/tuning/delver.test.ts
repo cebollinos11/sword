@@ -117,7 +117,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
       traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } }, lava: { percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 }, setPieces: { percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } }, drawnRooms: expect.any(Array) },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } }, lava: { percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 }, setPieces: { percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 1 } }, drawnRooms: expect.any(Array) },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -452,7 +452,8 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ ...flat, setPieces: { percent: [10], weights: { cross: 1, uphill: 0, spiral: 0, room: 0 } } })).floor.setPieces.percent).toEqual([10]);
     expect(parse(withFloor({ ...flat, setPieces: { ...SET_PIECES, percent: [0] } })).floor.setPieces.weights).toEqual(SET_PIECES.weights);
     // The shipped values (Stage 7f's switch): about 1 Hall in 10 on every tier.
-    expect(bundled.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } });
+    // Stage 7g: the drawn rooms weighted as each 7f set piece is, once a room file has shipped.
+    expect(bundled.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 1 } });
   });
 
   it('accepts a fractional follow', () => {

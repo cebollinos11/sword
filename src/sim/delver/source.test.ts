@@ -96,7 +96,8 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
 });
 
 describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning = fullFloors(loadTuningData());
+  // Stage 7g's drawn rooms off (`noRooms`): a room's Blocks are its own, not a 7b Hall's.
+  const tuning = fullFloors(noRooms(loadTuningData()));
   let floors: DelverFloor[];
   beforeAll(() => {
     floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1 + (seed % 3)));
