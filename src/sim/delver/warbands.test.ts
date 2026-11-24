@@ -15,6 +15,9 @@ const TIMEOUT = 120_000;
 /** The bundled Tuning with no elite posts: the Stage 3 tests that pin one Warband's Soldiers or HP to its template run on it. */
 const noElites: TuningData = { ...tuning, delver: { ...tuning.delver, elitePosts: 0 } };
 
+/** The bundled Tuning with 1.5 Soldiers per extra human, so the fractional (seeded chance) part of the party scaling is exercised. */
+const fractional: TuningData = { ...tuning, delver: { ...tuning.delver, perPlayerSoldiers: 1.5 } };
+
 /** The Floor `floor` of Run `seed`: its Tuning Data (`arenaTuning`), plan and Battlefield, and the Crowd deployed for `humans`. */
 function deal(seed: number, floor: number, humans = 1, base: TuningData = tuning) {
   const name = floorArenaName(seed, floor);
@@ -171,8 +174,8 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
   it('makes each Warband perPlayerSoldiers x (humans - 1) bigger: the whole part, and the fraction as a seeded chance, held to squad.size', () => {
     for (const seed of SEEDS) {
       for (const floor of [1, 7]) {
-        const base = deal(seed, floor, 1);
-        const sizes = (humans: number) => deal(seed, floor, humans).crowd.warbands!.size;
+        const base = deal(seed, floor, 1, fractional);
+        const sizes = (humans: number) => deal(seed, floor, humans, fractional).crowd.warbands!.size;
         const solo = base.crowd.warbands!.size;
         const cap = base.t.battle.squad.size;
         expect(sizes(1)).toEqual(solo);

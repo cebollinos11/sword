@@ -665,7 +665,7 @@ export const FIELDS_KEPT = 64;
 **Warbands from Encounters** (Tuning Data `data/delver.json`, `src/tuning/delver.ts`; the Hall-graph Encounters in `data/dungeon.json` stay the Hall-graph Run's):
 ```json
 "sight": 16, "leash": 45, "forgetSeconds": 8, "chaseSpeed": 1, "closeIn": 4, "arrive": 3,
-"postFill": 75, "patrolFill": 100, "perPlayerSoldiers": 1.5, "attackSlots": [4, 3, 3, 3], "tierHp": [1, 1.25, 1.5],
+"postFill": 75, "patrolFill": 100, "perPlayerSoldiers": 1, "attackSlots": [4, 3, 3, 3], "tierHp": [1, 1.25, 1.5],
 "warbands": [ { "guard": [ <template>, … ], "patrol": [ <template>, … ] }, … one per tier ]
 ```
 - A **template** is `{ "troops": [ { "troop": "<battle.troops name>", "count": n }, … ], "hpScale": h }`: its Soldiers are each listed Troop's `count`, in list order, the first Troop its rank and file. Its brain is the pool it is listed in (guard or patrol).
@@ -715,7 +715,7 @@ export const FIELDS_KEPT = 64;
      - Walking home or along a loop it steers the same way at `walkSpeed × squad.speed` and is COLUMN; LOOSE while `fall`.
   5. `lead[q]` = the one field its anchor followed this step (the home field, the waypoint's or the chased Fighter's); the home field while it stands (it is at home, or halted near its quarry, so that field still leads to it); null once wiped. (Amended in review: the Design first said null while it stands.)
 - The home fields, the waypoint fields and the chase fields all come from `fieldToward` (each home's point on the floor's Walk Surface).
-- **The Tuning Data keys and defaults**: `sight` 16 m, `leash` 45 m (walking: about one and a half Halls), `forgetSeconds` 8, `chaseSpeed` 1 (× `crowd.walkSpeed`, 2.5 m/s; Guard, Patrol and Return walk at `squad.speed` 0.8 of it), `closeIn` 4 m, `arrive` 3 m, `postFill` 75, `patrolFill` 100, `perPlayerSoldiers` 1.5, `attackSlots` [4, 3, 3, 3], `tierHp` [1, 1.25, 1.5].
+- **The Tuning Data keys and defaults**: `sight` 16 m, `leash` 45 m (walking: about one and a half Halls), `forgetSeconds` 8, `chaseSpeed` 1 (× `crowd.walkSpeed`, 2.5 m/s; Guard, Patrol and Return walk at `squad.speed` 0.8 of it), `closeIn` 4 m, `arrive` 3 m, `postFill` 75, `patrolFill` 100, `perPlayerSoldiers` 1, `attackSlots` [4, 3, 3, 3], `tierHp` [1, 1.25, 1.5].
 
 **The enemy-only Bubble** (`bubble.ts`; Floors only, read from `crowd.warbands` being present):
 - **Who has a Bubble**: every party Fighter in play (slots 0 to k − 1: the Players' and the AI allies'). There is no Player record, so nobody takes over a Soldier, and `crowd.players` is empty.
