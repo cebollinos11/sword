@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
-import { buildFloor, delverFloor, floorName, holeId, isFloorName, lavaId, pieceId, planFloor, floorSource, type BuiltFloor, type DelverFloor, type DelverHall, type DelverPassage } from './index';
+import { buildFloor, delverFloor, floorName, highId, holeId, isFloorName, landingId, lavaId, onlySetPiece, pieceId, planFloor, floorSource, stepId, type BuiltFloor, type DelverFloor, type DelverHall, type DelverPassage, type SetPieceKind } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, fullFloors, noLava, plainHalls } from './flat.testdata';
+import { flatHalls, flatRooms, fullFloors, noLava, noSetPieces, plainHalls } from './flat.testdata';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { deadly, groundBelow } from '../arena';
 import { groundNear, trace, walled, walkCheck } from '../levels';
@@ -11,7 +11,7 @@ import { navMesh } from '../nav';
 import { fieldAt } from './judge';
 import { nodeIn, cellAt } from '../destinations';
 import { LAVA_DEPTH } from './plan';
-import { HALL_STOREY, hallBase, PASSAGE_STOREY } from './plan';
+import { HALL_STOREY, hallBase, JUMP_SHORTCUT_CAP, PASSAGE_STOREY } from './plan';
 
 describe('isFloorName', () => {
   it('is true for the names floorName makes', () => {
@@ -513,6 +513,147 @@ describe('a Floor\'s source with lava (Stage 7d)', () => {
       const without = floorSource(bare, on.battle.field.size);
       const stripped = b.source.brushes.filter((br) => !/-(hole|lava)\d+$/.test(br.id));
       expect(stripped).toEqual(without.brushes);
+    }
+  });
+});
+
+describe('a Floor\'s source with set pieces (Stage 7f)', () => {
+  const bundled = loadTuningData();
+  const planOf = (tuning: typeof bundled, seed: number, floor: number) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+  // Found by scanning seeds 1 to 6, Floors 1, 4 and 7, each on `onlySetPiece`: Uphills of 1 and 2 levels, Spirals of several bases and turns, Lava Bridges of 1 to 4 arms (one in a great hall).
+  const PAIRS = [['uphill', 1, 7], ['uphill', 3, 7], ['spiral', 1, 7], ['spiral', 4, 7], ['cross', 1, 7], ['cross', 3, 1]] as const;
+  const floors = PAIRS.map(([kind, seed, floor]) => ({ kind, seed, floor, tuning: onlySetPiece(bundled, kind), plan: planOf(onlySetPiece(bundled, kind), seed, floor) }));
+  let built: (BuiltFloor & { kind: SetPieceKind })[];
+  beforeAll(() => {
+    built = floors.map((f) => ({ ...buildFloor(f.tuning, f.plan), kind: f.kind }));
+  }, 120_000);
+  const of = (kind: SetPieceKind) => built.filter((b) => b.kind === kind);
+  const uphills = (b: BuiltFloor) => b.plan.halls.flatMap((h) => (h.feature?.kind === 'uphill' ? [{ h, f: h.feature }] : []));
+  const spirals = (b: BuiltFloor) => b.plan.halls.flatMap((h) => (h.feature?.kind === 'spiral' ? [{ h, f: h.feature }] : []));
+  const brush = (b: BuiltFloor, id: string) => b.source.brushes.find((br) => br.id === id);
+  const mid = (r: { x0: number; z0: number; x1: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
+  const surfaceId = (b: BuiltFloor, s: number) => (s >= 0 ? b.field.arena.walk[s]!.id : 'none');
+  const lv = bundled.battle.levels;
+
+  it('has Uphills of 1 and 2 levels, Spirals and Lava Bridges of 1 to 4 arms (one in a great hall) among its Floors', () => {
+    expect(new Set(built.flatMap((b) => uphills(b).map((u) => u.f.rise)))).toEqual(new Set([1, 2]));
+    expect(built.reduce((a, b) => a + spirals(b).length, 0)).toBeGreaterThan(4);
+    const crosses = built.flatMap((b) => b.plan.halls.filter((h) => h.lava?.kind === 'cross'));
+    expect(new Set(crosses.map((h) => h.lava!.bridges.length))).toEqual(new Set([1, 2, 3, 4]));
+    expect(crosses.some((h) => h.great)).toBe(true);
+  });
+
+  it('writes an Uphill\'s high landing as a Platform at the Hall\'s y, then its Ramp from the Enclosure\'s floor, railless; the Enclosure stands at the low landing', () => {
+    for (const b of of('uphill'))
+      for (const { h, f } of uphills(b)) {
+        const ids = b.source.brushes.map((br) => br.id);
+        expect(ids.indexOf(highId(h)) + 1).toBe(ids.indexOf(stepId(h, 0)));
+        expect(brush(b, highId(h))).toEqual({ kind: 'platform', id: highId(h), rect: f.high, top: h.y, material: expect.any(String) });
+        expect(brush(b, stepId(h, 0))).toEqual({ kind: 'ramp', id: stepId(h, 0), rect: f.steps[0]!.rect, lo: hallBase(h), hi: h.y, up: f.up, rails: [], material: 'stone' });
+        expect(brush(b, h.id)).toMatchObject({ kind: 'enclosure', y: hallBase(h) });
+        expect(b.source.levels).toContain(hallBase(h));
+        expect(b.source.levels).toContain(h.top);
+      }
+  });
+
+  it('writes a Spiral\'s five landings (each but the last over the next Ramp\'s rect too), then its five Ramps, in stone; `levels` holds every landing', () => {
+    for (const b of of('spiral'))
+      for (const { h, f } of spirals(b)) {
+        const ids = b.source.brushes.map((br) => br.id);
+        const want = [...f.landings.map((_, n) => landingId(h, n)), ...f.steps.map((_, n) => stepId(h, n))];
+        const at = ids.indexOf(want[0]!);
+        expect(ids.slice(at, at + 10)).toEqual(want);
+        f.landings.forEach((l, n) => {
+          const next = f.steps[n + 1]?.rect;
+          const rect = next ? { x0: Math.min(l.rect.x0, next.x0), z0: Math.min(l.rect.z0, next.z0), x1: Math.max(l.rect.x1, next.x1), z1: Math.max(l.rect.z1, next.z1) } : l.rect;
+          expect(brush(b, landingId(h, n))).toEqual({ kind: 'platform', id: landingId(h, n), rect, top: l.y, material: 'stone' });
+          expect(b.source.levels).toContain(l.y);
+        });
+        f.steps.forEach((st, n) => expect(brush(b, stepId(h, n))).toEqual({ kind: 'ramp', id: stepId(h, n), rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: st.rails, material: 'stone' }));
+        expect(brush(b, h.id)).toMatchObject({ kind: 'enclosure', y: h.y });
+      }
+  });
+
+  it('writes a Lava Bridge as 7d\'s lava: a Hole then a lava Hazard for each lava rect', () => {
+    for (const b of of('cross'))
+      for (const h of b.plan.halls.filter((hh) => hh.lava?.kind === 'cross'))
+        h.lava!.rects.forEach((rect, n) => {
+          expect(brush(b, holeId(h, n))).toEqual({ kind: 'hole', id: holeId(h, n), rect, y: h.y });
+          expect(brush(b, lavaId(h, n))).toEqual({ kind: 'hazard', id: lavaId(h, n), rect, y: h.lava!.y, hazard: 'lava' });
+        });
+  });
+
+  it('compiles every kind (its walk check included) and passes `walkCheck`', () => {
+    for (const b of built) expect(walkCheck(b.field.arena, lv), b.source.name).toBeNull();
+  });
+
+  it('lets a Soldier walk up an Uphill from its low landing to its high one', () => {
+    for (const b of of('uphill'))
+      for (const { h, f } of uphills(b)) {
+        const lo = mid(f.low);
+        const ramp = mid(f.steps[0]!.rect);
+        const hi = mid(f.high);
+        const start = groundNear(b.field.arena, lv, lo.x, lo.z, hallBase(h), false);
+        const onRamp = trace(b.field.arena, lv, start, lo.x, lo.z, ramp.x, ramp.z, false);
+        expect(surfaceId(b, onRamp)).toBe(`WALK_${stepId(h, 0)}`);
+        expect(surfaceId(b, trace(b.field.arena, lv, onRamp, ramp.x, ramp.z, hi.x, hi.z, false))).toMatch(new RegExp(`^WALK_${highId(h)}_`));
+      }
+  });
+
+  it('lets a Soldier walk round a Spiral\'s ledge from the well to its last landing, and never off it from there (6 m over the well); a body knocked off lands in the well', () => {
+    for (const b of of('spiral'))
+      for (const { h, f } of spirals(b)) {
+        const arena = b.field.arena;
+        const r1 = f.steps[0]!;
+        const foot = mid(r1.rect);
+        // The well, a metre before the first Ramp's foot.
+        const [wx, wz] = r1.up === 'n' ? [foot.x, r1.rect.z0 - 1] : r1.up === 's' ? [foot.x, r1.rect.z1 + 1] : r1.up === 'e' ? [r1.rect.x0 - 1, foot.z] : [r1.rect.x1 + 1, foot.z];
+        let s = groundNear(arena, lv, wx, wz, h.y, false);
+        expect(surfaceId(b, s)).toMatch(new RegExp(`^WALK_${h.id}_`));
+        let [x, z] = [wx, wz];
+        for (let n = 0; n < 5; n++) {
+          for (const [id, q] of [[`WALK_${stepId(h, n)}`, f.steps[n]!.rect], [`WALK_${landingId(h, n)}_`, f.landings[n]!.rect]] as const) {
+            const c = mid(q);
+            s = trace(arena, lv, s, x, z, c.x, c.z, false);
+            expect(surfaceId(b, s).startsWith(id), `${h.id}: to ${id} from (${x}, ${z})`).toBe(true);
+            [x, z] = [c.x, c.z];
+          }
+        }
+        // Off L5 toward the Hall's centre: a 6 m drop, more than `levels.drop`.
+        const l5 = f.landings[4]!.rect;
+        const c = mid(l5);
+        const [ox, oz] = Math.abs(h.cx - c.x) > Math.abs(h.cz - c.z) ? [c.x + Math.sign(h.cx - c.x) * 5, c.z] : [c.x, c.z + Math.sign(h.cz - c.z) * 5];
+        expect(trace(arena, lv, s, c.x, c.z, ox, oz, true)).toBe(-1);
+        expect(surfaceId(b, groundNear(arena, lv, ox, oz, f.landings[4]!.y, false))).toMatch(new RegExp(`^WALK_${h.id}_`));
+      }
+  });
+
+  it('gives the navmesh no jump Link onto a Spiral\'s ledge past the foot of its second Ramp, and each within the shortcut cap', () => {
+    for (const b of of('spiral')) {
+      const arena = b.field.arena;
+      const mesh = navMesh(arena, bundled);
+      for (const { h } of spirals(b)) {
+        const ledge = new RegExp(`^WALK_${h.id}-(step|landing)\\d`);
+        const low = new RegExp(`^WALK_(${stepId(h, 0)}|${landingId(h, 0)}_\\d+|${stepId(h, 1)})$`);
+        for (const l of mesh.links) {
+          if (l.kind !== 'jump' || !ledge.test(arena.walk[l.to]!.id) || ledge.test(arena.walk[l.from]!.id)) continue;
+          expect(arena.walk[l.to]!.id).toMatch(low);
+          expect(l.lands.y - h.y).toBeLessThanOrEqual(JUMP_SHORTCUT_CAP);
+        }
+      }
+    }
+  }, 120_000);
+
+  it('puts no Wall on a 2 m destination-field cell centre (checkMap)', () => {
+    const at2 = { ...bundled, battle: { ...bundled.battle, crowd: { ...bundled.battle.crowd, flowCell: 2 } } };
+    for (const b of built) expect(checkMap(b.source, at2).issues.filter((i) => i.kind === 'centre'), b.source.name).toEqual([]);
+  }, 120_000);
+
+  it('writes today\'s source, byte for byte, with set pieces off', () => {
+    for (const [seed, floor] of [[1, 1], [1, 7], [4, 7], [3, 1]] as const) {
+      const off = planOf(noSetPieces(onlySetPiece(bundled, 'spiral')), seed, floor);
+      expect(JSON.stringify(floorSource(off, bundled.battle.field.size))).toBe(JSON.stringify(floorSource(planOf(bundled, seed, floor), bundled.battle.field.size)));
     }
   });
 });

@@ -53,14 +53,17 @@ function whole(params: URLSearchParams, name: string, min: number): number | nul
 /**
  * Dev mode only (docs/plans/delver.md, Stage 1): `delverSeed=S&delverFloor=F` asks the Map Editor to open Floor F (from 1) of seed S
  * (from 0, up to 4294967295) as a generated Delver Floor. Both are needed, as whole numbers in digits; null without `dev=1`
- * or with either missing or bad.
+ * or with either missing or bad. With `delverPiece=cross`, `uphill` or `spiral` too (Stage 7f) the Floor is dealt with every Hall rolled for that set
+ * piece (`piece`); any other value is left out.
  */
-export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number } | null {
+export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number; piece?: 'cross' | 'uphill' | 'spiral' } | null {
   if (!devMode(search, hash)) return null;
   const params = query(search, hash);
   const seed = whole(params, 'delverSeed', 0);
   const floor = whole(params, 'delverFloor', 1);
-  return seed === null || floor === null ? null : { seed, floor };
+  const piece = params.get('delverPiece');
+  if (seed === null || floor === null) return null;
+  return piece === 'cross' || piece === 'uphill' || piece === 'spiral' ? { seed, floor, piece } : { seed, floor };
 }
 
 /** Dev mode only: `aiwalk=1` in the Map Editor walks the AI over the map it opens (with `delverSeed`, the Floor) once it is checked. */

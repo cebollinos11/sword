@@ -40,7 +40,7 @@ import { maxArmySize, type TuningData } from '../../tuning';
 import { saveGlbFile, saveJsonFile } from '../../editor/save';
 import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
-import { delverFloor, describeFloor, type DelverFloor } from '../../sim/delver';
+import { delverFloor, describeFloor, onlySetPiece, setPieceLines, setPieceOf, type DelverFloor, type DelverHall, type SetPieceKind } from '../../sim/delver';
 import { floorName, isFloorName } from '../../sim/delver/source';
 import { devAiWalk, devDelverFloor } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
@@ -233,6 +233,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     quickBattles: 4,
     delverSeed: 1,
     delverFloor: 1,
+    /** Stage 7f: deal the Floor with every Hall rolled for this set piece (`onlySetPiece`), editor only; 'off' deals it as a Run does. */
+    delverPiece: 'off' as 'off' | SetPieceKind,
+    /** The opened Floor's set pieces, one per line (`setPieceLines`). */
+    setPieces: '',
     look3d: true,
     mirror: false,
     walkSheathed: true,
@@ -465,6 +469,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   // --- The AI: the navmesh probe and the AI walk (`navProbe.ts`, `navWalk.ts`) ---
   /** The Floor Open Delver Floor built: its plan's markers are the AI's targets (the source carries only D and E, for the eye). */
   let openFloor: DelverFloor | null = null;
+  /** Its set-piece Halls (Stage 7f), and the one last framed (-1: none yet). */
+  let pieceHalls: DelverHall[] = [];
+  let pieceAt = -1;
   /** The probe of a source's draft, and the AI walk over one (running or done), each with what it found. */
   let probed: { of: MapChecks['source']; probe: NavProbe; issues: NavIssue[] } | null = null;
   let walked: { of: MapChecks['source']; walk: AiWalk; issues: NavIssue[] } | null = null;
@@ -650,20 +657,27 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
   file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0, max: 4294967295 });
   file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: tuning.delver.tiers * tuning.delver.floorsPerTier });
-  /** Builds and opens Floor `floor` of `seed`. The build takes a few hundred ms, so the status shows first and it runs on the next task. */
-  const openDelverFloor = (seed: number, floor: number) => {
-    say(`Building Floor ${floor} of seed ${seed}…`);
+  file.addBinding(ui, 'delverPiece', { label: 'Set piece', options: { off: 'off', 'Lava Bridge': 'cross', Uphill: 'uphill', Spiral: 'spiral' } });
+  /**
+   * Builds and opens Floor `floor` of `seed`; with a set piece (Stage 7f), dealt on `onlySetPiece`, so that every Hall where it fits holds one (never a Run's
+   * Floor). The build takes a few hundred ms, so the status shows first and it runs on the next task.
+   */
+  const openDelverFloor = (seed: number, floor: number, piece: 'off' | SetPieceKind = 'off') => {
+    say(`Building Floor ${floor} of seed ${seed}${piece === 'off' ? '' : ` (every Hall a ${piece} where it fits)`}…`);
     setTimeout(() => {
       try {
-        const f = delverFloor(tuning, seed >>> 0, floor);
+        const f = delverFloor(piece === 'off' ? tuning : onlySetPiece(tuning, piece), seed >>> 0, floor);
         openFloor = f;
+        ui.setPieces = setPieceLines(f.plan).join('\n');
+        pieceHalls = f.plan.halls.filter((h) => setPieceOf(h));
+        pieceAt = -1;
         openRaw(JSON.parse(JSON.stringify(f.source)), describeFloor(f));
       } catch (e) {
         say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
       }
     }, 0);
   };
-  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor));
+  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor, ui.delverPiece));
   file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => void save());
 
   // --- Play-test and the Quick check ---------------------------------------
@@ -1227,6 +1241,19 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   checksFolder.addButton({ title: 'Walk the AI (every target)' }).on('click', walkAi);
   checksFolder.addBinding(ui, 'cost', { readonly: true, multiline: true, rows: 5, label: 'cost' });
   checksFolder.addButton({ title: 'Measure navmesh build' }).on('click', measureNavmesh);
+  // Stage 7f: the opened Delver Floor's set pieces (Hall, kind, rise or base and turn, arms), and each framed in turn in both views.
+  checksFolder.addBinding(ui, 'setPieces', { readonly: true, multiline: true, rows: 4, label: 'Set pieces' });
+  checksFolder.addButton({ title: 'Frame next set piece' }).on('click', () => {
+    if (pieceHalls.length === 0 || openFloor?.source.name !== session.source.name) return say('No set piece: open a Delver Floor (File, Set piece) first.');
+    pieceAt = (pieceAt + 1) % pieceHalls.length;
+    const h = pieceHalls[pieceAt]!;
+    const under = session.source.levels.filter((y) => y <= h.y + 0.5);
+    if (under.length) session.level = under[under.length - 1]!;
+    view.frameRect(h.rect);
+    view3d.focus(h.rect, session.level, session.source.name);
+    rebuild();
+    say(`${h.id}: ${setPieceLines({ ...openFloor.plan, halls: [h] }).join('')}`);
+  });
   const legend = document.createElement('div');
   legend.style.cssText = 'padding:2px 8px 6px;font:11px/1.4 system-ui,sans-serif;color:#bbb';
   const swatch = (c: string, t: string) => `<span style="display:inline-block;width:9px;height:9px;background:${c};margin:0 3px 0 6px"></span>${t}`;
@@ -1646,8 +1673,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   if (asked) {
     ui.delverSeed = asked.seed;
     ui.delverFloor = asked.floor;
+    ui.delverPiece = asked.piece ?? 'off';
     refreshPane();
-    openDelverFloor(asked.seed, asked.floor);
+    openDelverFloor(asked.seed, asked.floor, ui.delverPiece);
   }
 
   window.addEventListener('beforeunload', (e) => {

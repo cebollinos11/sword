@@ -84,6 +84,14 @@ export function floorTargets(plan: FloorPlan): { start: NavTarget; targets: NavT
   m.pedestals.forEach((p, k) => add(`pedestal ${k + 1}`, p));
   if (m.boss) add('Boss post', m.boss);
   add('Stairs', { x: (m.stairs.zone.x0 + m.stairs.zone.x1) / 2, z: (m.stairs.zone.z0 + m.stairs.zone.z1) / 2, y: m.stairs.y });
+  // Stage 7f: a set piece's own floors, so a walk climbs a Spiral's ledge, crosses each Lava Bridge arm and takes an Uphill from its low end.
+  for (const h of plan.halls) {
+    const f = h.feature;
+    const mid = (r: { x0: number; z0: number; x1: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
+    if (f?.kind === 'spiral') f.landings.forEach((l, n) => add(`${h.id} landing ${n + 1}`, { ...mid(l.rect), y: l.y }));
+    if (f?.kind === 'uphill') add(`${h.id} low landing`, { ...mid(f.low), y: f.steps[0]!.lo });
+    if (h.lava?.kind === 'cross') h.lava.bridges.forEach((b, n) => add(`${h.id} arm ${n + 1}`, { ...mid(b), y: h.y }));
+  }
   const s = m.spawns[0]!;
   return { start: { label: 'Entrance spawn', hall: hallAt(s.x, s.z), x: s.x, z: s.z, y: s.y }, targets };
 }

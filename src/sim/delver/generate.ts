@@ -7,7 +7,7 @@ import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
-import { planFloor, type HallShape } from './plan';
+import { planFloor, setPieceOf, type FloorPlan, type HallShape } from './plan';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
@@ -45,6 +45,24 @@ export function delverFloor(
   }
   if (!best) throw new Error(`No Floor ${floor} of seed ${seed >>> 0} built in ${maxAttempts} attempts: ${last}`);
   return { ...best.built, attempts: maxAttempts, judgement: { ok: false, reasons: best.reasons } };
+}
+
+/**
+ * The Map Editor's list of a Floor's set pieces (docs/plans/delver.md, Stage 7f), one line each in Hall order: the Hall, its kind and what it is (an
+ * Uphill's rise and high end, a Spiral's base wall, turn and well level, a Lava Bridge's arms); 'none' for a Floor with none.
+ */
+export function setPieceLines(plan: FloorPlan): string[] {
+  const out = plan.halls.flatMap((h) => {
+    const sp = setPieceOf(h);
+    if (!sp) return [];
+    const f = h.feature;
+    const what =
+      f?.kind === 'uphill' ? `Uphill, ${f.rise} level${f.rise === 1 ? '' : 's'} up to its ${f.up} end`
+      : f?.kind === 'spiral' ? `Spiral, base ${f.base}, ${f.turn === 0 ? 'counter-clockwise' : 'clockwise'}, well on level ${h.level}`
+      : `Lava Bridge, ${h.lava!.bridges.length} arm${h.lava!.bridges.length === 1 ? '' : 's'} (${h.lava!.walls.join(' ')})${h.great ? ', great hall' : ''}`;
+    return [`${h.id} (${h.kind}): ${what}`];
+  });
+  return out.length > 0 ? out : ['none'];
 }
 
 /** One line on a Floor: its layout counts and the verdict. */

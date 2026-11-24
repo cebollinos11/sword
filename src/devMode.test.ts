@@ -72,6 +72,12 @@ describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in
     expect(devDelverFloor('?delverSeed=4294967295', '#/mapeditor?dev=1&delverFloor=9')).toEqual({ seed: 4294967295, floor: 9 });
   });
 
+  it('reads a set piece to deal every Hall for (Stage 7f), and leaves out any other value', () => {
+    for (const piece of ['cross', 'uphill', 'spiral'] as const) expect(devDelverFloor(`?dev=1&delverSeed=7&delverFloor=1&delverPiece=${piece}`, '')).toEqual({ seed: 7, floor: 1, piece });
+    expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=7&delverFloor=1&delverPiece=moat')).toEqual({ seed: 7, floor: 1 });
+    expect(devDelverFloor('?dev=1&delverPiece=spiral', '')).toBeNull();
+  });
+
   it('refuses a bad or missing value', () => {
     for (const bad of ['delverSeed=-1&delverFloor=1', 'delverSeed=1.5&delverFloor=1', 'delverSeed=abc&delverFloor=1', 'delverSeed=4294967296&delverFloor=1',
       'delverSeed=1&delverFloor=0', 'delverSeed=1&delverFloor=1.5', 'delverSeed=1&delverFloor=x', 'delverSeed=1', 'delverFloor=1', '']) {

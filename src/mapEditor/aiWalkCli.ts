@@ -5,7 +5,7 @@
  * walks it again (`?aiwalk=1`), to look at the traces. Pure of the DOM and of clocks: the same arguments print the same report.
  */
 import { loadTuningData } from '../tuning';
-import { delverFloor } from '../sim/delver';
+import { delverFloor, onlySetPiece, type SetPieceKind } from '../sim/delver';
 import { checkMap } from './checks';
 import { floorTargets, navIssues, probeRoutes, type NavIssue } from './navProbe';
 import { walkAll, walkIssues, type AiWalkOptions } from './navWalk';
@@ -15,6 +15,8 @@ export interface AiWalkArgs extends AiWalkOptions {
   readonly floors: readonly number[];
   /** Print every Floor's issues, notes included (default: errors and warnings only). */
   readonly notes?: boolean;
+  /** Stage 7f: deal each Floor with every Hall rolled for this set piece (`onlySetPiece`), as the Map Editor's Set piece choice does; absent: as a Run deals it. */
+  readonly piece?: SetPieceKind;
 }
 
 export interface FloorAiReport {
@@ -30,11 +32,13 @@ export interface FloorAiReport {
 }
 
 /** The Map Editor link (on `npm run dev`) that opens Floor `floor` of `seed` and walks the AI over it. */
-export const editorLink = (seed: number, floor: number): string => `http://localhost:5173/sword/#/mapeditor?dev=1&delverSeed=${seed}&delverFloor=${floor}&aiwalk=1`;
+export const editorLink = (seed: number, floor: number, piece?: SetPieceKind): string =>
+  `http://localhost:5173/sword/#/mapeditor?dev=1&delverSeed=${seed}&delverFloor=${floor}${piece ? `&delverPiece=${piece}` : ''}&aiwalk=1`;
 
 /** The AI check of each Floor asked for, and the report's text. */
 export function aiWalkFloors(args: AiWalkArgs): { reports: FloorAiReport[]; text: string; problems: number } {
-  const tuning = loadTuningData();
+  const base = loadTuningData();
+  const tuning = args.piece ? onlySetPiece(base, args.piece) : base;
   // The walk check's reach (the Soldiers'), at the Floor's flow cell, so the probe says where the navmesh and the Soldiers part.
   const checkTuning = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: tuning.delver.flowCell } } };
   const last = tuning.delver.tiers * tuning.delver.floorsPerTier;
@@ -58,7 +62,7 @@ export function aiWalkFloors(args: AiWalkArgs): { reports: FloorAiReport[]; text
       }
       const timed = legs.filter((l) => l.outcome === 'arrived' && l.expected >= 3);
       const worstRatio = timed.reduce((m, l) => Math.max(m, l.seconds / l.expected), 0);
-      const report = { seed, floor, legs: legs.length, outcomes, issues, worstRatio, link: editorLink(seed, floor) };
+      const report = { seed, floor, legs: legs.length, outcomes, issues, worstRatio, link: editorLink(seed, floor, args.piece) };
       reports.push(report);
       const shown = issues.filter((i) => args.notes || i.severity !== 'note');
       const bad = issues.filter((i) => i.severity !== 'note').length;
