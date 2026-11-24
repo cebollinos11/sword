@@ -2047,9 +2047,9 @@ describe('set pieces (Stage 7f)', () => {
     expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83]);
     expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
     // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
-    expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1 } });
+    expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } });
     expect(noSetPieces(on).delver.floor.setPieces.percent).toEqual([0]);
-    expect(onlySetPiece(base7f, 'spiral').delver.floor.setPieces).toEqual({ percent: [100], weights: { cross: 0, uphill: 0, spiral: 1 } });
+    expect(onlySetPiece(base7f, 'spiral').delver.floor.setPieces).toEqual({ percent: [100], weights: { cross: 0, uphill: 0, spiral: 1, room: 0 } });
   });
 
   it('plans 200 seeds x Floors 1 to 9 with each set piece in plenty, and shows every case the Design asks for', () => {
@@ -2198,7 +2198,7 @@ describe('set pieces (Stage 7f)', () => {
   it('on noSetPieces makes no pick: a plan is today\'s whatever the 7f salts, and holds no set piece', () => {
     const salts = SALT as unknown as Record<string, number>;
     const saved = { ...salts };
-    const zero = { ...on, delver: { ...on.delver, floor: { ...on.delver.floor, setPieces: { percent: [0, 0, 0], weights: { cross: 0, uphill: 1, spiral: 0 } } } } };
+    const zero = { ...on, delver: { ...on.delver, floor: { ...on.delver.floor, setPieces: { percent: [0, 0, 0], weights: { cross: 0, uphill: 1, spiral: 0, room: 0 } } } } };
     for (const { seed, floor } of pairs.filter((_, k) => k % 11 === 0)) {
       const want = JSON.stringify(planOf(noSetPieces(on), seed, floor));
       expect(want).not.toMatch(/"kind":"(uphill|spiral|cross)"/);

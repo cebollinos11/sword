@@ -11,9 +11,15 @@ export function fullFloors(tuning: TuningData): TuningData {
   return { ...tuning, delver };
 }
 
+/** `tuning` with `delver.floor.setPieces.weights.room` 0 and no drawn rooms (docs/plans/delver.md, Stage 7g), the rest unchanged: no room is picked, so a Floor is 7f's byte for byte whatever room files are committed. */
+export function noRooms(tuning: TuningData): TuningData {
+  const f = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { ...f.setPieces, weights: { ...f.setPieces.weights, room: 0 } }, drawnRooms: [] } } };
+}
+
 /** `tuning` with `delver.floor.setPieces.percent` [0] (docs/plans/delver.md, Stage 7f), the rest unchanged: no Hall is rolled for a set piece and no pick is made, so a Floor's plan, source and map are 7d's byte for byte. */
 export function noSetPieces(tuning: TuningData): TuningData {
-  const f = tuning.delver.floor;
+  const f = noRooms(tuning).delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { ...f.setPieces, percent: [0] } } } };
 }
 

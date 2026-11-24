@@ -2430,7 +2430,7 @@ function lavaWatcher(): {
     const halls = built.plan.halls.flatMap((hall, k) =>
       hall.lava ? [{ k, hall }] : [],
     );
-    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0, cross: 0 };
+    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0, cross: 0, room: 0 };
     for (const h of halls) halls0[h.hall.lava!.kind]++;
     cache.set(
       name,

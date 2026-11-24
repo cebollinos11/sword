@@ -10,7 +10,7 @@
  */
 import type { TuningData } from '../../tuning';
 import type { DelverFloorTuning } from '../../tuning/delver';
-import type { Doors, Rect, Side } from '../../mapEditor/source';
+import type { Brush, Doors, Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
 
 /** A point on a Floor with its height (m). */
@@ -72,9 +72,10 @@ export interface DelverHall {
 
 /**
  * What a Hall's lava is (docs/plans/delver.md, Stage 7d): one rect in its middle ringed by floor, a band from wall to wall cut by bridges, or strips along
- * one or two walls; or (Stage 7f) a Lava Bridge's: all lava but a dry plaza round the centre and an arm from each held doorway to it.
+ * one or two walls; or (Stage 7f) a Lava Bridge's: all lava but a dry plaza round the centre and an arm from each held doorway to it; or (Stage 7g) a
+ * drawn room's lava pools, as the room drew them.
  */
-export type LavaKind = 'pit' | 'river' | 'trough' | 'cross';
+export type LavaKind = 'pit' | 'river' | 'trough' | 'cross' | 'room';
 
 /**
  * A Hall's lava (Stage 7d): the kit's `lava` Hazard `LAVA_DEPTH` under the Hall's floor, a Death by Lava for anyone who walks, falls or is knocked
@@ -198,27 +199,51 @@ export interface DelverSpiral {
   readonly well: readonly Rect[];
 }
 
-/** A Hall's vertical feature besides a gallery. */
-export type DelverFeature = DelverSplit | DelverPit | DelverDais | DelverUphill | DelverSpiral;
+/**
+ * A drawn room (docs/plans/delver.md, Stage 7g): a room the user drew 1:1 in the Map Editor (`data/delver/rooms/<name>.json`), placed whole in a Hall
+ * that takes its size, in one of its 8 frames (`framedRoom`). The Hall's `level` and `y` are the room's floor; its doors stand at the room's doorway
+ * levels. The room's pieces (`framedRoom(room, frame).brushes`, moved to the Hall's centre) are written by the source.
+ */
+export interface DelverRoom {
+  readonly kind: 'room';
+  /** The room's name (its file's). */
+  readonly name: string;
+  /** Its frame, 0 to 7 (`ROOM_FRAMES`). */
+  readonly frame: number;
+  /** [half-width, half-depth] in its frame: the Hall's rect's. */
+  readonly half: readonly [number, number];
+  /** The walls (in the world) that may hold a doorway, each with its floor's level over the Hall's; a wall left out is always solid. */
+  readonly doorways: Readonly<Partial<Record<Side, number>>>;
+  /** Its Ramps as steps, in Brush order (world metres and heights), so the clutter and the judge read them. */
+  readonly steps: readonly DelverStep[];
+  /** Its lava pools' rects (world), in Brush order; [] for none. The Hall's `lava` (kind `room`) holds them too. */
+  readonly lava: readonly Rect[];
+  /** Its pieces as the source writes them: the room's Brushes in its frame, moved to the Hall's centre (world metres) and up to its `y`, ids `<hall>-<brush id>`, each Block to the Hall's ceiling. */
+  readonly brushes: readonly Brush[];
+}
 
-/** A set piece (Stage 7f): a Lava Bridge (lava kind `cross`), an Uphill Room or a Spiral Stair. */
-export type SetPieceKind = 'cross' | 'uphill' | 'spiral';
-export const SET_PIECE_KINDS: readonly SetPieceKind[] = ['cross', 'uphill', 'spiral'];
+/** A Hall's vertical feature besides a gallery. */
+export type DelverFeature = DelverSplit | DelverPit | DelverDais | DelverUphill | DelverSpiral | DelverRoom;
+
+/** A set piece (Stage 7f): a Lava Bridge (lava kind `cross`), an Uphill Room or a Spiral Stair; or (Stage 7g) a drawn room. */
+export type SetPieceKind = 'cross' | 'uphill' | 'spiral' | 'room';
+export const SET_PIECE_KINDS: readonly SetPieceKind[] = ['cross', 'uphill', 'spiral', 'room'];
 
 /** Hall `h`'s set piece, if any. */
 export function setPieceOf(h: DelverHall): SetPieceKind | undefined {
   if (h.lava?.kind === 'cross') return 'cross';
-  return h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral' ? h.feature.kind : undefined;
+  return h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral' || h.feature?.kind === 'room' ? h.feature.kind : undefined;
 }
 
 /**
  * `tuning` with every Hall rolled for set piece `kind` and only that kind weighted (`setPieces.percent` [100]): the Map Editor's look at one set piece
- * (docs/plans/delver.md, Stage 7f, §9), and the tests'. Never a Run's.
+ * (docs/plans/delver.md, Stage 7f, §9), and the tests'. Never a Run's. With `room` (Stage 7g), only the drawn room of that name is in the pool.
  */
-export function onlySetPiece(tuning: TuningData, kind: SetPieceKind): TuningData {
+export function onlySetPiece(tuning: TuningData, kind: SetPieceKind, room?: string): TuningData {
   const f = tuning.delver.floor;
-  const weights = { cross: 0, uphill: 0, spiral: 0, [kind]: 1 };
-  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { percent: [100], weights } } } };
+  const weights = { cross: 0, uphill: 0, spiral: 0, room: 0, [kind]: 1 };
+  const drawnRooms = room === undefined ? f.drawnRooms : f.drawnRooms.filter((r) => r.name === room);
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { percent: [100], weights }, drawnRooms } } };
 }
 
 /** Why a set-piece roll left its Hall plain or was undone (Stage 7f): a plan-only count, never part of the plan. */

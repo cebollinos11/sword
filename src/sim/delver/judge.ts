@@ -345,6 +345,8 @@ function floorAt(h: DelverHall, side: Side): number {
     const n = spiralOrder(f.base, f.turn).indexOf(side);
     return n <= 0 ? h.y : f.landings[2 * (n - 1)]!.y;
   }
+  // Stage 7g: a drawn room's doorway floor stands at its level.
+  if (f?.kind === 'room') return h.y + (f.doorways[side] ?? 0) * LEVEL_RISE;
   if (f?.kind === 'split') {
     const end = f.axis === 'x' ? (side === 'w' ? 0 : side === 'e' ? 1 : -1) : side === 's' ? 0 : side === 'n' ? 1 : -1;
     const tier = end < 0 ? f.tiers.find((t) => t.level === h.level) : f.tiers[end === 0 ? 0 : f.tiers.length - 1];
@@ -364,7 +366,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
   for (const [k, h] of halls.entries()) {
     const f = h.feature;
     // An Uphill and a Spiral are set pieces (Stage 7f), judged by `setPieces`.
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     const plain = h.shape === 'rect' && !h.gallery && h.solids.length === 0 && h.pillars.length === 0;
     if (f.kind === 'dais' ? !plain : !(plain && h.cells.length === 1 && !h.great)) out.push(`features: ${h.id}'s ${f.kind} is not on a ${f.kind === 'dais' ? '' : 'one-cell '}rect Hall without a gallery`);
     // Each part's rect, named, for the odd-metre rule.
@@ -444,7 +446,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const floor = floorAt(h, wall);
     if (!eq(y, floor)) out.push(`features: ${p.id}'s door into ${h.id} is at ${m(y)}, its floor there at ${m(floor)}`);
     const f = h.feature;
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     const lane = doorLane(q.rect, side);
     f.steps.forEach((s, n) => {
       if (overlap(lane, s.rect)) out.push(`features: ${p.id}'s doorway into ${h.id} is blocked by ${stepId(h, n)}`);
@@ -462,7 +464,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const shrunk = (q: Rect): boolean => mk.x >= q.x0 + 1 && mk.x <= q.x1 - 1 && mk.z >= q.z0 + 1 && mk.z <= q.z1 - 1;
     const at = (y: number) => eq(mk.y, y);
     let [ok, what] = [shrunk(h.rect), 'wall'];
-    if (f.kind === 'uphill' || f.kind === 'spiral') continue;
+    if (f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') continue;
     if (f.kind === 'split') [ok, what] = [f.tiers.some((t) => at(t.y) && shrunk(t.rect)), 'tier edge'];
     else if (f.kind === 'pit' && at(h.y)) [ok, what] = [shrunk(f.pit), 'pit edge'];
     else if (f.kind === 'dais' && at(f.y)) [ok, what] = [shrunk(f.rect), 'dais edge'];
@@ -787,7 +789,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   halls.forEach((h, k) => {
     const f = h.feature;
     // An Uphill's and a Spiral's floors are `setPieceWalk`'s (Stage 7f).
-    if (!f || f.kind === 'uphill' || f.kind === 'spiral') return;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral' || f.kind === 'room') return;
     const mid = (r: Rect) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
     const parts = f.kind === 'split' ? f.tiers.map((t, n) => ({ name: `tier ${n}`, ...mid(t.rect), y: t.y }))
       : f.kind === 'pit' ? [{ name: 'floor', ...mid(f.pit), y: h.y }, { name: 'rim', ...mid(f.rims[0]!), y: f.rim }]

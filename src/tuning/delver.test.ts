@@ -49,7 +49,7 @@ const GALLERIES = { wrapPercent: 0, uPercent: 30, stairPercent: 0 };
 const FEATURES = { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 };
 const LAVA = { percent: [25, 35, 50], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
-const SET_PIECES = { percent: [15, 20, 25], weights: { cross: 1, uphill: 1, spiral: 1 } };
+const SET_PIECES = { percent: [15, 20, 25], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
   d.floor = { ...d.floor, ...patch };
@@ -117,7 +117,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
       traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } }, lava: { percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 }, setPieces: { percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1 } } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } }, lava: { percent: [20, 55, 70], weights: { pit: 2, river: 2, trough: 3 }, twoPercent: 40 }, setPieces: { percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } }, drawnRooms: expect.any(Array) },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -241,13 +241,16 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['setPieces.percent entry negative', withFloor({ setPieces: { ...SET_PIECES, percent: [-1] } }), /^delver\.floor\.setPieces\.percent\[0\] /],
     ['setPieces.percent entry fractional', withFloor({ setPieces: { ...SET_PIECES, percent: [0.5] } }), /^delver\.floor\.setPieces\.percent\[0\] /],
     ['setPieces.weights missing', withFloor({ setPieces: { percent: [0] } }), /^delver\.floor\.setPieces\.weights /],
-    ['setPieces.weights key missing', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 1, uphill: 1 } } }), /^delver\.floor\.setPieces\.weights\.spiral /],
+    ['setPieces.weights key missing', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 1, uphill: 1, room: 0 } } }), /^delver\.floor\.setPieces\.weights\.spiral /],
     ['setPieces.weights extra key', withFloor({ setPieces: { ...SET_PIECES, weights: { ...SET_PIECES.weights, maze: 1 } } }), /^delver\.floor\.setPieces\.weights\.maze /],
     ['setPieces.weights negative', withFloor({ setPieces: { ...SET_PIECES, weights: { ...SET_PIECES.weights, cross: -1 } } }), /^delver\.floor\.setPieces\.weights\.cross /],
     ['setPieces.weights fractional', withFloor({ setPieces: { ...SET_PIECES, weights: { ...SET_PIECES.weights, uphill: 1.5 } } }), /^delver\.floor\.setPieces\.weights\.uphill /],
-    ['setPieces.weights all 0', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 0, uphill: 0, spiral: 0 } } }), /^delver\.floor\.setPieces\.weights /],
+    ['setPieces.weights.room missing (Stage 7g)', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 1, uphill: 1, spiral: 1 } } }), /^delver\.floor\.setPieces\.weights\.room /],
+    ['setPieces.weights.room above 0 with no room file', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 1, uphill: 1, spiral: 1, room: 1 } } }), /^delver\.floor\.setPieces\.weights\.room .*room file/],
+    ['a bad drawn room', withFloor({ drawnRooms: [{ name: 'x' }] }), /^delver\.drawnRooms\[0\] \(x\)\.half/],
+    ['setPieces.weights all 0', withFloor({ setPieces: { ...SET_PIECES, weights: { cross: 0, uphill: 0, spiral: 0, room: 0 } } }), /^delver\.floor\.setPieces\.weights /],
     ['a Spiral with levels.max under 3', withFloor({ setPieces: { percent: [10], weights: SET_PIECES.weights }, levels: { max: 2, min: 2, changePercent: 35, galleryPercent: 40 } }), /^delver\.floor\.setPieces\.weights\.spiral .*levels\.max/],
-    ['an Uphill with levels.max 0', withFloor({ setPieces: { percent: [10], weights: { cross: 1, uphill: 1, spiral: 0 } }, features: { ...FEATURES, percent: 0 }, levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } }), /^delver\.floor\.setPieces\.weights\.uphill .*levels\.max/],
+    ['an Uphill with levels.max 0', withFloor({ setPieces: { percent: [10], weights: { cross: 1, uphill: 1, spiral: 0, room: 0 } }, features: { ...FEATURES, percent: 0 }, levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } }), /^delver\.floor\.setPieces\.weights\.uphill .*levels\.max/],
     ['features missing', withFloor({ features: undefined }), /^delver\.floor\.features /],
     ['features.percent above 100', withFloor({ features: { ...FEATURES, percent: 101 } }), /^delver\.floor\.features\.percent /],
     ['features.percent fractional', withFloor({ features: { ...FEATURES, percent: 0.5 } }), /^delver\.floor\.features\.percent /],
@@ -443,13 +446,13 @@ describe('Delver Tuning Data (data/delver.json)', () => {
 
   it('takes the 7f set-piece keys: a percent per Run tier and whole weights; a Spiral needs 3 levels and an Uphill 1', () => {
     expect(parse(withFloor({ setPieces: SET_PIECES })).floor.setPieces).toEqual(SET_PIECES);
-    expect(parse(withFloor({ setPieces: { percent: [0, 100], weights: { cross: 0, uphill: 0, spiral: 1 } } })).floor.setPieces).toEqual({ percent: [0, 100], weights: { cross: 0, uphill: 0, spiral: 1 } });
+    expect(parse(withFloor({ setPieces: { percent: [0, 100], weights: { cross: 0, uphill: 0, spiral: 1, room: 0 } } })).floor.setPieces).toEqual({ percent: [0, 100], weights: { cross: 0, uphill: 0, spiral: 1, room: 0 } });
     // A Lava Bridge alone needs no level; and with percent 0 nothing is asked for at all.
     const flat = { levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 }, features: { ...FEATURES, percent: 0 } };
-    expect(parse(withFloor({ ...flat, setPieces: { percent: [10], weights: { cross: 1, uphill: 0, spiral: 0 } } })).floor.setPieces.percent).toEqual([10]);
+    expect(parse(withFloor({ ...flat, setPieces: { percent: [10], weights: { cross: 1, uphill: 0, spiral: 0, room: 0 } } })).floor.setPieces.percent).toEqual([10]);
     expect(parse(withFloor({ ...flat, setPieces: { ...SET_PIECES, percent: [0] } })).floor.setPieces.weights).toEqual(SET_PIECES.weights);
     // The shipped values (Stage 7f's switch): about 1 Hall in 10 on every tier.
-    expect(bundled.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1 } });
+    expect(bundled.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } });
   });
 
   it('accepts a fractional follow', () => {

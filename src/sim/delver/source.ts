@@ -29,6 +29,25 @@ export const highId = (hall: Pick<DelverHall, 'id'>): string => `${hall.id}-high
 export const holeId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-hole${n}`;
 export const lavaId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-lava${n}`;
 
+/** The heights a drawn room's Brush stands at (Stage 7g), which the source's `levels` must hold. */
+function brushHeights(b: Brush): number[] {
+  switch (b.kind) {
+    case 'platform':
+      return [b.top];
+    case 'ramp':
+      return [b.lo, b.hi];
+    case 'rail':
+    case 'hole':
+    case 'hazard':
+    case 'floor':
+    case 'deck':
+    case 'enclosure':
+      return [b.y];
+    default:
+      return [];
+  }
+}
+
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
 export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
 
@@ -78,6 +97,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     else if (f?.kind === 'pit') heights.add(f.rim);
     else if (f?.kind === 'dais') heights.add(f.y);
     else if (f?.kind === 'spiral') for (const l of f.landings) heights.add(l.y);
+    else if (f?.kind === 'room') for (const b of f.brushes) for (const y of brushHeights(b)) heights.add(y);
     if (h.lava) heights.add(h.lava.y);
   }
   for (const sp of spans) {
@@ -111,6 +131,8 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     if (f.kind === 'uphill') return [{ kind: 'platform', id: highId(h), rect: f.high, top: h.y, material: HALL_MATERIAL[h.kind] }, ...steps];
     // A Spiral: its landings, each but the last written over the next Ramp's rect too (the Ramp continues its strip at its width), so that Ramp, whose foot
     // stands above the well, is solid down to the well; then its Ramps.
+    // Stage 7g: a drawn room's pieces, as the plan placed them (its lava's Holes and Hazards among them, in the room's order).
+    if (f.kind === 'room') return [...f.brushes];
     if (f.kind === 'spiral') {
       const under = (n: number) => {
         const a = f.landings[n]!.rect;
@@ -124,7 +146,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   // Each lava Hall's lava (Stage 7d) in index order: for each rect n, a Hole in the Hall's floor (`<hall>-hole<n>`, at the Hall's height, which takes the floor away from the Enclosure
   // and the Brushes before it) and then the lava Hazard under it (`<hall>-lava<n>`). Soldiers never drop that far, so no field joins the lava; a Fighter over the edge dies in it.
   const lava: Brush[] = plan.halls.flatMap((h): Brush[] =>
-    (h.lava?.rects ?? []).flatMap((rect, n): Brush[] => [
+    (h.lava?.kind === 'room' ? [] : h.lava?.rects ?? []).flatMap((rect, n): Brush[] => [
       { kind: 'hole', id: holeId(h, n), rect, y: h.y },
       { kind: 'hazard', id: lavaId(h, n), rect, y: h.lava!.y, hazard: 'lava' },
     ]),
@@ -140,7 +162,9 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
 
   // Team 0's front rank (z = -front) may not run through a Block (the Battle map's own check). A Floor's Battle never deploys from it, so it is moved off any Block it
   // would cross: the first of 52, 51, 53, 50, ... that crosses none (52, as always, with no Block across it).
-  const crosses = (front: number) => blocks.some((b) => b.rect.z0 < -front && b.rect.z1 > -front);
+  // A drawn room's Blocks (Stage 7g) are among its pieces, so they count too.
+  const allBlocks = [...blocks, ...features.filter((b): b is BlockBrush => b.kind === 'block')];
+  const crosses = (front: number) => allBlocks.some((b) => b.rect.z0 < -front && b.rect.z1 > -front);
   let front = 52;
   for (let d = 1; crosses(front); d++) front = 52 + (d % 2 === 1 ? -(d + 1) >> 1 : d >> 1);
 

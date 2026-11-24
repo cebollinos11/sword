@@ -266,8 +266,11 @@ function side(v: unknown, where: string): Side {
   return v as Side;
 }
 
-/** A Brush with its `material`, if the source names one (render-only: the compiler never reads it). */
-function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number, levels: readonly number[]): Brush {
+/**
+ * A Brush with its `material`, if the source names one (render-only: the compiler never reads it). Exported for a drawn room's file (docs/plans/delver.md,
+ * Stage 7g, `parseRoom`), whose Brushes are a Map Source's.
+ */
+export function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number, levels: readonly number[]): Brush {
   const shape = parseShape(raw, where, step, half, level, levels);
   const m = (raw as Record<string, unknown>).material;
   let brush = shape;
