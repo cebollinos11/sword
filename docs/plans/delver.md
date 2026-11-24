@@ -2673,7 +2673,13 @@ With the knob off, a Floor is byte for byte 7d's, and the golden pins prove it. 
 **The flow** (the user's call: no wasted time or tokens):
 - **Run only the test files a task touches** (`npx vitest run <files>`) while working. Run the whole fast suite (`npm test`) once, at the end of Task 5. Never run a `*.slow.test.ts` before Task 5.
 - **Tune the rate with a plan-only probe**, not the slow test. A scratch script (not committed) calls `planFloor` over the 500 pairs; at about 2 ms a plan, that is about a second. It prints §4's shares and drops. Iterate `percent` and `weights` on it. Run `delverGen.slow.test.ts` once, alone, when the values are settled.
-- **Check by eye in the Map Editor** (§9) as soon as Task 3 lands, rather than reasoning about geometry from tests alone. Use `npm run ai-walk` on a few seeds of `delverPiece` Floors before any soak.
+- **Test in the Map Editor, never by playing a Run** ("Testing the generator" above; the user's call). No playtest is part of 7f: unlike 7d, there is no `autopilot` Run through Floors 1 to 9. Every visual and AI check is done in the editor:
+  - **Look at a set piece**: `npm run dev`, then open `/sword/#/mapeditor?dev=1&delverSeed=S&delverFloor=F&delverPiece=spiral` (or `cross`, `uphill`). The same works from File, Delver seed and floor, then the Set piece choice. The checks folder lists the set pieces and the map's problems.
+  - **Check the AI on it**: add `&aiwalk=1` (or press Walk the AI), and switch on AI navmesh and AI routes. On a Spiral, look at the jump Links up to R1 and L1 and at the routes round the ledge.
+  - **Check many Floors**: `npm run ai-walk -- --seeds 1-50 --floors 1,5,9`. It prints an editor link for each Floor with a problem: open that link rather than reproduce the problem in a Run.
+  - Start checking by eye as soon as Task 3 lands, rather than reasoning about geometry from tests alone.
+  - The screenshots of the Done list are taken in the editor.
+  - A Run is played only if the user asks, to judge how a room feels in a fight.
 - **The soak is one new case** (§14), run alone with `-t` on its name. The existing soak cases are not rerun: they never see a set piece, since their Floors are 7d's.
 - **Work in one session**, the tasks in order, without a subagent per task. For the review, use `/code-review high` once over the Stage's range, not `max`.
 - **Read only what a task needs**. This Design names the files; `plan.ts`'s 7c (3b′, 7b′) and 7d′ blocks are the templates to copy.
