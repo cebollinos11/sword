@@ -487,6 +487,9 @@ const DROP_HOLD_AT = 1.2;
 const LANDING_CLEAR = 1.6;
 /** Its own Wind-up Releasing at least this many Ticks before an attacker's is clearly ahead (`pressAhead`): it swings on. */
 const PRESS_AHEAD_LEAD = 10;
+/** With `pressEarly`: a Release this many Ticks ahead is enough, and an enemy within this far (m) beyond its reach counts as in reach (the distance is as seen a Reaction Time ago; it is closing). */
+const PRESS_EARLY_LEAD = 3;
+const PRESS_EARLY_REACH = 0.5;
 /** A Thrust reaches this much (m) further than a swing. */
 const THRUST_REACH = 0.15;
 /** From this far (m) beyond its reach it may step in and swing into an Attack, holding the Wind-up while it closes. */
@@ -716,6 +719,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     whirlwindRate: 0,
     whirlwindRead: 0,
     leapSides: 0,
+    pressEarly: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -2944,11 +2948,12 @@ class RuleAi implements AiController {
     const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
-    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self)) {
+    const early = this.skill.pressEarly > 0;
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self) + (early ? PRESS_EARLY_REACH : 0)) {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
       const lead = theirRelease - Math.max(0, mine.windUpEnd - self.motion.tick);
       // Clearly ahead (`pressAhead`): it swings on rather than give up the hit it would land first.
-      if (lead >= PRESS_AHEAD_LEAD && this.chance(this.skill.pressAhead)) return plan('Outpace');
+      if (lead >= (early ? PRESS_EARLY_LEAD : PRESS_AHEAD_LEAD) && this.chance(this.skill.pressAhead)) return plan('Outpace');
       if (lead > 6 && this.chance(this.skill.preempt)) return plan('Outpace');
     }
     if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) {

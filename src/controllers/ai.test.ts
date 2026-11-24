@@ -540,6 +540,17 @@ describe('AI Controller: repertoire', () => {
     expect(firstEvent(1, 2)).toMatchObject({ type: 'Block', defender: 1 });
   });
 
+  it('with pressEarly it also swings on when its Wind-up lands only a few Ticks first', () => {
+    const eager: TuningData = { ...repo, ai: { ...repo.ai, aggression: 1, kickRate: 0, throwRate: 0 } };
+    const skill = (pressEarly: number) => ({ ...sharp, preempt: 0, pressAhead: 1, pressEarly });
+    const first = vsAi(eager, skill(0), wait(60), 60);
+    const start = first.run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Attack');
+    const firstEvent = (pressEarly: number, late: number) =>
+      vsAi(eager, skill(pressEarly), [...wait(start + late - 1), ...attack('Overhead')], start + 120).run.events.find((e) => e.type === 'Hit' || e.type === 'Block' || e.type === 'Chamber');
+    expect(firstEvent(0, 9)).toMatchObject({ type: 'Block', defender: 1 });
+    expect(firstEvent(1, 9)).toMatchObject({ type: 'Hit', attacker: 1, defender: 0 });
+  });
+
   it('a Chamber that misses its timing (the Wind-up is held) falls back to a Block', () => {
     const { run } = vsAi(passive, { ...sharp, chamberRate: 1 }, [...wait(30), ...attack('Overhead', 40)], 200);
     expect(run.events.some((e) => e.type === 'Chamber')).toBe(false);
@@ -1081,7 +1092,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, whirlwindRate: _wr, whirlwindRead: _wd, leapSides: _ls, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, whirlwindRate: _wr, whirlwindRead: _wd, leapSides: _ls, pressEarly: _pe, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
       expect(pressAhead, tier).toBe(1);
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
