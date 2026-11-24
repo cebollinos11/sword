@@ -222,7 +222,7 @@ describe('the judge on a Boss Floor', () => {
     expect(b.plan.halls[b.plan.stairs]!.kind).toBe('Boss');
     expect(b.plan.markers.boss).toBeDefined();
     expect(judgeBuilt(t, b)).toEqual([]);
-    expect(b.source.look!.props!.at(-1)).toMatchObject({ id: 'boss', kind: 'banner', team: 1, x: b.plan.markers.boss!.x, z: b.plan.markers.boss!.z });
+    expect(b.source.look!.props!.some((p) => p.kind === 'banner')).toBe(false);
     expect(describeFloor(b)).toContain(`Boss ${b.plan.halls[b.plan.stairs]!.id}`);
   });
 

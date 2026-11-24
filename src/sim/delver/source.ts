@@ -172,11 +172,8 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   const stairs = plan.halls[plan.stairs]!;
   const m = plan.markers;
   const props: SourceProp[] = [
-    { id: 'entrance', kind: 'banner', x: entrance.cx, z: entrance.cz, y: entrance.y, turn: 0, team: 0 },
     ...m.fires.map((p, n): SourceProp => ({ id: `fire${n}`, kind: 'torch', x: p.x, z: p.z, y: p.y, turn: 0 })),
-    ...m.posts.map((p, n): SourceProp => ({ id: `post${n}`, kind: 'banner', x: p.x, z: p.z, y: p.y, turn: 0, team: 1 })),
     ...m.pedestals.map((p, n): SourceProp => ({ id: `pedestal${n}`, kind: 'crate', x: p.x, z: p.z, y: p.y, turn: 0 })),
-    ...(m.boss ? [{ id: 'boss', kind: 'banner', x: m.boss.x, z: m.boss.z, y: m.boss.y, turn: 0, team: 1 } as SourceProp] : []),
   ];
 
   return {
