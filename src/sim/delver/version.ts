@@ -5,4 +5,4 @@
  * Bump it on any change to the Floor plan (`planFloor`), its Map Source (`floorSource`), the judge or the reroll, or to the loot picks (`pickItemAt`).
  * Depends on nothing, so Tuning Data may import it.
  */
-export const DELVER_VERSION = 15;
+export const DELVER_VERSION = 16;

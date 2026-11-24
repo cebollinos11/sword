@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors, flatHalls, flatRooms, fullFloors, noLava, noSetPieces, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, fullFloors, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
 import { setPieceOf } from './plan';
 import { delverFloor } from './index';
 
@@ -26,8 +26,11 @@ import { delverFloor } from './index';
  * `setPieceWalk` rules. A Hall rolled for a set piece takes no other feature even when the set piece then does not fit, so every Floor below has new `PINS` and `TIER_PINS`, whether
  * or not it holds a set piece (`HOLDS`). Seed 7's tier-1 Floor 1 now takes 2 attempts (its first lays every Hall on one level: the `levels` rule). `NO_SET_PIECE_PINS` and
  * `NO_SET_PIECE_TIER_PINS` are 7d's pins on `noSetPieces`, unchanged, and `noLava` (which turns set pieces off too) keeps 7c's.
+ *
+ * `DELVER_VERSION` 16 (Stage 7g, drawn rooms): every pin runs on `noRooms(shipped)` (no drawn room is picked), so its hash is 7f's, unchanged, and committing a room file
+ * moves no pin. The rooms' own pins use the fixture room (`rooms.testdata.ts`).
  */
-const tuning = loadTuningData();
+const tuning = noRooms(loadTuningData());
 
 /**
  * `flatHalls(tuning)` (the 7c knobs off) on the same seeds and Floors: 7b's default pins exactly (the map hashes, the plan hashes and the attempts: a Floor with every 7c knob off is byte

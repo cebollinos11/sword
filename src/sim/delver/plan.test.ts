@@ -3,7 +3,9 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, noLava, noSetPieces, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
+import { FIXTURE_ROOM, FIXTURE_ROOM_RAW, withFixtureRoom } from './rooms.testdata';
+import { framedRoom, frameHalf, parseRoom, ROOM_FRAMES } from '../../tuning/delverRooms';
 import { SHORTCUT_RISE } from '../nav';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import {
@@ -13,7 +15,7 @@ import {
   hallBase, PIT_LONG, PIT_RIM, PIT_WIDE, SPLIT_CUT, STEP_WIDTH, TIER_MIN, type DelverStep,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
   CROSS_HALF, doorSpan, LEDGE_WIDE, onlySetPiece, SET_PIECE_KINDS, setPieceOf, SPIRAL_FOOT, SPIRAL_HALF, spiralGeometry, spiralOrder, UPHILL_FOOT, UPHILL_TOP, uphillGeometry,
-  type DelverSpiral, type DelverUphill, type SetPieceDrops, type SetPieceKind,
+  type DelverSpiral, type DelverUphill, type SetPieceDrops, type SetPieceKind, noDrops,
 } from './plan';
 
 /** The data as shipped (Stage 7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
@@ -2044,7 +2046,8 @@ describe('set pieces (Stage 7f)', () => {
   it('has the constants and salts the Design fixes, and ships set pieces on', () => {
     expect([UPHILL_FOOT, UPHILL_TOP, LEDGE_WIDE, SPIRAL_FOOT, SPIRAL_HALF, CROSS_HALF]).toEqual([6, 10, 4, 4, 9, 11]);
     expect([SALT.setPiece, SALT.setPieceKind, SALT.uphillAxis, SALT.uphillEnd, SALT.spiralBase, SALT.spiralTurn]).toEqual([78, 79, 80, 81, 82, 83]);
-    expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83]);
+    // Stage 7g's roomPick 84 and roomFrame 85 come after them.
+    expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83, 84, 85]);
     expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
     // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
     expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 0 } });
@@ -2065,7 +2068,7 @@ describe('set pieces (Stage 7f)', () => {
     console.log(`7f set pieces in ${planned.length} Floors: ${JSON.stringify(counts)}; drops ${JSON.stringify(drops)}`);
     for (const [k, v] of Object.entries(counts)) expect(v, k).toBeGreaterThan(0);
     // Every kind on a Stairs Hall; on a Boss Hall only a Lava Bridge, since the shipped Boss Hall is always a great hall, which takes no Uphill or Spiral.
-    for (const k of SET_PIECE_KINDS) expect(ofKind(k).some((e) => e.h.kind === 'Stairs'), `${k} on a Stairs Hall`).toBe(true);
+    for (const k of SET_PIECE_KINDS.filter((k) => k !== 'room')) expect(ofKind(k).some((e) => e.h.kind === 'Stairs'), `${k} on a Stairs Hall`).toBe(true);
     expect(ofKind('cross').some((e) => e.h.kind === 'Boss'), 'a cross on a Boss Hall').toBe(true);
     expect(planned.every(({ p }) => p.halls.every((h) => h.kind !== 'Boss' || h.great))).toBe(true);
     const bases = new Set(spirals().map((e) => `${e.f.base}${e.f.turn}`));
@@ -2260,5 +2263,113 @@ describe('set pieces (Stage 7f)', () => {
       expect(big.landings.map((l) => l.y)).toEqual([4, 5, 6, 7, 8]);
       for (const st of big.steps) expect((st.hi - st.lo) / runOf(st)).toBeLessThanOrEqual(MAX_SLOPE);
     });
+  });
+});
+
+describe('drawn rooms (Stage 7g)', () => {
+  const on = onlySetPiece(withFixtureRoom(noSetPieces(loadTuningData())), 'room');
+  const planOf = (tuning: typeof on, seed: number, floor: number, drops?: SetPieceDrops) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor), drops);
+  const pairs = Array.from({ length: 200 }, (_, s) => Array.from({ length: 9 }, (_, f) => ({ seed: s + 1, floor: f + 1 }))).flat();
+  const drops = noDrops();
+  const planned = pairs.map((pr) => ({ ...pr, p: planOf(on, pr.seed, pr.floor, drops) }));
+  const roomHalls = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (h.feature?.kind === 'room' ? [{ p, h, i, seed, floor, f: h.feature }] : [])));
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+
+  it('places the fixture often, in every frame, and counts the rolls that do not fit', () => {
+    expect(roomHalls.length).toBeGreaterThan(1000);
+    expect(new Set(roomHalls.map((e) => e.f.frame))).toEqual(new Set(ROOM_FRAMES));
+    expect(drops.fit).toBeGreaterThan(0);
+    expect(roomHalls.every((e) => e.f.name === 'fixture')).toBe(true);
+  });
+
+  it('the Hall takes the frame\'s size, centred on its lattice point, with odd Walls', () => {
+    for (const { h, f } of roomHalls) {
+      const [hw, hd] = frameHalf(FIXTURE_ROOM, f.frame);
+      expect([h.rect.x1 - h.rect.x0, h.rect.z1 - h.rect.z0]).toEqual([2 * hw, 2 * hd]);
+      expect(f.half).toEqual([hw, hd]);
+      for (const v of [h.rect.x0, h.rect.x1, h.rect.z0, h.rect.z1]) expect(Math.abs(v % 2)).toBe(1);
+      expect(h.great).toBe(false);
+    }
+  });
+
+  it('Passages only on doorway walls, at the doorway\'s height; its raised walls are not in doors', () => {
+    for (const { p, h, i, f } of roomHalls) {
+      for (const q of p.passages) {
+        for (const [hall, side, y] of [[q.a, q.sideA, q.ya], [q.b, q.sideB, q.yb]] as const) {
+          if (hall !== i) continue;
+          const lv = f.doorways[side];
+          expect(lv).toBeDefined();
+          expect(y).toBe(h.y + lv! * LEVEL_RISE);
+          expect(h.doors[side] !== undefined).toBe(lv === 0);
+        }
+      }
+    }
+  });
+
+  it('the centre markers stand at the room\'s centre point; no other feature, gallery, shape, pillar or other lava; the roof is the room\'s', () => {
+    for (const { h, f } of roomHalls) {
+      const c = framedRoom(FIXTURE_ROOM, f.frame).centre;
+      expect([h.cx, h.cz]).toEqual([(h.rect.x0 + h.rect.x1) / 2 + c[0], (h.rect.z0 + h.rect.z1) / 2 + c[1]]);
+      expect(h.gallery).toBeUndefined();
+      expect([h.shape, h.solids.length, h.pillars.length]).toEqual(['rect', 0, 0]);
+      expect(h.lava?.kind).toBe('room');
+      expect(h.lava!.rects).toEqual(f.lava);
+      expect(h.top).toBe(h.y + FIXTURE_ROOM.top);
+      expect(hallBase(h)).toBe(h.y);
+      expect(h.level + 1).toBeLessThanOrEqual(on.delver.floor.levels.max);
+    }
+  });
+
+  it('kinds are respected: never the Entrance, a Rest or the Treasure but for want of another Hall, and a room with kinds [Fight] is never Empty or the Stairs', () => {
+    const others = roomHalls.filter((e) => e.h.kind === 'Entrance' || e.h.kind === 'Rest' || e.h.kind === 'Treasure');
+    expect(others.length).toBe(drops.fallback);
+    const fightOnly = parseRoom({ ...FIXTURE_ROOM_RAW, kinds: ['Fight'] }, [7, 14], 3);
+    const t2 = onlySetPiece(withFixtureRoom(noSetPieces(loadTuningData()), [fightOnly]), 'room');
+    const d2 = noDrops();
+    let seen = 0;
+    for (const { seed, floor } of pairs.filter((_, k) => k % 3 === 0)) {
+      for (const h of planOf(t2, seed, floor, d2).halls) {
+        if (h.feature?.kind !== 'room' || h.kind === 'Entrance' || h.kind === 'Rest' || h.kind === 'Treasure') continue;
+        seen++;
+        if (h.kind !== 'Fight') expect(d2.kind).toBeGreaterThan(0);
+      }
+    }
+    expect(seen).toBeGreaterThan(100);
+    // The kind fallback (an in-line Hall, or the Stairs with no other Hall) is rare.
+    expect(d2.kind).toBeLessThan(seen / 10);
+  });
+
+  it('the room\'s Brushes are its frame\'s, moved to the Hall and up to its floor, with ids <hall>-<id> and Blocks to the ceiling', () => {
+    const { h, f } = roomHalls.find((e) => e.f.frame === 5 && e.h.y > 0)!;
+    const fr = framedRoom(FIXTURE_ROOM, 5);
+    const cx = (h.rect.x0 + h.rect.x1) / 2;
+    const cz = (h.rect.z0 + h.rect.z1) / 2;
+    expect(f.brushes.map((b) => b.id)).toEqual(FIXTURE_ROOM.brushes.map((b) => `${h.id}-${b.id}`));
+    const ledge = f.brushes[0]!;
+    const want = fr.brushes[0]! as { rect: Rect; top: number };
+    expect(ledge).toEqual({ kind: 'platform', id: `${h.id}-ledge`, rect: R(want.rect.x0 + cx, want.rect.z0 + cz, want.rect.x1 + cx, want.rect.z1 + cz), top: h.y + 2 });
+    expect(f.brushes[4]).toMatchObject({ kind: 'block', top: h.top });
+    expect(f.steps).toEqual([{ rect: (f.brushes[1] as { rect: Rect }).rect, lo: h.y, hi: h.y + 2, up: (f.brushes[1] as { up: Side }).up, rails: (f.brushes[1] as { rails: readonly Side[] }).rails }]);
+    expect(f.lava).toEqual([(f.brushes[3] as { rect: Rect }).rect]);
+  });
+
+  it('with weights.room 0 (or no rooms) the plan is 7f\'s, whatever room files are bundled and whatever the 7g salts', () => {
+    const base = loadTuningData();
+    const salts = SALT as unknown as Record<string, number>;
+    const saved = { ...salts };
+    const sub = pairs.filter((_, k) => k % 7 === 0);
+    for (const { seed, floor } of sub) {
+      const want = JSON.stringify(planOf(noRooms(base), seed, floor));
+      expect(want).not.toMatch(/"kind":"room"/);
+      expect(JSON.stringify(planOf(withFixtureRoom(noRooms(base)), seed, floor))).toBe(want);
+      try {
+        salts.roomPick = 9000;
+        salts.roomFrame = 9001;
+        expect(JSON.stringify(planOf(noRooms(base), seed, floor))).toBe(want);
+      } finally {
+        Object.assign(salts, saved);
+      }
+    }
   });
 });
