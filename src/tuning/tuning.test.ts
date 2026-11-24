@@ -186,7 +186,7 @@ describe('Tuning Data', () => {
 
   it('loads the Whirlwind Tuning Data and its hold Motions, and rejects bad Whirlwind data', () => {
     const t = loadTuningData();
-    expect(t.whirlwind).toEqual({ armSeconds: 1, holdWalkFactor: 0.4, turns: 5, turnSeconds: 0.3, driveSpeed: 3, steerSpeed: 90, damageFactor: 0.5, knockdownSlide: 1.5, knockdownSlideTicks: 24, blockSlide: 0.4, blockSlideTicks: 8, allySlide: 0.5, allySlideTicks: 12, recoverySeconds: 0.5, unavailableWeapons: ['Flail'] });
+    expect(t.whirlwind).toEqual({ armSeconds: 1, holdWalkFactor: 0.4, turns: 5, turnSeconds: 0.3, driveSpeed: 3, steerSpeed: 90, damageFactor: 0.5, knockdownSlide: 1.5, knockdownSlideTicks: 24, blockSlide: 0.4, blockSlideTicks: 8, allySlide: 0.5, allySlideTicks: 12, recoverySeconds: 1.1, unavailableWeapons: ['Flail'] });
     expect(t.motions.WhirlwindHoldLeft).toBeDefined();
     expect(t.motions.WhirlwindHoldRight).toBeDefined();
     const good = goodRaw();

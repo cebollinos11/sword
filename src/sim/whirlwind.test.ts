@@ -48,8 +48,8 @@ function held(n: number, intent: Partial<Intent> = G): SimState[] {
 }
 
 describe('Whirlwind timings', () => {
-  it('are 60, 18, 90 and 30 Ticks by default', () => {
-    expect(t).toEqual({ armTicks: 60, turnTicks: 18, spinTicks: 90, recoveryTicks: 30 });
+  it('are 60, 18, 90 and 66 Ticks by default', () => {
+    expect(t).toEqual({ armTicks: 60, turnTicks: 18, spinTicks: 90, recoveryTicks: 66 });
   });
 });
 
@@ -292,14 +292,14 @@ describe('Whirlwind and Hits', () => {
 describe('Whirlwind Rollback', () => {
   it('a snapshot taken mid-hold restores to the same hashes stepping forward', () => {
     const intents: Partial<Intent>[] = [];
-    for (let i = 0; i < 220; i++) intents.push(i < 75 ? { ...G, move: { x: 0.5, z: 0.5 } } : i < 80 ? { ...G, face: 0.3 } : {});
+    for (let i = 0; i < 260; i++) intents.push(i < 75 ? { ...G, move: { x: 0.5, z: 0.5 } } : i < 80 ? { ...G, face: 0.3 } : {});
     let live = fresh();
     for (let i = 0; i < 40; i++) live = tick(live, intents[i]);
     expect(spin(live).phase).toBe('Wind-up');
     const snap = snapshot(live);
     let replay = restore(snap);
     expect(hashState(replay)).toBe(hashState(live));
-    for (let i = 40; i < 220; i++) {
+    for (let i = 40; i < 260; i++) {
       live = tick(live, intents[i]);
       replay = tick(replay, intents[i]);
       expect(hashState(replay), `Tick ${i}`).toBe(hashState(live));

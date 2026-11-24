@@ -12,6 +12,6 @@
   "blockSlideTicks": 8,
   "allySlide": 0.5,
   "allySlideTicks": 12,
-  "recoverySeconds": 0.5,
+  "recoverySeconds": 1.1,
   "unavailableWeapons": ["Flail"]
 }
