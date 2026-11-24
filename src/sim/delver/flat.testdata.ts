@@ -11,9 +11,21 @@ export function fullFloors(tuning: TuningData): TuningData {
   return { ...tuning, delver };
 }
 
-/** `tuning` with `delver.floor.lava.percent` [0] (docs/plans/delver.md, Stage 7d), the rest unchanged: no Hall takes lava and no pick is made, so a Floor's plan, source and map are 7c's byte for byte. It does not apply `fullFloors`. */
-export function noLava(tuning: TuningData): TuningData {
+/** `tuning` with `delver.floor.setPieces.percent` [0] (docs/plans/delver.md, Stage 7f), the rest unchanged: no Hall is rolled for a set piece and no pick is made, so a Floor's plan, source and map are 7d's byte for byte. */
+export function noSetPieces(tuning: TuningData): TuningData {
   const f = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { ...f.setPieces, percent: [0] } } } };
+}
+
+/** Stage 7f's Tasks 1 to 4 only (removed at the switch): `tuning` with the set-piece values that will ship. */
+export function setPieces7f(tuning: TuningData): TuningData {
+  const f = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { percent: [15, 20, 25], weights: { cross: 1, uphill: 1, spiral: 1 } } } } };
+}
+
+/** `tuning` with `delver.floor.lava.percent` [0] (docs/plans/delver.md, Stage 7d) and no set pieces (`noSetPieces`), the rest unchanged: no Hall takes lava and no pick is made, so a Floor's plan, source and map are 7c's byte for byte. It does not apply `fullFloors`. */
+export function noLava(tuning: TuningData): TuningData {
+  const f = noSetPieces(tuning).delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, lava: { ...f.lava, percent: [0] } } } };
 }
 

@@ -49,6 +49,7 @@ import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
+import { hallBase, spiralOrder } from './plan';
 import { BRIDGE_MIN, DAIS_RISE, DOOR_SIDE, DOOR_LANE, LAVA_BAND, LAVA_CENTRE, LAVA_DEPTH, LAVA_KEEP, LAVA_LANE, LAVA_MIN, LEVEL_RISE, MAX_SLOPE, PIT_RIM, RIVER_BANK, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
 import { lavaId, pieceId, pillarId, solidId, stepId } from './source';
 import { floorTuningOf } from './troops';
@@ -216,12 +217,20 @@ function endsOf(plan: FloorPlan): { p: DelverPassage; hall: number; q: PassagePi
   });
 }
 
+const OPPOSITE: Readonly<Record<Side, Side>> = { n: 's', s: 'n', e: 'w', w: 'e' };
+
 /** The height (m) of Hall `h`'s floor at its wall `side`: a gallery wall's Deck, a split's tier there (an end wall belongs to the end tier, a side wall to the main tier), a pit's rim, else the Hall's. */
 function floorAt(h: DelverHall, side: Side): number {
   const f = h.feature;
   const g = h.gallery;
   if (g && (g.side === side || g.wrap?.walls.includes(side))) return g.y;
   if (f?.kind === 'pit') return f.rim;
+  // Stage 7f: an Uphill's low end is its low landing, every other wall the high landing's (its side walls hold no door); a Spiral's base wall is its well, each other wall its door landing.
+  if (f?.kind === 'uphill') return side === OPPOSITE[f.up] ? hallBase(h) : h.y;
+  if (f?.kind === 'spiral') {
+    const n = spiralOrder(f.base, f.turn).indexOf(side);
+    return n <= 0 ? h.y : f.landings[2 * (n - 1)]!.y;
+  }
   if (f?.kind === 'split') {
     const end = f.axis === 'x' ? (side === 'w' ? 0 : side === 'e' ? 1 : -1) : side === 's' ? 0 : side === 'n' ? 1 : -1;
     const tier = end < 0 ? f.tiers.find((t) => t.level === h.level) : f.tiers[end === 0 ? 0 : f.tiers.length - 1];
@@ -240,7 +249,8 @@ function judgeFeatures(plan: FloorPlan): string[] {
   const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
   for (const [k, h] of halls.entries()) {
     const f = h.feature;
-    if (!f) continue;
+    // An Uphill and a Spiral are set pieces (Stage 7f), judged by `setPieces`.
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
     const plain = h.shape === 'rect' && !h.gallery && h.solids.length === 0 && h.pillars.length === 0;
     if (f.kind === 'dais' ? !plain : !(plain && h.cells.length === 1 && !h.great)) out.push(`features: ${h.id}'s ${f.kind} is not on a ${f.kind === 'dais' ? '' : 'one-cell '}rect Hall without a gallery`);
     // Each part's rect, named, for the odd-metre rule.
@@ -320,7 +330,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const floor = floorAt(h, wall);
     if (!eq(y, floor)) out.push(`features: ${p.id}'s door into ${h.id} is at ${m(y)}, its floor there at ${m(floor)}`);
     const f = h.feature;
-    if (!f) continue;
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral') continue;
     const lane = doorLane(q.rect, side);
     f.steps.forEach((s, n) => {
       if (overlap(lane, s.rect)) out.push(`features: ${p.id}'s doorway into ${h.id} is blocked by ${stepId(h, n)}`);
@@ -338,6 +348,7 @@ function judgeFeatures(plan: FloorPlan): string[] {
     const shrunk = (q: Rect): boolean => mk.x >= q.x0 + 1 && mk.x <= q.x1 - 1 && mk.z >= q.z0 + 1 && mk.z <= q.z1 - 1;
     const at = (y: number) => eq(mk.y, y);
     let [ok, what] = [shrunk(h.rect), 'wall'];
+    if (f.kind === 'uphill' || f.kind === 'spiral') continue;
     if (f.kind === 'split') [ok, what] = [f.tiers.some((t) => at(t.y) && shrunk(t.rect)), 'tier edge'];
     else if (f.kind === 'pit' && at(h.y)) [ok, what] = [shrunk(f.pit), 'pit edge'];
     else if (f.kind === 'dais' && at(f.y)) [ok, what] = [shrunk(f.rect), 'dais edge'];
@@ -427,12 +438,12 @@ function judgeLava(plan: FloorPlan, battle: Pick<BattleTuning, 'squad'> | undefi
         for (const q of named) if (pointGap2(q.rect, mk.x, mk.z) < home) out.push(`lava: ${mk.name}'s Formation (reach ${m(reach)} m) comes within 1 m of ${q.id}`);
       }
     }
-    // Every held slot's lane keeps `LAVA_LANE` from every rect, but a river's lanes on its bank wall, whose doorway +- 0.5 m lies inside one bridge.
+    // Every held slot's lane keeps `LAVA_LANE` from every rect, but a river's lanes on its bank wall and every lane of a Lava Bridge (Stage 7f), whose doorway +- 0.5 m lies inside one bridge (an arm).
     const bank = lava.kind === 'river' ? lava.walls[0] : undefined;
     for (const e of ends) {
       if (e.hall !== k) continue;
       const { lane, span } = slotLane(h, e.q, e.wall);
-      if (e.wall === bank) {
+      if (e.wall === bank || lava.kind === 'cross') {
         const along = (b: Rect): [number, number] => (e.wall === 'n' || e.wall === 's' ? [b.x0, b.x1] : [b.z0, b.z1]);
         if (!lava.bridges.some((b) => along(b)[0] <= span[0] - 0.5 + 1e-9 && along(b)[1] >= span[1] + 0.5 - 1e-9)) out.push(`lava: ${e.p.id}'s doorway into ${h.id} is not on a bridge`);
         continue;
@@ -450,6 +461,8 @@ function judgeLava(plan: FloorPlan, battle: Pick<BattleTuning, 'squad'> | undefi
         const mid = d === 'n' ? [(r.x0 + r.x1) / 2, r.z1 - LAVA_CENTRE] : d === 's' ? [(r.x0 + r.x1) / 2, r.z0 + LAVA_CENTRE] : d === 'e' ? [r.x1 - LAVA_CENTRE, (r.z0 + r.z1) / 2] : [r.x0 + LAVA_CENTRE, (r.z0 + r.z1) / 2];
         if (!eq(h.cx, mid[0]!) || !eq(h.cz, mid[1]!)) out.push(`lava: ${h.id}'s centre is not in the middle of its pit's ${d} band`);
       }
+    } else if (lava.kind === 'cross') {
+      // A Lava Bridge's own geometry is the `setPieces` rule's (Stage 7f).
     } else if (lava.kind === 'trough') {
       const [w0, w1] = lava.walls;
       const opposite: Record<Side, Side> = { n: 's', s: 'n', e: 'w', w: 'e' };
@@ -659,7 +672,8 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   // Stage 7c: each feature Hall's floor parts. Each part's centre is a floor at its height, no roof, reached from the Entrance and leading to the Hall's centre; a pit's rim is reached from its floor.
   halls.forEach((h, k) => {
     const f = h.feature;
-    if (!f) return;
+    // An Uphill's and a Spiral's floors are `setPieceWalk`'s (Stage 7f).
+    if (!f || f.kind === 'uphill' || f.kind === 'spiral') return;
     const mid = (r: Rect) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
     const parts = f.kind === 'split' ? f.tiers.map((t, n) => ({ name: `tier ${n}`, ...mid(t.rect), y: t.y }))
       : f.kind === 'pit' ? [{ name: 'floor', ...mid(f.pit), y: h.y }, { name: 'rim', ...mid(f.rims[0]!), y: f.rim }]

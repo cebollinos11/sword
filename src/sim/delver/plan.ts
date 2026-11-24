@@ -8,6 +8,7 @@
  * Only whole metres are used, but for a Passage's half-width (`passage / 2`, a half metre): no Map iteration, no
  * floating-point trig, every tie broken by the lower index.
  */
+import type { TuningData } from '../../tuning';
 import type { DelverFloorTuning } from '../../tuning/delver';
 import type { Doors, Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
@@ -69,8 +70,11 @@ export interface DelverHall {
   readonly lava?: DelverLava;
 }
 
-/** What a Hall's lava is (docs/plans/delver.md, Stage 7d): one rect in its middle ringed by floor, a band from wall to wall cut by bridges, or strips along one or two walls. */
-export type LavaKind = 'pit' | 'river' | 'trough';
+/**
+ * What a Hall's lava is (docs/plans/delver.md, Stage 7d): one rect in its middle ringed by floor, a band from wall to wall cut by bridges, or strips along
+ * one or two walls; or (Stage 7f) a Lava Bridge's: all lava but a dry plaza round the centre and an arm from each held doorway to it.
+ */
+export type LavaKind = 'pit' | 'river' | 'trough' | 'cross';
 
 /**
  * A Hall's lava (Stage 7d): the kit's `lava` Hazard `LAVA_DEPTH` under the Hall's floor, a Death by Lava for anyone who walks, falls or is knocked
@@ -84,8 +88,10 @@ export interface DelverLava {
   readonly rects: readonly Rect[];
   /** Its height (m): the Hall's `y` - `LAVA_DEPTH`. */
   readonly y: number;
-  /** A river's bridges (the floor between its rects, across the whole band), ascending along the river; [] for a pit or troughs. */
+  /** A river's bridges (the floor between its rects, across the whole band), ascending along the river; a cross's arms, ascending z then x; [] for a pit or troughs. */
   readonly bridges: readonly Rect[];
+  /** A cross's dry plaza round the Hall's centre (Stage 7f); absent for every other kind. */
+  readonly plaza?: Rect;
 }
 
 /** A feature's Ramp (Stage 7c): on the lower floor, its high end against the higher floor's edge, rising toward `up`. A step is walled to the roof on its open sides; `rails` are its long sides. */
@@ -154,12 +160,83 @@ export interface DelverDais {
   readonly steps: readonly DelverStep[];
 }
 
-/** A Hall's vertical feature besides a gallery. */
-export type DelverFeature = DelverSplit | DelverPit | DelverDais;
+/**
+ * An Uphill Room (Stage 7f): the whole Hall one Ramp the full width, from a low landing at one end wall to a high landing at the other. The Hall's
+ * `level` and `y` are the high landing's; its Enclosure stands `rise` levels under it, on the low landing. Doors only on the two end walls.
+ */
+export interface DelverUphill {
+  readonly kind: 'uphill';
+  /** The axis the Ramp runs along. */
+  readonly axis: 'x' | 'z';
+  /** The high end's wall. */
+  readonly up: Side;
+  /** The levels from the low landing up to the high one. */
+  readonly rise: 1 | 2;
+  /** The low landing (`UPHILL_FOOT` deep, the Enclosure's floor) and the high landing (`UPHILL_TOP` deep, a Platform at the Hall's `y`). */
+  readonly low: Rect;
+  readonly high: Rect;
+  /** One: the Ramp between them, the full width with no rails. */
+  readonly steps: readonly DelverStep[];
+}
 
-/** The Enclosure's floor of a Hall (m): a split's lowest tier, else the Hall's `y` (a pit's floor, a dais Hall's floor). */
+/**
+ * A Spiral Stair (Stage 7f): a `LEDGE_WIDE` ledge that climbs round three walls over an open floor (the well), from the base wall's corner to a door
+ * landing on each of the other walls, each a level higher than the last, with a corner landing half a level between. The Hall's `level` and `y` are the
+ * well's. Its inner edge is open: no rail.
+ */
+export interface DelverSpiral {
+  readonly kind: 'spiral';
+  /** The wall of the well's door. */
+  readonly base: Side;
+  /** 0: counter-clockwise seen from above (s, e, n, w for base s); 1: clockwise. */
+  readonly turn: 0 | 1;
+  /** Five, in climbing order: wall 2's door landing, a corner, wall 3's door landing, a corner, wall 4's door landing. `level` is `y / LEVEL_RISE` (a half for a corner). */
+  readonly landings: readonly DelverTier[];
+  /** Five Ramps, in climbing order, each before its landing; the first on the well, the others on the landing before them. */
+  readonly steps: readonly DelverStep[];
+  /** The well: the Hall's floor the ledge does not cover (`floorRects(rect, the ledge's footprints)`). */
+  readonly well: readonly Rect[];
+}
+
+/** A Hall's vertical feature besides a gallery. */
+export type DelverFeature = DelverSplit | DelverPit | DelverDais | DelverUphill | DelverSpiral;
+
+/** A set piece (Stage 7f): a Lava Bridge (lava kind `cross`), an Uphill Room or a Spiral Stair. */
+export type SetPieceKind = 'cross' | 'uphill' | 'spiral';
+export const SET_PIECE_KINDS: readonly SetPieceKind[] = ['cross', 'uphill', 'spiral'];
+
+/** Hall `h`'s set piece, if any. */
+export function setPieceOf(h: DelverHall): SetPieceKind | undefined {
+  if (h.lava?.kind === 'cross') return 'cross';
+  return h.feature?.kind === 'uphill' || h.feature?.kind === 'spiral' ? h.feature.kind : undefined;
+}
+
+/**
+ * `tuning` with every Hall rolled for set piece `kind` and only that kind weighted (`setPieces.percent` [100]): the Map Editor's look at one set piece
+ * (docs/plans/delver.md, Stage 7f, §9), and the tests'. Never a Run's.
+ */
+export function onlySetPiece(tuning: TuningData, kind: SetPieceKind): TuningData {
+  const f = tuning.delver.floor;
+  const weights = { cross: 0, uphill: 0, spiral: 0, [kind]: 1 };
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { percent: [100], weights } } } };
+}
+
+/** Why a set-piece roll left its Hall plain or was undone (Stage 7f): a plan-only count, never part of the plan. */
+export interface SetPieceDrops {
+  great: number;
+  size: number;
+  doorWalls: number;
+  kind: number;
+  range: number;
+  /** An Uphill or Spiral that the Entrance, a Rest or the Treasure pick took because its pool held nothing else (§4: expected 0). */
+  fallback: number;
+}
+
+/** The Enclosure's floor of a Hall (m): a split's lowest tier, an Uphill's low landing, else the Hall's `y` (a pit's floor, a dais Hall's floor, a Spiral's well). */
 export function hallBase(h: DelverHall): number {
-  return h.feature?.kind === 'split' ? Math.min(...h.feature.tiers.map((t) => t.y)) : h.y;
+  if (h.feature?.kind === 'split') return Math.min(...h.feature.tiers.map((t) => t.y));
+  if (h.feature?.kind === 'uphill') return h.y - h.feature.rise * LEVEL_RISE;
+  return h.y;
 }
 
 /**
@@ -278,6 +355,7 @@ export const SALT = {
   galleryStair: 60, galleryWrap: 61, galleryU: 62,
   feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70, dais: 71, daisSide: 72,
   lava: 73, lavaKind: 74, lavaSide: 75, lavaWide: 76, lavaTwo: 77,
+  setPiece: 78, setPieceKind: 79, uphillAxis: 80, uphillEnd: 81, spiralBase: 82, spiralTurn: 83,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -370,6 +448,19 @@ export const TROUGH_MIN = 4;
 /** The odd metre at most / at least `v`: every lava edge lies on one (a Hall's walls do), off the fields' 2 m dots. */
 export const oddDown = (v: number): number => 2 * Math.floor((v - 1) / 2) + 1;
 export const oddUp = (v: number): number => 2 * Math.ceil((v - 1) / 2) + 1;
+/** An Uphill's low landing's depth (m): a doorway's lane; and its high landing's (the centre stands in its middle). */
+export const UPHILL_FOOT = 6;
+export const UPHILL_TOP = 10;
+/** A Spiral's ledge's width (m): at least a Formation's file (`BRIDGE_MIN`). */
+export const LEDGE_WIDE = 4;
+/** The well floor (m) between a Spiral's base wall and its first Ramp's foot. */
+export const SPIRAL_FOOT = 4;
+/** A Spiral's least half (m) on each axis: its centre then keeps 5 m from the ledge. */
+export const SPIRAL_HALF = 9;
+/** A Lava Bridge's least half (m) on each axis: the plaza's 6 and at least 4 m of lava past it, odd-snapped. */
+export const CROSS_HALF = 11;
+/** The span (m) along its wall of a door landing or a Lava Bridge's arm: the doorway and half a metre each side, on odd metres (4 or 6 m). */
+export const doorSpan = (m: number): [number, number] => [oddDown(m - 2), oddUp(m + 2)];
 /** The Stairs zone's half side (m). */
 export const STAIRS_HALF = 2;
 /** The metres between a Treasure Hall's three pedestals. */
@@ -391,6 +482,108 @@ const DIRS: readonly { readonly side: Side; readonly di: number; readonly dj: nu
 ];
 const opposite = (d: number) => (d + 2) % 4;
 const SIDES: readonly Side[] = ['n', 'e', 's', 'w'];
+
+/**
+ * A set piece's frame (Stage 7f): its geometry is written for base wall s with the turn counter-clockwise (the walls in turn s, e, n, w), in a frame
+ * whose rects are the world's mirrored (x negated, for `turn` 1) and then turned a quarter counter-clockwise `k` times (base e 1, n 2, w 3). Negating and
+ * swapping keep whole and odd metres, so a rect cut in the frame is the rect the world would cut.
+ */
+interface Frame {
+  /** The Hall's rect in the frame. */
+  readonly r: Rect;
+  /** A frame rect, and a frame side, in the world. */
+  rect(q: Rect): Rect;
+  side(d: Side): Side;
+}
+function frameOf(world: Rect, base: number, turn: 0 | 1): Frame {
+  // The quarter turns from s to `base` counter-clockwise: s 0, e 1, n 2, w 3.
+  const k = [2, 1, 0, 3][base]!;
+  const ccw = (q: Rect): Rect => ({ x0: -q.z1, z0: q.x0, x1: -q.z0, z1: q.x1 });
+  const cw = (q: Rect): Rect => ({ x0: q.z0, z0: -q.x1, x1: q.z1, z1: -q.x0 });
+  const mirror = (q: Rect): Rect => ({ x0: -q.x1, z0: q.z0, x1: -q.x0, z1: q.z1 });
+  let r = world;
+  for (let i = 0; i < k; i++) r = cw(r);
+  if (turn === 1) r = mirror(r);
+  // Sides as indices n 0, e 1, s 2, w 3: a counter-clockwise quarter turn takes n to w (d + 3), a mirror swaps e and w.
+  return {
+    r,
+    rect: (q) => {
+      let o = turn === 1 ? mirror(q) : q;
+      for (let i = 0; i < k; i++) o = ccw(o);
+      return o;
+    },
+    side: (d) => {
+      let i = SIDES.indexOf(d);
+      if (turn === 1 && i % 2 === 1) i = opposite(i);
+      return SIDES[(i + 3 * k) % 4]!;
+    },
+  };
+}
+
+/** The wall (0 to 3) in a Spiral's climbing order of side index `d`: its base 0, then the walls in its turn. */
+const spiralWall = (base: number, turn: 0 | 1, d: number): number => (turn === 0 ? base - d + 4 : d - base + 4) % 4;
+
+/** A Spiral's four walls in climbing order (Stage 7f): its base wall (the well's door), then each wall in its turn (counter-clockwise seen from above for turn 0). */
+export function spiralOrder(base: Side, turn: 0 | 1): Side[] {
+  const b = SIDES.indexOf(base);
+  return [0, 1, 2, 3].map((j) => SIDES[(b + j * (turn === 0 ? 3 : 1)) % 4]!);
+}
+
+/**
+ * An Uphill's geometry in Hall rect `world` (Stage 7f) with its high end on side `up` (an index), `rise` levels, its high landing at `y`: the low landing, the
+ * Ramp and the high landing, and the high landing's middle (the Hall's centre); null when the Ramp would be steeper than `MAX_SLOPE`.
+ */
+export function uphillGeometry(world: Rect, up: number, rise: 1 | 2, y: number): { low: Rect; high: Rect; step: DelverStep; cx: number; cz: number } | null {
+  const fr = frameOf(world, opposite(up), 0);
+  const { x0, z0, x1, z1 } = fr.r;
+  if (z1 - UPHILL_TOP - (z0 + UPHILL_FOOT) < (rise * LEVEL_RISE) / MAX_SLOPE) return null;
+  const centre = fr.rect({ x0: (x0 + x1) / 2, z0: z1 - UPHILL_TOP / 2, x1: (x0 + x1) / 2, z1: z1 - UPHILL_TOP / 2 });
+  return {
+    low: fr.rect({ x0, z0, x1, z1: z0 + UPHILL_FOOT }),
+    high: fr.rect({ x0, z0: z1 - UPHILL_TOP, x1, z1 }),
+    step: { rect: fr.rect({ x0, z0: z0 + UPHILL_FOOT, x1, z1: z1 - UPHILL_TOP }), lo: y - rise * LEVEL_RISE, hi: y, up: SIDES[up]!, rails: [] },
+    cx: centre.x0,
+    cz: centre.z0,
+  };
+}
+
+/**
+ * A Spiral's ledge in Hall rect `world` (Stage 7f) from base wall `base` (an index) in turn `turn`, its well at `y`: the five landings and the five Ramps in
+ * climbing order; null when a half is under `SPIRAL_HALF` or a Ramp would be steeper than `MAX_SLOPE`. Written for base s, turn 0 (the ledge up the east
+ * wall, along the north and down the west), then put in the world by `frameOf`.
+ */
+export function spiralGeometry(world: Rect, base: number, turn: 0 | 1, y: number): { landings: DelverTier[]; steps: DelverStep[] } | null {
+  const fr = frameOf(world, base, turn);
+  const { x0, z0, x1, z1 } = fr.r;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  if ((x1 - x0) / 2 < SPIRAL_HALF || (z1 - z0) / 2 < SPIRAL_HALF) return null;
+  const L = LEDGE_WIDE;
+  const [a1, b1] = doorSpan(cz);
+  const [a3, b3] = doorSpan(cx);
+  const full = LEVEL_RISE / MAX_SLOPE;
+  const halfRun = LEVEL_RISE / 2 / MAX_SLOPE;
+  if (a1 - (z0 + SPIRAL_FOOT) < full || z1 - L - b1 < halfRun || x1 - L - b3 < halfRun || a3 - (x0 + L) < halfRun) return null;
+  const R = LEVEL_RISE;
+  const H = LEVEL_RISE / 2;
+  const tier = (q: Rect, dy: number): DelverTier => ({ rect: fr.rect(q), level: (y + dy) / LEVEL_RISE, y: y + dy });
+  const ramp = (q: Rect, lo: number, hi: number, up: Side, rail: Side): DelverStep => ({ rect: fr.rect(q), lo: y + lo, hi: y + hi, up: fr.side(up), rails: [fr.side(rail)] });
+  const landings = [
+    tier({ x0: x1 - L, z0: a1, x1, z1: b1 }, R),
+    tier({ x0: x1 - L, z0: z1 - L, x1, z1 }, R + H),
+    tier({ x0: a3, z0: z1 - L, x1: b3, z1 }, 2 * R),
+    tier({ x0, z0: z1 - L, x1: x0 + L, z1 }, 2 * R + H),
+    tier({ x0, z0: a1, x1: x0 + L, z1: b1 }, 3 * R),
+  ];
+  const steps = [
+    ramp({ x0: x1 - L, z0: z0 + SPIRAL_FOOT, x1, z1: a1 }, 0, R, 'n', 'e'),
+    ramp({ x0: x1 - L, z0: b1, x1, z1: z1 - L }, R, R + H, 'n', 'e'),
+    ramp({ x0: b3, z0: z1 - L, x1: x1 - L, z1 }, R + H, 2 * R, 'w', 'n'),
+    ramp({ x0: x0 + L, z0: z1 - L, x1: a3, z1 }, 2 * R, 2 * R + H, 'w', 'n'),
+    ramp({ x0, z0: b1, x1: x0 + L, z1: z1 - L }, 2 * R + H, 3 * R, 's', 'w'),
+  ];
+  return { landings, steps };
+}
 
 interface Edge {
   readonly to: number;
@@ -614,7 +807,7 @@ interface Turn {
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall (grown to the
  * most the gaps allow, unless great halls are wanted: then Hall 0 is a great hall and the Boss Hall), and adds `markers.boss`; with it false the plan has no Boss key anywhere.
  */
-export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number, boss = false, tier = 1): FloorPlan {
+export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number, boss = false, tier = 1, drops: SetPieceDrops = { great: 0, size: 0, doorWalls: 0, kind: 0, range: 0, fallback: 0 }): FloorPlan {
   const s = attemptSeed(seed, floor, attempt);
   const pick = (slot: number, salt: number, count: number) => runPick(s, floor, slot, salt, count);
   /** A pick of the index of `weights` by cumulative weight, in list order. */
@@ -922,6 +1115,67 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     join(chosen.h, chosen.s, o, opposite(chosen.d), false, useFar);
   }
 
+  // 3a'. Set pieces (docs/plans/delver.md, Stage 7f), before every other feature: each Hall, in index order, is rolled with the tier's `setPieces.percent`
+  // (with 0, no pick at all), its kind a weighted pick. A Lava Bridge only reserves its Hall here (its fit is tested at 7d'', once the kinds and final rects
+  // are known); an Uphill or a Spiral is set in `feat` when it fits the rect as it stands (a Boss Hall's growth only enlarges it), never on a great hall. A kind
+  // that does not fit leaves the Hall plain; no other kind is tried. A reserved Hall, or one with an Uphill or a Spiral, takes no gallery, split, pit, dais,
+  // other lava, shape or pillar.
+  /**
+   * A feature as picked: a split's axis, whether it has three tiers, the end of its one outer tier (0 low, 1 high) and the side wall its first step stands
+   * against (0 low, 1 high); a pit's; an Uphill's axis, high end (a side index) and rise; a Spiral's base wall (a side index) and turn.
+   */
+  type Feat =
+    | { kind: 'split'; axis: 'x' | 'z'; three: boolean; side: 0 | 1; s: 0 | 1 }
+    | { kind: 'pit'; depth: 2 | 4; turn: 0 | 1; v: 'x' | 'z' }
+    | { kind: 'uphill'; axis: 'x' | 'z'; up: number; rise: 1 | 2 }
+    | { kind: 'spiral'; base: number; turn: 0 | 1 };
+  const feat: (Feat | null)[] = halls.map(() => null);
+  const crossRes = new Array<boolean>(halls.length).fill(false);
+  const setP = t.setPieces.percent[Math.min(tier, t.setPieces.percent.length) - 1]!;
+  if (setP > 0) {
+    const sw = t.setPieces.weights;
+    halls.forEach((hall, h) => {
+      if (pick(h, SALT.setPiece, 100) >= setP) return;
+      const want = SET_PIECE_KINDS[byWeight(h, SALT.setPieceKind, [sw.cross, sw.uphill, sw.spiral])]!;
+      if (want === 'cross') {
+        crossRes[h] = true;
+        return;
+      }
+      if (hall.great) {
+        drops.great++;
+        return;
+      }
+      const r = hall.rect;
+      const held = (d: number) => hall.slots.some((sl) => sl.d === d && sl.p !== -1);
+      if (want === 'uphill') {
+        // On axis k the Ramp is the half along k twice, less both landings; it rises 2 levels when that is long enough, else 1. No tree Passage leaves by a side wall.
+        const riseOn = (k: 'x' | 'z'): 0 | 1 | 2 => {
+          const run = k === 'x' ? r.x1 - r.x0 - UPHILL_FOOT - UPHILL_TOP : r.z1 - r.z0 - UPHILL_FOOT - UPHILL_TOP;
+          return run >= (2 * LEVEL_RISE) / MAX_SLOPE ? 2 : run >= LEVEL_RISE / MAX_SLOPE ? 1 : 0;
+        };
+        const sized = (['x', 'z'] as const).filter((k) => riseOn(k) > 0);
+        const fits = sized.filter((k) => !(k === 'x' ? [0, 2] : [1, 3]).some(held));
+        if (fits.length === 0) {
+          if (sized.length === 0) drops.size++;
+          else drops.doorWalls++;
+          return;
+        }
+        const axis = fits.length === 1 ? fits[0]! : (['x', 'z'] as const)[pick(h, SALT.uphillAxis, 2)]!;
+        const high = pick(h, SALT.uphillEnd, 2);
+        feat[h] = { kind: 'uphill', axis, up: axis === 'z' ? (high === 1 ? 0 : 2) : high === 1 ? 1 : 3, rise: riseOn(axis) as 1 | 2 };
+      } else {
+        const turn = pick(h, SALT.spiralTurn, 2) as 0 | 1;
+        const b0 = pick(h, SALT.spiralBase, 4);
+        for (let i = 0; i < 4 && !feat[h]; i++) if (spiralGeometry(r, (b0 + i) % 4, turn, 0)) feat[h] = { kind: 'spiral', base: (b0 + i) % 4, turn };
+        if (!feat[h]) drops.size++;
+      }
+    });
+  }
+  /** Whether Hall `h` holds or is reserved for a set piece (Stage 7f): no other feature is picked for it. */
+  const setPieceHall = (h: number): boolean => crossRes[h]! || feat[h]?.kind === 'uphill' || feat[h]?.kind === 'spiral';
+  /** Whether side `d` of Hall `h` is a side wall of its Uphill (along the Ramp): no Passage leaves by it. */
+  const uphillSide = (h: number, d: number): boolean => feat[h]?.kind === 'uphill' && d % 2 !== (feat[h] as { up: number }).up % 2;
+
   // 3b. Galleries: a Hall's side has room for one when the wall is deep enough across (`GALLERY_DEPTH` and the clear centre) and long enough
   // along (the Ramp, its approach and the shortest Deck); a side already holding a tree Passage needs the stairwell's room too (its Deck covers
   // the Passage's door with a metre each side). A seeded share of the Halls with room for one get one (side n, e, s, w order). Never a great hall.
@@ -958,7 +1212,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     return lo <= centre - (w / 2 + 1) && centre + (w / 2 + 1) <= hi;
   };
   if (t.levels.galleryPercent > 0) {
-    const fitting = halls.map((hall, h) => (hall.great ? [] : [0, 1, 2, 3].filter((d) => roomFor(h, d, hasOn(h, d)))));
+    const fitting = halls.map((hall, h) => (hall.great || setPieceHall(h) ? [] : [0, 1, 2, 3].filter((d) => roomFor(h, d, hasOn(h, d)))));
     const withRoom = halls
       .map((_, h) => ({ h, key: pick(h, SALT.galleryOrder, 0x1_0000_0000) }))
       .filter((c) => fitting[c.h]!.length > 0)
@@ -987,11 +1241,6 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // 3b'. Splits and pits (Stage 7c): each Hall that is not great and has no gallery, in index order, is picked for one with `features.percent`'s chance;
   // its kind is a weighted pick, and a kind that does not fit leaves the Hall plain. The fit is tested on the rect as it stands (a Boss Hall's growth
   // only enlarges it); the geometry is cut in step 7 from the final rect.
-  /** A split as picked: its axis, whether it has three tiers, the end of its one outer tier (0 low, 1 high) and the side wall its first step stands against (0 low, 1 high). */
-  type Feat =
-    | { kind: 'split'; axis: 'x' | 'z'; three: boolean; side: 0 | 1; s: 0 | 1 }
-    | { kind: 'pit'; depth: 2 | 4; turn: 0 | 1; v: 'x' | 'z' };
-  const feat: (Feat | null)[] = halls.map(() => null);
   /** The smallest odd metre at least `v`, and the largest at most it. */
   const oddUp = (v: number): number => 2 * Math.ceil((v - 1) / 2) + 1;
   const oddDown = (v: number): number => 2 * Math.floor((v - 1) / 2) + 1;
@@ -999,7 +1248,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const cutsAt = (c: number): [number, number] => [oddDown(c - SPLIT_CUT), oddUp(c + SPLIT_CUT)];
   if (t.features.percent > 0) {
     halls.forEach((hall, h) => {
-      if (hall.great || gal[h] !== null || pick(h, SALT.feature, 100) >= t.features.percent) return;
+      if (hall.great || gal[h] !== null || setPieceHall(h) || pick(h, SALT.feature, 100) >= t.features.percent) return;
       const kindOf = (['split', 'pit'] as const)[byWeight(h, SALT.featureKind, [t.features.weights.split, t.features.weights.pit])]!;
       const r = hall.rect;
       const halfX = (r.x1 - r.x0) / 2;
@@ -1049,22 +1298,33 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     if (isGalWall(h, d)) return 1;
     const f = feat[h];
     if (f?.kind === 'pit') return f.depth / 2;
+    // An Uphill's high end is the Hall's level and its low end `rise` under it; a Spiral's walls climb a level each from its base.
+    if (f?.kind === 'uphill') return d === opposite(f.up) ? -f.rise : 0;
+    if (f?.kind === 'spiral') return spiralWall(f.base, f.turn, d);
     return isOuterEnd(h, d) ? -1 : 0;
   };
   /** Whether a door of Hall `h` on side `d` opens above the Hall's Enclosure floor (a gallery wall, a split's wall but an outer tier's end, every wall of a pit): its Passage is flat and cuts the door itself. */
-  const raised = (h: number, d: number): boolean => isGalWall(h, d) || feat[h]?.kind === 'pit' || (feat[h]?.kind === 'split' && !isOuterEnd(h, d));
+  const raised = (h: number, d: number): boolean => {
+    const f = feat[h];
+    if (f?.kind === 'uphill') return d === f.up;
+    if (f?.kind === 'spiral') return spiralWall(f.base, f.turn, d) > 0;
+    return isGalWall(h, d) || f?.kind === 'pit' || (f?.kind === 'split' && !isOuterEnd(h, d));
+  };
   /** Whether Hall `h` at level `lv` keeps its wrap's, split's or pit's floors and door levels within 0 to `levels.max`. */
   const inRange = (h: number, lv: number): boolean => {
     const f = feat[h];
     if (gal[h]?.wraps.length && lv + 1 > lmax) return false;
     if (f?.kind === 'split') return lv >= 1 && lv <= lmax;
     if (f?.kind === 'pit') return lv + f.depth / 2 <= lmax;
+    if (f?.kind === 'uphill') return lv >= f.rise && lv <= lmax;
+    if (f?.kind === 'spiral') return lv + 3 <= lmax;
     return true;
   };
   const doorLevel = (h: number, d: number): number => level[h]! + lift(h, d);
   /** Drops Hall `h`'s wrap (its gallery back to its first wall) or its feature (a Hall has not both); whether it had one. */
   const unwrap = (h: number): boolean => {
     if (feat[h]) {
+      if (feat[h]!.kind === 'uphill' || feat[h]!.kind === 'spiral') drops.range++;
       feat[h] = null;
       return true;
     }
@@ -1129,6 +1389,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     if (b === h || halls[b]!.slots[bs]!.p !== -1) return false;
     if (passages.some((p) => (p.a === h && p.b === b) || (p.a === b && p.b === h))) return false;
     if (apart[h]![b]! < 3) return false;
+    if (uphillSide(h, halls[h]!.slots[s]!.d) || uphillSide(b, halls[b]!.slots[bs]!.d)) return false;
     // Levels: the doors at most one level apart, equal through a gallery's wall or a great hall's long side, a wall then needing the stairwell's room.
     const d = halls[h]!.slots[s]!.d;
     const db = halls[b]!.slots[bs]!.d;
@@ -1240,16 +1501,21 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const leaves = halls.flatMap((_, h) => (passageCount[h] === 1 ? [h] : []));
   const flats = leaves.filter((h) => !halls[h]!.great);
   const notGreat = halls.flatMap((hall, h) => (hall.great ? [] : [h]));
+  /** Stage 7f: `pool` without its Uphill and Spiral Halls (the Entrance, a Rest and the Treasure never take one), unless that leaves it empty. With none, `pool`. */
+  const plainOf = (pool: readonly number[]): number[] => {
+    const plain = pool.filter((h) => feat[h]?.kind !== 'uphill' && feat[h]?.kind !== 'spiral');
+    return plain.length > 0 ? plain : [...pool];
+  };
   let entrance: number;
   let stairs: number;
   if (startGreat) {
     const from0 = dijkstra(adj, [0]).dist;
-    const pool = flats.length > 0 ? flats : notGreat;
+    const pool = plainOf(flats.length > 0 ? flats : notGreat);
     entrance = 0;
     for (const h of pool) if (entrance === 0 || from0[h]! > from0[entrance]!) entrance = h;
     stairs = 0;
   } else {
-    const pool = flats.length > 0 ? flats : notGreat.length > 0 ? notGreat : leaves.length > 0 ? leaves : halls.map((_, h) => h);
+    const pool = plainOf(flats.length > 0 ? flats : notGreat.length > 0 ? notGreat : leaves.length > 0 ? leaves : halls.map((_, h) => h));
     entrance = pool[pick(0, SALT.entrance, pool.length)]!;
     stairs = entrance;
   }
@@ -1325,6 +1591,20 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const r = hall.rect;
     const y = hy(h);
     const L = level[h]!;
+    if (f.kind === 'uphill') {
+      // Stage 7f: the Hall's centre moves to the high landing's middle, as a ring's moves, so every centre marker stands on the high ground.
+      const g = uphillGeometry(r, f.up, f.rise, y)!;
+      hall.cx = g.cx;
+      hall.cz = g.cz;
+      featureOf[h] = { kind: 'uphill', axis: f.axis, up: SIDES[f.up]!, rise: f.rise, low: g.low, high: g.high, steps: [g.step] };
+      return;
+    }
+    if (f.kind === 'spiral') {
+      const g = spiralGeometry(r, f.base, f.turn, y)!;
+      const well = floorRects(r, [...g.landings.map((l) => l.rect), ...g.steps.map((st) => st.rect)]);
+      featureOf[h] = { kind: 'spiral', base: SIDES[f.base]!, turn: f.turn, landings: g.landings, steps: g.steps, well };
+      return;
+    }
     if (f.kind === 'split') {
       // Along z (tiers south to north); along x the same with x and z swapped. `R` is a rect from its extent along the axis and its extent across.
       const alongX = f.axis === 'x';
@@ -1412,13 +1692,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const other = (h: number) => h !== entrance && h !== stairs;
     const onPath = mainPath.filter(other);
     const all = halls.map((_, h) => h).filter(other);
-    const first = best(onPath.length > 0 ? [...onPath].sort((a, b) => a - b) : all, (h) => Math.abs(2 * depth[h]! - D));
+    const first = best(plainOf(onPath.length > 0 ? [...onPath].sort((a, b) => a - b) : all), (h) => Math.abs(2 * depth[h]! - D));
     if (first >= 0) {
       kind[first] = 'Rest';
       rests.push(first);
       if (restCount >= 2) {
         const pool = halls.map((_, h) => h).filter((h) => kind[h] === null && !joined(h, first));
-        const second = best(pool, (h) => Math.abs(4 * depth[h]! - 3 * D));
+        const second = best(plainOf(pool), (h) => Math.abs(4 * depth[h]! - 3 * D));
         if (second >= 0) {
           kind[second] = 'Rest';
           rests.push(second);
@@ -1430,7 +1710,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // Treasure: off the main path, furthest by walking from it; in a great hall when it has one to choose.
   const fromMain = dijkstra(adj, mainPath).dist;
   for (let k = 0; k < t.treasures; k++) {
-    const open = halls.map((_, h) => h).filter((h) => !onMain[h] && kind[h] === null);
+    const open = plainOf(halls.map((_, h) => h).filter((h) => !onMain[h] && kind[h] === null));
     const pool = open.some((h) => halls[h]!.great) ? open.filter((h) => halls[h]!.great) : open;
     if (pool.length === 0) break;
     const far = Math.max(...pool.map((h) => fromMain[h]!));
@@ -1463,7 +1743,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // and of the centre square. None fits: no dais.
   if (t.features.daisPercent > 0) {
     halls.forEach((hall, h) => {
-      if ((kind[h] !== 'Boss' && kind[h] !== 'Treasure') || galleryOf[h] || featureOf[h] || pick(h, SALT.dais, 100) >= t.features.daisPercent) return;
+      if ((kind[h] !== 'Boss' && kind[h] !== 'Treasure') || galleryOf[h] || featureOf[h] || crossRes[h] || pick(h, SALT.dais, 100) >= t.features.daisPercent) return;
       const r = hall.rect;
       const y0 = hy(h);
       const spans = hall.slots.filter((sl) => sl.p !== -1).map((sl) => ({ d: sl.d, lo: sl.line - half - DOOR_SIDE, hi: sl.line + half + DOOR_SIDE }));
@@ -1508,11 +1788,58 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // its door bridge, the bank behind it being at least `RIVER_BANK` and reached by every bridge; a pit's bands are wider than a lane, and the centre moves
   // into the centre band, as a ring's does.
   const lavaOf = new Array<DelverLava | undefined>(n).fill(undefined);
+
+  // 7d''. Lava Bridges (Stage 7f): each reserved Hall, in index order, takes one when it fits; else it stays plain (no lava is tried for it, but shapes and
+  // pillars may be). It fits a Fight, Empty, Boss or Stairs Hall with no gallery and no feature, both halves at least `CROSS_HALF`, when every held slot's door
+  // span lies within the plaza's span along its wall. The plaza is 7d's dry centre square, odd-snapped; an arm runs from each held doorway (its door span
+  // across) to the plaza; the rest is lava, but a piece thinner than `LAVA_MIN` on either axis, which stays floor.
+  crossRes.forEach((res, h) => {
+    if (!res) return;
+    const hall = halls[h]!;
+    const hk = kind[h];
+    if ((hk !== 'Fight' && hk !== 'Empty' && hk !== 'Boss' && hk !== 'Stairs') || galleryOf[h] || featureOf[h]) {
+      drops.kind++;
+      return;
+    }
+    const r = hall.rect;
+    if (r.x1 - r.x0 < 2 * CROSS_HALF || r.z1 - r.z0 < 2 * CROSS_HALF) {
+      drops.size++;
+      return;
+    }
+    const plaza: Rect = { x0: oddDown(hall.cx - LAVA_CENTRE), z0: oddDown(hall.cz - LAVA_CENTRE), x1: oddUp(hall.cx + LAVA_CENTRE), z1: oddUp(hall.cz + LAVA_CENTRE) };
+    const arms: { d: number; rect: Rect }[] = [];
+    for (const sl of hall.slots) {
+      if (sl.p === -1) continue;
+      const [a, b] = doorSpan(sl.line);
+      const [p0, p1] = sl.d % 2 === 0 ? [plaza.x0, plaza.x1] : [plaza.z0, plaza.z1];
+      if (a < p0 || b > p1) {
+        drops.doorWalls++;
+        return;
+      }
+      const rect: Rect =
+        sl.d === 0 ? { x0: a, z0: plaza.z1, x1: b, z1: r.z1 }
+        : sl.d === 2 ? { x0: a, z0: r.z0, x1: b, z1: plaza.z0 }
+        : sl.d === 1 ? { x0: plaza.x1, z0: a, x1: r.x1, z1: b }
+        : { x0: r.x0, z0: a, x1: plaza.x0, z1: b };
+      arms.push({ d: sl.d, rect });
+    }
+    const rects = floorRects(r, [plaza, ...arms.map((a) => a.rect)])
+      .filter((q) => q.x1 - q.x0 >= LAVA_MIN && q.z1 - q.z0 >= LAVA_MIN)
+      .sort((p, q) => p.z0 - q.z0 || p.x0 - q.x0);
+    if (rects.length === 0) {
+      drops.size++;
+      return;
+    }
+    const walls = [0, 1, 2, 3].filter((d) => arms.some((a) => a.d === d)).map((d) => SIDES[d]!);
+    const bridges = arms.map((a) => a.rect).sort((p, q) => p.z0 - q.z0 || p.x0 - q.x0);
+    lavaOf[h] = { kind: 'cross', walls, rects, y: hy(h) - LAVA_DEPTH, bridges, plaza };
+  });
+
   const lavaP = t.lava.percent[Math.min(tier, t.lava.percent.length) - 1]!;
   if (lavaP > 0) {
     halls.forEach((hall, h) => {
       const hk = kind[h];
-      if ((hk !== 'Fight' && hk !== 'Empty' && hk !== 'Boss' && hk !== 'Stairs') || galleryOf[h] || featureOf[h] || pick(h, SALT.lava, 100) >= lavaP) return;
+      if ((hk !== 'Fight' && hk !== 'Empty' && hk !== 'Boss' && hk !== 'Stairs') || galleryOf[h] || featureOf[h] || crossRes[h] || pick(h, SALT.lava, 100) >= lavaP) return;
       const want = (['pit', 'river', 'trough'] as const)[byWeight(h, SALT.lavaKind, [t.lava.weights.pit, t.lava.weights.river, t.lava.weights.trough])]!;
       const r = hall.rect;
       const wide = [2, 4][pick(h, SALT.lavaWide, 2)]!;
@@ -1803,6 +2130,9 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     points: c.halls.map((h) => ({ x: halls[h]!.cx, y: hy(h), z: halls[h]!.cz })),
   }));
 
+  // Stage 7f: an Uphill or a Spiral the Entrance, a Rest or the Treasure took for want of any other Hall (`plainOf`).
+  for (let h = 0; h < n; h++) if ((kind[h] === 'Entrance' || kind[h] === 'Rest' || kind[h] === 'Treasure') && (featureOf[h]?.kind === 'uphill' || featureOf[h]?.kind === 'spiral')) drops.fallback++;
+
   // 9. Markers.
   const at = (h: number, dx = 0): MarkerPoint => ({ hall: h, x: halls[h]!.cx + dx, y: hy(h), z: halls[h]!.cz });
   // A Fight Hall whose gallery's Deck is long enough has its post on the Deck: at its centre along the wall, 2 m in from the wall.
@@ -1857,7 +2187,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     return {
       id: `hall${k}`, i: h.i, j: h.j, cells: h.cells, great: h.great, cx: h.cx, cz: h.cz, rect: h.rect, shape: hallShape[k]!, rects: floorRects(h.rect, hallSolids[k]!),
       solids: hallSolids[k]!, pillars: hallPillars[k]!, ...(hallLayout[k] ? { layout: hallLayout[k] } : {}), doors: ordered, kind: kind[k]!, depth: depth[k]!,
-      level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : feature?.kind === 'pit' ? feature.depth + HALL_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
+      level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : feature?.kind === 'pit' ? feature.depth + HALL_STOREY : feature?.kind === 'spiral' ? 3 * LEVEL_RISE + HALL_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
       ...(feature ? { feature } : {}),
       ...(lava ? { lava } : {}),
     };

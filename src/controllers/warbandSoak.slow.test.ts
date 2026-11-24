@@ -2132,7 +2132,7 @@ function platformWatcher(): {
           platforms.push({ id: `${h.id}-rim${n}`, rect, top: ft.rim }),
         );
         if (ft.depth === 4) pit4.add(k);
-      } else platforms.push({ id: `${h.id}-dais`, rect: ft.rect, top: ft.y });
+      } else if (ft.kind === "dais") platforms.push({ id: `${h.id}-dais`, rect: ft.rect, top: ft.y });
     });
     cache.set(
       name,
@@ -2428,7 +2428,7 @@ function lavaWatcher(): {
     const halls = built.plan.halls.flatMap((hall, k) =>
       hall.lava ? [{ k, hall }] : [],
     );
-    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0 };
+    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0, cross: 0 };
     for (const h of halls) halls0[h.hall.lava!.kind]++;
     cache.set(
       name,
