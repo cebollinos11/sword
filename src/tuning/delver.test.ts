@@ -112,7 +112,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       elitePosts: 1,
       postFill: 75,
       patrolFill: 100,
-      perPlayerSoldiers: 1.5,
+      perPlayerSoldiers: 1,
       attackSlots: [4, 3, 3, 3],
       tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
