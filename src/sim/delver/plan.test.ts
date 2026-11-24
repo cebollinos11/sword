@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, noLava, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, noLava, noSetPieces, plainHalls } from './flat.testdata';
 import { SHORTCUT_RISE } from '../nav';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import {
@@ -12,6 +12,8 @@ import {
   DAIS_DEPTH, DAIS_HALF, DAIS_RISE, DAIS_STEP, DAIS_STEP_HALF, type DelverDais,
   hallBase, PIT_LONG, PIT_RIM, PIT_WIDE, SPLIT_CUT, STEP_WIDTH, TIER_MIN, type DelverStep,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
+  CROSS_HALF, doorSpan, LEDGE_WIDE, onlySetPiece, SET_PIECE_KINDS, setPieceOf, SPIRAL_FOOT, SPIRAL_HALF, spiralGeometry, spiralOrder, UPHILL_FOOT, UPHILL_TOP, uphillGeometry,
+  type DelverSpiral, type DelverUphill, type SetPieceDrops, type SetPieceKind,
 } from './plan';
 
 /** The data as shipped (Stage 7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
@@ -1230,7 +1232,8 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
 });
 
 describe('splits and pits (Stage 7c)', () => {
-  const bundled7c = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found, and their rules written, on 7c's Floors.
+  const bundled7c = noSetPieces(loadTuningData());
   const t7c = bundled7c;
   const f7c = t7c.delver.floor;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
@@ -1702,7 +1705,8 @@ describe('daises (Stage 7c)', () => {
 });
 
 describe('lava (Stage 7d)', () => {
-  const bundled7d = loadTuningData();
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7d's Floors, and a Lava Bridge is 7f's lava, not 7d's.
+  const bundled7d = noSetPieces(loadTuningData());
   const on = bundled7d;
   const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
   const SIDE_OF: Record<Side, number> = { n: 0, e: 1, s: 2, w: 3 };
@@ -2005,6 +2009,256 @@ describe('lava (Stage 7d)', () => {
     it('keeps a solid\'s notch out of the floor too', () => {
       const h = { ...hallWith({ kind: 'trough', walls: ['s'], rects: [R(-5, -15, 5, -13)], y: -4, bridges: [] }), solids: [R(9, 9, 15, 15)] } as DelverHall;
       expect(lavaDry(h, 1)).toEqual([R(-15, -15, -6, -12), R(6, -15, 15, -12), R(-15, -12, 15, 9), R(-15, 9, 9, 15)]);
+    });
+  });
+});
+
+describe('set pieces (Stage 7f)', () => {
+  const base7f = loadTuningData();
+  const on = base7f;
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const odd = (v: number) => Math.abs(v % 2) === 1;
+  const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
+  const within = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  const area = (q: Rect) => (q.x1 - q.x0) * (q.z1 - q.z0);
+  const opp: Record<Side, Side> = { n: 's', s: 'n', e: 'w', w: 'e' };
+  const along = (q: Rect, d: Side): [number, number] => (d === 'n' || d === 's' ? [q.x0, q.x1] : [q.z0, q.z1]);
+  const runOf = (st: DelverStep) => (st.up === 'n' || st.up === 's' ? st.rect.z1 - st.rect.z0 : st.rect.x1 - st.rect.x0);
+  const planOf = (tuning: typeof on, seed: number, floor: number, drops?: SetPieceDrops) =>
+    planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor), drops);
+  const pairs = Array.from({ length: 200 }, (_, s) => Array.from({ length: 9 }, (_, f) => ({ seed: s + 1, floor: f + 1 }))).flat();
+  const drops: SetPieceDrops = { great: 0, size: 0, doorWalls: 0, kind: 0, range: 0, fallback: 0 };
+  const planned = pairs.map((pr) => ({ ...pr, p: planOf(on, pr.seed, pr.floor, drops) }));
+  const pieces = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (setPieceOf(h) ? [{ p, h, i, seed, floor, kind: setPieceOf(h)! }] : [])));
+  const ofKind = (k: SetPieceKind) => pieces.filter((e) => e.kind === k);
+  /** The Passage ends at Hall `i`: the wall, the door height and the doorway's span along the wall. */
+  const endsAt = (p: FloorPlan, i: number) =>
+    p.passages.flatMap((q) => [
+      ...(q.a === i ? [{ wall: q.sideA, y: q.ya, span: along(q.pieces[0]!.rect, q.sideA) }] : []),
+      ...(q.b === i ? [{ wall: q.sideB, y: q.yb, span: along(q.pieces[q.pieces.length - 1]!.rect, q.sideB) }] : []),
+    ]);
+  const uphills = () => ofKind('uphill').map((e) => ({ ...e, f: e.h.feature as DelverUphill }));
+  const spirals = () => ofKind('spiral').map((e) => ({ ...e, f: e.h.feature as DelverSpiral }));
+  const crosses = () => ofKind('cross').map((e) => ({ ...e, lava: e.h.lava! }));
+
+  it('has the constants and salts the Design fixes, and ships set pieces on', () => {
+    expect([UPHILL_FOOT, UPHILL_TOP, LEDGE_WIDE, SPIRAL_FOOT, SPIRAL_HALF, CROSS_HALF]).toEqual([6, 10, 4, 4, 9, 11]);
+    expect([SALT.setPiece, SALT.setPieceKind, SALT.uphillAxis, SALT.uphillEnd, SALT.spiralBase, SALT.spiralTurn]).toEqual([78, 79, 80, 81, 82, 83]);
+    expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83]);
+    expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
+    // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
+    expect(base7f.delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1 } });
+    expect(noSetPieces(on).delver.floor.setPieces.percent).toEqual([0]);
+    expect(onlySetPiece(base7f, 'spiral').delver.floor.setPieces).toEqual({ percent: [100], weights: { cross: 0, uphill: 0, spiral: 1 } });
+  });
+
+  it('plans 200 seeds x Floors 1 to 9 with each set piece in plenty, and shows every case the Design asks for', () => {
+    const cr = crosses();
+    const counts = {
+      cross: cr.length, uphill: ofKind('uphill').length, spiral: ofKind('spiral').length,
+      rise2: uphills().filter((e) => e.f.rise === 2).length,
+      arms4: cr.filter((e) => e.lava.bridges.length === 4).length,
+      t: cr.filter((e) => e.lava.bridges.length === 3).length,
+      straight: cr.filter((e) => e.lava.walls.length === 2 && e.lava.walls[0] === opp[e.lava.walls[1]!]).length,
+      greatCross: cr.filter((e) => e.h.great).length,
+    };
+    console.log(`7f set pieces in ${planned.length} Floors: ${JSON.stringify(counts)}; drops ${JSON.stringify(drops)}`);
+    for (const [k, v] of Object.entries(counts)) expect(v, k).toBeGreaterThan(0);
+    // Every kind on a Stairs Hall; on a Boss Hall only a Lava Bridge, since the shipped Boss Hall is always a great hall, which takes no Uphill or Spiral.
+    for (const k of SET_PIECE_KINDS) expect(ofKind(k).some((e) => e.h.kind === 'Stairs'), `${k} on a Stairs Hall`).toBe(true);
+    expect(ofKind('cross').some((e) => e.h.kind === 'Boss'), 'a cross on a Boss Hall').toBe(true);
+    expect(planned.every(({ p }) => p.halls.every((h) => h.kind !== 'Boss' || h.great))).toBe(true);
+    const bases = new Set(spirals().map((e) => `${e.f.base}${e.f.turn}`));
+    for (const b of ['n', 'e', 's', 'w']) for (const tn of [0, 1]) expect(bases.has(`${b}${tn}`), `a Spiral based ${b}, turn ${tn}`).toBe(true);
+  });
+
+  it('puts an Uphill or a Spiral only on a Hall that is not great, and never on the Entrance, a Rest or the Treasure but for want of another Hall', () => {
+    let fallback = 0;
+    for (const e of [...ofKind('uphill'), ...ofKind('spiral')]) {
+      expect(e.h.great).toBe(false);
+      if (['Entrance', 'Rest', 'Treasure'].includes(e.h.kind)) fallback++;
+    }
+    expect(fallback).toBe(drops.fallback);
+    for (const e of ofKind('cross')) expect(['Fight', 'Empty', 'Boss', 'Stairs']).toContain(e.h.kind);
+  });
+
+  it('gives a set-piece Hall no other feature: no gallery, shape, solid or pillar; an Uphill or Spiral no lava, a cross no feature', () => {
+    for (const { h, kind } of pieces) {
+      expect([h.gallery, h.shape, h.solids, h.pillars, h.layout]).toEqual([undefined, 'rect', [], [], undefined]);
+      if (kind === 'cross') expect(h.feature).toBeUndefined();
+      else expect(h.lava).toBeUndefined();
+    }
+  });
+
+  it('an Uphill: doors on its end walls only, at its ends\' heights; landings UPHILL_FOOT and UPHILL_TOP deep; a full-width railless Ramp no steeper than MAX_SLOPE; the centre in the high landing\'s middle', () => {
+    for (const { p, h, i, f } of uphills()) {
+      const r = h.rect;
+      const low = opp[f.up];
+      expect(f.axis).toBe(f.up === 'n' || f.up === 's' ? 'z' : 'x');
+      expect(hallBase(h)).toBe(h.y - f.rise * LEVEL_RISE);
+      expect(h.level).toBeGreaterThanOrEqual(f.rise);
+      expect(h.top).toBe(h.y + HALL_STOREY);
+      for (const e of endsAt(p, i)) {
+        expect([f.up, low]).toContain(e.wall);
+        expect(e.y).toBe(e.wall === f.up ? h.y : hallBase(h));
+      }
+      // Only the low end's doorway is cut by the Hall; the high end's is its Passage's.
+      expect(Object.keys(h.doors).every((d) => d === low)).toBe(true);
+      const depth = (q: Rect) => (f.axis === 'z' ? q.z1 - q.z0 : q.x1 - q.x0);
+      expect([depth(f.low), depth(f.high)]).toEqual([UPHILL_FOOT, UPHILL_TOP]);
+      const st = f.steps[0]!;
+      expect(f.steps.length).toBe(1);
+      expect([st.lo, st.hi, st.up, st.rails]).toEqual([hallBase(h), h.y, f.up, []]);
+      expect(area(f.low) + area(st.rect) + area(f.high)).toBe(area(r));
+      for (const q of [f.low, st.rect, f.high]) expect(within(q, r) && oddRect(q)).toBe(true);
+      expect(along(st.rect, f.up === 'n' || f.up === 's' ? 'n' : 'e')).toEqual(along(r, f.up === 'n' || f.up === 's' ? 'n' : 'e'));
+      expect((st.hi - st.lo) / runOf(st)).toBeLessThanOrEqual(MAX_SLOPE);
+      const touchesWall = (q: Rect, d: Side) => (d === 'n' ? q.z1 === r.z1 : d === 's' ? q.z0 === r.z0 : d === 'e' ? q.x1 === r.x1 : q.x0 === r.x0);
+      expect([touchesWall(f.high, f.up), touchesWall(f.low, low)]).toEqual([true, true]);
+      expect([h.cx, h.cz]).toEqual([(f.high.x0 + f.high.x1) / 2, (f.high.z0 + f.high.z1) / 2]);
+    }
+  });
+
+  it('a Spiral: five landings and five Ramps chained round three walls, LEDGE_WIDE wide, no steeper than MAX_SLOPE, each door in its landing\'s span at its height', () => {
+    for (const { p, h, i, f } of spirals()) {
+      const r = h.rect;
+      const walls = spiralOrder(f.base, f.turn);
+      expect(h.level + 3).toBeLessThanOrEqual(base7f.delver.floor.levels.max);
+      expect([hallBase(h), h.top]).toEqual([h.y, h.y + 3 * LEVEL_RISE + HALL_STOREY]);
+      expect([h.cx, h.cz]).toEqual([(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2]);
+      expect([f.landings.length, f.steps.length]).toEqual([5, 5]);
+      expect(f.landings.map((l) => l.y - h.y)).toEqual([2, 3, 4, 5, 6]);
+      expect(f.landings.map((l) => l.level)).toEqual(f.landings.map((l) => l.y / LEVEL_RISE));
+      const wide = (q: Rect) => Math.min(q.x1 - q.x0, q.z1 - q.z0);
+      f.steps.forEach((st, n) => {
+        // Each Ramp from the floor before it (the well, then the landing before) up to its landing, against the Hall's wall on its railed side, open on the other.
+        expect([st.lo, st.hi]).toEqual([n === 0 ? h.y : f.landings[n - 1]!.y, f.landings[n]!.y]);
+        expect(st.up === 'n' || st.up === 's' ? st.rect.x1 - st.rect.x0 : st.rect.z1 - st.rect.z0).toBe(LEDGE_WIDE);
+        expect((st.hi - st.lo) / runOf(st)).toBeLessThanOrEqual(MAX_SLOPE);
+        expect(st.rails.length).toBe(1);
+        const d = st.rails[0]!;
+        expect(d === 'n' ? st.rect.z1 === r.z1 : d === 's' ? st.rect.z0 === r.z0 : d === 'e' ? st.rect.x1 === r.x1 : st.rect.x0 === r.x0).toBe(true);
+        expect(within(st.rect, r) && oddRect(st.rect)).toBe(true);
+      });
+      for (const l of f.landings) expect(within(l.rect, r) && oddRect(l.rect) && wide(l.rect) === LEDGE_WIDE).toBe(true);
+      // The ledge and the well tile the rect.
+      const ledge = [...f.landings.map((l) => l.rect), ...f.steps.map((st) => st.rect)];
+      expect(f.well).toEqual(floorRects(r, ledge));
+      expect(ledge.reduce((a, q) => a + area(q), 0) + f.well.reduce((a, q) => a + area(q), 0)).toBe(area(r));
+      // The first Ramp's foot is SPIRAL_FOOT from the base wall, along wall 2.
+      const r1 = f.steps[0]!.rect;
+      expect(f.base === 'n' ? r.z1 - r1.z1 : f.base === 's' ? r1.z0 - r.z0 : f.base === 'e' ? r.x1 - r1.x1 : r1.x0 - r.x0).toBe(SPIRAL_FOOT);
+      // Door landings: wall 2's, 3's and 4's at landings 0, 2 and 4, each spanning the wall's centre's `doorSpan`; every door in its span at its height.
+      [1, 2, 3].forEach((wj) => {
+        const l = f.landings[2 * (wj - 1)]!;
+        const d = walls[wj]!;
+        const c = d === 'n' || d === 's' ? h.cx : h.cz;
+        expect(along(l.rect, d)).toEqual(doorSpan(c));
+      });
+      for (const e of endsAt(p, i)) {
+        const wj = walls.indexOf(e.wall);
+        expect(e.y).toBe(wj === 0 ? h.y : f.landings[2 * (wj - 1)]!.y);
+        if (wj > 0) {
+          const span = along(f.landings[2 * (wj - 1)]!.rect, e.wall);
+          expect(span[0] <= e.span[0] && span[1] >= e.span[1]).toBe(true);
+        }
+      }
+      expect(Object.keys(h.doors).every((d) => d === f.base)).toBe(true);
+    }
+  });
+
+  it('a Lava Bridge: the plaza holds the centre square, an arm from each held doorway to it, the rest lava on odd metres, the arms\' walls in n, e, s, w order', () => {
+    for (const { p, h, i, lava } of crosses()) {
+      const r = h.rect;
+      const plaza = lava.plaza!;
+      expect(plaza).toEqual(R(oddDown(h.cx - LAVA_CENTRE), oddDown(h.cz - LAVA_CENTRE), oddUp(h.cx + LAVA_CENTRE), oddUp(h.cz + LAVA_CENTRE)));
+      expect(Math.min(r.x1 - r.x0, r.z1 - r.z0)).toBeGreaterThanOrEqual(2 * CROSS_HALF);
+      expect(lava.y).toBe(h.y - LAVA_DEPTH);
+      const ends = endsAt(p, i);
+      expect(lava.bridges.length).toBe(ends.length);
+      expect(lava.walls).toEqual((['n', 'e', 's', 'w'] as Side[]).filter((d) => ends.some((e) => e.wall === d)));
+      for (const e of ends) {
+        const arm = lava.bridges.find((b) => (e.wall === 'n' ? b.z1 === r.z1 : e.wall === 's' ? b.z0 === r.z0 : e.wall === 'e' ? b.x1 === r.x1 : b.x0 === r.x0))!;
+        expect(arm).toBeDefined();
+        const [a, b] = along(arm, e.wall);
+        expect(a <= e.span[0] - 0.5 && b >= e.span[1] + 0.5).toBe(true);
+        expect(b - a).toBeGreaterThanOrEqual(BRIDGE_MIN);
+        // From its wall to the plaza.
+        expect(e.wall === 'n' ? arm.z0 === plaza.z1 : e.wall === 's' ? arm.z1 === plaza.z0 : e.wall === 'e' ? arm.x0 === plaza.x1 : arm.x1 === plaza.x0).toBe(true);
+      }
+      for (const q of [...lava.rects, ...lava.bridges, plaza]) expect(within(q, r) && oddRect(q)).toBe(true);
+      for (const q of lava.rects) {
+        expect(Math.min(q.x1 - q.x0, q.z1 - q.z0)).toBeGreaterThanOrEqual(LAVA_MIN);
+        for (const o of [plaza, ...lava.bridges]) expect(q.x0 < o.x1 && o.x0 < q.x1 && q.z0 < o.z1 && o.z0 < q.z1).toBe(false);
+      }
+      expect(lava.rects.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('on noSetPieces makes no pick: a plan is today\'s whatever the 7f salts, and holds no set piece', () => {
+    const salts = SALT as unknown as Record<string, number>;
+    const saved = { ...salts };
+    const zero = { ...on, delver: { ...on.delver, floor: { ...on.delver.floor, setPieces: { percent: [0, 0, 0], weights: { cross: 0, uphill: 1, spiral: 0 } } } } };
+    for (const { seed, floor } of pairs.filter((_, k) => k % 11 === 0)) {
+      const want = JSON.stringify(planOf(noSetPieces(on), seed, floor));
+      expect(want).not.toMatch(/"kind":"(uphill|spiral|cross)"/);
+      expect(JSON.stringify(planOf(zero, seed, floor))).toBe(want);
+      try {
+        for (const key of ['setPiece', 'setPieceKind', 'uphillAxis', 'uphillEnd', 'spiralBase', 'spiralTurn']) salts[key] = 9000 + salts[key]!;
+        expect(JSON.stringify(planOf(noSetPieces(on), seed, floor))).toBe(want);
+      } finally {
+        Object.assign(salts, saved);
+      }
+    }
+  });
+
+  it('picks nothing at p 0 and takes the Run tier\'s percent (the last for a deeper tier)', () => {
+    const only = (percent: number[]) => ({ ...on, delver: { ...on.delver, floor: { ...on.delver.floor, setPieces: { ...on.delver.floor.setPieces, percent } } } });
+    const count = (tuning: typeof on, tier: number) =>
+      Array.from({ length: 60 }, (_, s) => planFloor(tuning.delver.floor, s + 1, 1, 0, false, tier)).reduce((a, p) => a + p.halls.filter((h) => setPieceOf(h)).length, 0);
+    expect(count(only([0, 0, 100]), 1)).toBe(0);
+    expect(count(only([0, 0, 100]), 3)).toBeGreaterThan(0);
+    expect(count(only([0, 0, 100]), 7)).toBe(count(only([0, 0, 100]), 3));
+  });
+
+  describe('hand-cut geometry', () => {
+    it('an Uphill: a 1-level Ramp fits a half of 10, a 2-level one a half of 12; one under either does not', () => {
+      expect(uphillGeometry(R(-9, -9, 9, 9), 0, 1, 2)).toBeNull();
+      const one = uphillGeometry(R(-9, -11, 9, 9), 0, 1, 2)!;
+      expect(one.step).toEqual({ rect: R(-9, -5, 9, -1), lo: 0, hi: 2, up: 'n', rails: [] });
+      expect([one.low, one.high, one.cx, one.cz]).toEqual([R(-9, -11, 9, -5), R(-9, -1, 9, 9), 0, 4]);
+      expect(uphillGeometry(R(-9, -11, 13, 11), 3, 2, 4)).toBeNull();
+      const two = uphillGeometry(R(-13, -9, 11, 9), 3, 2, 4)!;
+      expect(two.step).toEqual({ rect: R(-3, -9, 5, 9), lo: 0, hi: 4, up: 'w', rails: [] });
+      expect([two.low, two.high, two.cx, two.cz]).toEqual([R(5, -9, 11, 9), R(-13, -9, -3, 9), -8, 0]);
+      // The largest Hall (a half of 14): the high landing stays 10 deep and the Ramp takes the rest.
+      expect(uphillGeometry(R(-13, -15, 13, 13), 2, 2, 4)!.step.rect).toEqual(R(-13, -5, 13, 7));
+    });
+
+    it('a Spiral: its smallest Hall (halves 9 across wall 2, 10 along it) and a large one, each base and turn a turn or mirror of base s, turn 0', () => {
+      expect(spiralGeometry(R(-9, -9, 9, 9), 2, 0, 0)).toBeNull();
+      const s0 = spiralGeometry(R(-9, -11, 9, 9), 2, 0, 0)!;
+      expect(s0.steps.map((st) => [st.rect, st.lo, st.hi, st.up, st.rails[0]])).toEqual([
+        [R(5, -7, 9, -3), 0, 2, 'n', 'e'],
+        [R(5, 1, 9, 5), 2, 3, 'n', 'e'],
+        [R(3, 5, 5, 9), 3, 4, 'w', 'n'],
+        [R(-5, 5, -3, 9), 4, 5, 'w', 'n'],
+        [R(-9, 1, -5, 5), 5, 6, 's', 'w'],
+      ]);
+      expect(s0.landings.map((l) => [l.rect, l.y])).toEqual([[R(5, -3, 9, 1), 2], [R(5, 5, 9, 9), 3], [R(-3, 5, 3, 9), 4], [R(-9, 5, -5, 9), 5], [R(-9, -3, -5, 1), 6]]);
+      // Base n, turn 1 (clockwise: n, e, s, w) is base s, turn 0 turned a half turn and mirrored: x stays, z flips.
+      const n1 = spiralGeometry(R(-9, -9, 9, 11), 0, 1, 0)!;
+      const flipZ = (q: Rect) => R(q.x0, -q.z1, q.x1, -q.z0);
+      expect(n1.steps.map((st) => st.rect)).toEqual(s0.steps.map((st) => flipZ(st.rect)));
+      expect(n1.steps.map((st) => st.up)).toEqual(['s', 's', 'w', 'w', 'n']);
+      expect(n1.steps.map((st) => st.rails[0])).toEqual(['e', 'e', 's', 's', 'w']);
+      expect(spiralOrder('n', 1)).toEqual(['n', 'e', 's', 'w']);
+      expect(spiralOrder('s', 0)).toEqual(['s', 'e', 'n', 'w']);
+      expect(spiralOrder('e', 0)).toEqual(['e', 'n', 'w', 's']);
+      // A large Hall: only the ramps lengthen; the landings keep their spans.
+      const big = spiralGeometry(R(-15, -13, 13, 15), 3, 0, 2)!;
+      expect(big.landings.map((l) => l.y)).toEqual([4, 5, 6, 7, 8]);
+      for (const st of big.steps) expect((st.hi - st.lo) / runOf(st)).toBeLessThanOrEqual(MAX_SLOPE);
     });
   });
 });

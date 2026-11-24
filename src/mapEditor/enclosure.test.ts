@@ -431,3 +431,127 @@ describe('Platforms in an Enclosure (Stage 7c)', () => {
     expect(jumps(arena).some((l) => floors.includes(l.from) && rimIds.includes(l.to))).toBe(true);
   });
 });
+
+/**
+ * Stage 7f: an Uphill Room and a Spiral Stair, hand-built. Task 1 found the compiler needs no change for them:
+ *  - a Ramp whose foot stands above its Enclosure's floor (the Spiral's R2 to R5) is made solid underneath by the landing before it, a
+ *    Platform written over that Ramp's rect too (its top is the Ramp's `lo`, so it cuts the Hall floor under the Ramp and the Ramp cuts its top);
+ *  - a Ramp's long side with no rail already compiles to a skirt stepped up to its slope where the floor beside is lower (issue #157 made the
+ *    Enclosure's roof no floor beside a Ramp), so the Spiral's inner edge is open with no change.
+ */
+const spiral = () =>
+  hallSource(
+    [
+      hall7c('hall', { x0: -11, z0: -11, x1: 11, z1: 11 }, 0, 10, { s: 3 }),
+      hall7c('ps', { x0: -1.5, z0: -17, x1: 1.5, z1: -11 }, 0, 4, { n: 3, s: 3 }),
+      hall7c('pe', { x0: 11, z0: -1.5, x1: 17, z1: 1.5 }, 2, 6, { e: 3, w: 3 }),
+      hall7c('pn', { x0: -1.5, z0: 11, x1: 1.5, z1: 17 }, 4, 8, { n: 3, s: 3 }),
+      hall7c('pw', { x0: -17, z0: -1.5, x1: -11, z1: 1.5 }, 6, 10, { e: 3, w: 3 }),
+      // Each landing but the last runs on under the next Ramp, its top that Ramp's foot.
+      slab('hall-landing0', 7, -3, 11, 7, 2),
+      slab('hall-landing1', 3, 7, 11, 11, 3),
+      slab('hall-landing2', -7, 7, 3, 11, 4),
+      slab('hall-landing3', -11, 3, -7, 11, 5),
+      slab('hall-landing4', -11, -3, -7, 3, 6),
+      { kind: 'ramp', id: 'hall-ramp0', rect: { x0: 7, z0: -7, x1: 11, z1: -3 }, lo: 0, hi: 2, up: 'n', rails: ['e'] },
+      { kind: 'ramp', id: 'hall-ramp1', rect: { x0: 7, z0: 3, x1: 11, z1: 7 }, lo: 2, hi: 3, up: 'n', rails: ['e'] },
+      { kind: 'ramp', id: 'hall-ramp2', rect: { x0: 3, z0: 7, x1: 7, z1: 11 }, lo: 3, hi: 4, up: 'w', rails: ['n'] },
+      { kind: 'ramp', id: 'hall-ramp3', rect: { x0: -7, z0: 7, x1: -3, z1: 11 }, lo: 4, hi: 5, up: 'w', rails: ['n'] },
+      { kind: 'ramp', id: 'hall-ramp4', rect: { x0: -11, z0: 3, x1: -7, z1: 7 }, lo: 5, hi: 6, up: 's', rails: ['w'] },
+    ],
+    [-8, 0, 2, 3, 4, 5, 6, 8, 10],
+    [{ x: 0, z: -14 }, { x: -14, z: 0, y: 6 }],
+  );
+/** A 2-level Uphill rising north: a 6 m low landing at 0, a 10 m Ramp up to 4, a 10 m high landing at 4; doors at the two ends only. */
+const uphill = () =>
+  hallSource(
+    [
+      hall7c('hall', { x0: -9, z0: -13, x1: 9, z1: 13 }, 0, 8, { s: 3 }),
+      hall7c('ps', { x0: -1.5, z0: -19, x1: 1.5, z1: -13 }, 0, 4, { n: 3, s: 3 }),
+      hall7c('pn', { x0: -1.5, z0: 13, x1: 1.5, z1: 19 }, 4, 8, { n: 3, s: 3 }),
+      slab('hall-high', -9, 3, 9, 13, 4),
+      { kind: 'ramp', id: 'hall-ramp0', rect: { x0: -9, z0: -7, x1: 9, z1: 3 }, lo: 0, hi: 4, up: 'n', rails: [] },
+    ],
+    [-8, 0, 4, 8],
+    [{ x: 0, z: -16 }, { x: 0, z: 16, y: 4 }],
+  );
+
+describe('set pieces (Stage 7f)', () => {
+  it('an Uphill compiles and walks from the low door up the Ramp to the high door, with no open edge', () => {
+    const { field } = built(uphill());
+    const arena = field.arena;
+    expect(walkCheck(arena, lv)).toBeNull();
+    const low = groundOf(battle, field, 0, -16, 0);
+    expect(trace(arena, lv, low, 0, -16, 0, -10, false)).toBe(idx(arena, 'WALK_hall_'));
+    const ramp = idx(arena, 'WALK_hall-ramp0');
+    expect(trace(arena, lv, idx(arena, 'WALK_hall_'), 0, -10, 0, 0, false)).toBe(ramp);
+    expect(trace(arena, lv, ramp, 0, 0, 0, 8, false)).toBe(idx(arena, 'WALK_hall-high'));
+    expect(trace(arena, lv, idx(arena, 'WALK_hall-high'), 0, 8, 0, 16, false)).toBe(idx(arena, 'WALK_pn_'));
+  });
+
+  it('a Spiral compiles and walks round its ledge from the well to the last door', () => {
+    const { field } = built(spiral());
+    const arena = field.arena;
+    expect(walkCheck(arena, lv)).toBeNull();
+    const well = groundOf(battle, field, 9, -9, 0);
+    const legs: [string, number, number][] = [
+      ['WALK_hall-ramp0', 9, -5],
+      ['WALK_hall-landing0', 9, 0],
+      ['WALK_hall-ramp1', 9, 5],
+      ['WALK_hall-landing1', 9, 9],
+      ['WALK_hall-ramp2', 5, 9],
+      ['WALK_hall-landing2', 0, 9],
+      ['WALK_hall-ramp3', -5, 9],
+      ['WALK_hall-landing3', -9, 9],
+      ['WALK_hall-ramp4', -9, 5],
+      ['WALK_hall-landing4', -9, 0],
+      ['WALK_pw_', -14, 0],
+    ];
+    let [s, x, z] = [well, 9, -9];
+    for (const [id, nx, nz] of legs) {
+      s = trace(arena, lv, s, x, z, nx, nz, false);
+      expect(arena.walk[s]?.id.startsWith(id), `${id} from (${x}, ${z})`).toBe(true);
+      [x, z] = [nx, nz];
+    }
+  });
+
+  it('a Spiral’s inner edge is open: no Wall more than a step over its ramps or landings, where the well lies beside them', () => {
+    const { map, field } = built(spiral());
+    const arena = field.arena;
+    // The inner long sides: R1 and R2 at x = 7, R3 and R4 at z = 7, R5 at x = -7.
+    const inner = map.walls.filter((w) => /^WALL_hall-(ramp|landing)/.test(w.id) && ((w.a.x === 7 && w.b.x === 7) || (w.a.z === 7 && w.b.z === 7) || (w.a.x === -7 && w.b.x === -7)));
+    expect(inner.length).toBeGreaterThan(0);
+    const ledge = arena.walk.flatMap((w, i) => (/^WALK_hall-(ramp|landing)/.test(w.id) ? [i] : []));
+    const holds = (i: number, x: number, z: number) => {
+      const ps = arena.walk[i]!.points;
+      return x >= Math.min(...ps.map((p) => p.x)) - 1e-9 && x <= Math.max(...ps.map((p) => p.x)) + 1e-9 && z >= Math.min(...ps.map((p) => p.z)) - 1e-9 && z <= Math.max(...ps.map((p) => p.z)) + 1e-9;
+    };
+    /** The ledge's highest surface at a point of its edge. */
+    const surface = (x: number, z: number) => Math.max(...ledge.filter((i) => holds(i, x, z)).map((i) => surfaceHeight(arena, i, x, z)));
+    for (const w of inner) expect(w.top, w.id).toBeLessThanOrEqual(Math.max(surface(w.a.x, w.a.z), surface(w.b.x, w.b.z)) + lv.stepUp + 1e-9);
+    // And nothing of the Hall's own stands inside its rect but its Walls on its edges.
+    expect(map.walls.filter((w) => w.id.startsWith('WALL_hall_') && Math.abs(w.a.x) < 11 && Math.abs(w.b.x) < 11 && Math.abs(w.a.z) < 11 && Math.abs(w.b.z) < 11)).toEqual([]);
+  });
+
+  it('a Soldier drops off the ledge onto the well only from its low end: off L1 (2 m) yes, off L5 (6 m) never; anyone falls into the well', () => {
+    const { field } = built(spiral());
+    const arena = field.arena;
+    const floor = (s: number) => arena.walk[s]?.id.startsWith('WALK_hall_') ?? false;
+    expect(floor(trace(arena, lv, idx(arena, 'WALK_hall-landing0'), 9, 0, 4, 0, true))).toBe(true);
+    expect(trace(arena, lv, idx(arena, 'WALK_hall-landing4'), -9, 0, -4, 0, true)).toBe(-1);
+    expect(trace(arena, lv, idx(arena, 'WALK_hall-landing4'), -9, 0, -4, 0, false)).toBe(-1);
+    // Under L5's open edge lies the well, so a body knocked off lands on it.
+    expect(floor(groundOf(battle, field, -6, 0, 6))).toBe(true);
+  });
+
+  it('jump Links go up from the well onto the ledge only at its low end, each a shortcut within SHORTCUT_RISE', () => {
+    const arena = built(spiral()).field.arena;
+    const ledge = jumps(arena).filter((l) => /^WALK_hall-(ramp|landing)/.test(arena.walk[l.to]!.id));
+    expect(ledge.some((l) => arena.walk[l.to]!.id === 'WALK_hall-landing0_0')).toBe(true);
+    for (const l of ledge) {
+      expect(['WALK_hall-ramp0', 'WALK_hall-landing0_0', 'WALK_hall-ramp1']).toContain(arena.walk[l.to]!.id);
+      expect(l.shortcut).toBe(true);
+      expect(l.lands.y - surfaceHeight(arena, l.from, l.takeoff.x, l.takeoff.z)).toBeLessThanOrEqual(SHORTCUT_RISE + 1e-9);
+    }
+  });
+});

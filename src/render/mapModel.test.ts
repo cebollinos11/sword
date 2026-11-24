@@ -11,6 +11,7 @@ import { MAP_MODEL_ROOT, MAX_TORCH_LIGHTS, TORCH_LIGHT } from '../mapEditor/look
 import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEditor/sample.testdata';
 import type { Brush, EnclosureBrush, MapSource } from '../mapEditor/source';
 import { floorArenaName, floorOf } from '../sim/delver';
+import { noSetPieces } from '../sim/delver/flat.testdata';
 import { mapModel } from './mapModel';
 import { SEAM_SHADE } from './seamShade';
 
@@ -283,7 +284,8 @@ describe('a Wall over lava (Delver, Stage 7d)', () => {
     [10, 3, 'trough'],
     [10, 5, 'river'],
   ] as const)('draws a Hall Wall down to the lava beside it (seed %i, Floor %i, a %s)', (seed, n, kind) => {
-    const tuning = loadTuningData();
+    // Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+    const tuning = noSetPieces(loadTuningData());
     const floor = floorOf(tuning, floorArenaName(seed, n))!;
     const hall = floor.plan.halls.find((h) => h.lava?.kind === kind)!;
     expect(hall).toBeDefined();

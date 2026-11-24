@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { floorArenaName, floorOf } from '../sim/delver';
-import { noLava } from '../sim/delver/flat.testdata';
+import { noLava, noSetPieces } from '../sim/delver/flat.testdata';
 import { LAVA_INTENSITY, LAVA_LIGHT_COLOUR, LAVA_POOL, LavaLights, lavaPointsOf, type LavaPoint } from './delverLava';
 
-const tuning = loadTuningData();
+// Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+const tuning = noSetPieces(loadTuningData());
 
 describe('lavaPointsOf', () => {
   it('gives each lava Hall a point 1 m over the centre of its largest lava rect, at the lava height + 1', () => {

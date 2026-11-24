@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
-import { flatRooms, plainHalls } from '../sim/delver/flat.testdata';
+import { flatRooms, noSetPieces, plainHalls } from '../sim/delver/flat.testdata';
 import { delverDoorStubs, DOOR_STUB_LENGTH } from '../render/delverMapMarks';
 import { DELVER_MAP_MIN_SPAN, delverMapLayout, delverMapStatus, MAP_KEY, mapKeyAction } from './floorMap';
 
@@ -192,8 +192,8 @@ describe('the unexplored doorways of the revealed Halls', () => {
 });
 
 describe('delverMapLayout lava (Stage 7d)', () => {
-  // Seed 3, Floor 1: a lava Hall (a trough of three rects) on the shipped data.
-  const plan = floorOf(tuning, floorArenaName(3, 1))!.plan;
+  // Seed 3, Floor 1: a lava Hall (a trough of three rects) on the shipped data, Stage 7f's set pieces off (`noSetPieces`: it was found on 7d's).
+  const plan = floorOf(noSetPieces(tuning), floorArenaName(3, 1))!.plan;
   const status = { gateOpen: true, restUsed: [], pickups: [] };
   const hall = plan.halls.findIndex((h) => h.lava);
   const layout = (revealed: readonly number[]) => delverMapLayout(plan, revealed, [], 0, status);

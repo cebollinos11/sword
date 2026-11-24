@@ -1,5 +1,6 @@
 /**
- * The AI check of generated Delver Floors: `npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--notes] [--json]`.
+ * The AI check of generated Delver Floors: `npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--piece spiral] [--notes] [--json]`.
+ * `--piece cross|uphill|spiral` deals each Floor with every Hall rolled for that set piece (docs/plans/delver.md, Stage 7f), as the Map Editor's Set piece choice does.
  * For each (seed, Floor) it probes the Fighters' navmesh and walks one AI Fighter through the real Simulation to every Hall centre and marker,
  * printing what got stuck, fell, was slow or had no route, with a Map Editor link (on `npm run dev`) that opens the Floor and walks it again.
  * Exits 1 if any Floor has a problem (an error or a warning). The game's code is TypeScript read through Vite, so this starts Vite's module
@@ -20,8 +21,9 @@ const list = (text) =>
   });
 const seeds = list(value('--seeds') ?? '1-10');
 const floors = list(value('--floors') ?? '1-9');
-if ([...seeds, ...floors].some((n) => !Number.isInteger(n) || n < 0)) {
-  console.error('usage: npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--notes] [--json]');
+const piece = value('--piece');
+if ([...seeds, ...floors].some((n) => !Number.isInteger(n) || n < 0) || (piece !== undefined && !['cross', 'uphill', 'spiral'].includes(piece))) {
+  console.error('usage: npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--piece cross|uphill|spiral] [--notes] [--json]');
   process.exit(2);
 }
 
@@ -36,6 +38,7 @@ try {
     walkOnly: args.includes('--walk-only'),
     difficulty: value('--difficulty'),
     notes: args.includes('--notes'),
+    ...(piece ? { piece } : {}),
   });
   console.log(args.includes('--json') ? JSON.stringify(reports, null, 2) : text);
   if (problems) code = 1;

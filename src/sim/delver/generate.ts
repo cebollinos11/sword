@@ -7,7 +7,7 @@ import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
-import { planFloor, type HallShape } from './plan';
+import { planFloor, setPieceOf, type FloorPlan, type HallShape } from './plan';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
@@ -47,6 +47,24 @@ export function delverFloor(
   return { ...best.built, attempts: maxAttempts, judgement: { ok: false, reasons: best.reasons } };
 }
 
+/**
+ * The Map Editor's list of a Floor's set pieces (docs/plans/delver.md, Stage 7f), one line each in Hall order: the Hall, its kind and what it is (an
+ * Uphill's rise and high end, a Spiral's base wall, turn and well level, a Lava Bridge's arms); 'none' for a Floor with none.
+ */
+export function setPieceLines(plan: FloorPlan): string[] {
+  const out = plan.halls.flatMap((h) => {
+    const sp = setPieceOf(h);
+    if (!sp) return [];
+    const f = h.feature;
+    const what =
+      f?.kind === 'uphill' ? `Uphill, ${f.rise} level${f.rise === 1 ? '' : 's'} up to its ${f.up} end`
+      : f?.kind === 'spiral' ? `Spiral, base ${f.base}, ${f.turn === 0 ? 'counter-clockwise' : 'clockwise'}, well on level ${h.level}`
+      : `Lava Bridge, ${h.lava!.bridges.length} arm${h.lava!.bridges.length === 1 ? '' : 's'} (${h.lava!.walls.join(' ')})${h.great ? ', great hall' : ''}`;
+    return [`${h.id} (${h.kind}): ${what}`];
+  });
+  return out.length > 0 ? out : ['none'];
+}
+
 /** One line on a Floor: its layout counts and the verdict. */
 export function describeFloor(f: DelverFloor): string {
   const { plan } = f;
@@ -76,7 +94,8 @@ export function describeFloor(f: DelverFloor): string {
   const pillared = halls.filter((h) => h.pillars.length > 0);
   const lavas = halls.flatMap((h) => (h.lava ? [h.lava] : []));
   const rivers = lavas.filter((l) => l.kind === 'river');
-  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages, ${halls.filter((h) => h.shape !== 'rect').length} shaped Halls (${shaped('L')} L, ${shaped('T')} T, ${shaped('cross')} cross, ${shaped('ring')} ring), ${halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids), ${splits.length} split Halls (${splits.filter((f) => f.tiers.length === 2).length} two-tier, ${splits.filter((f) => f.tiers.length === 3).length} three-tier), ${pits.length} pits (${pits.filter((f) => f.depth === 2).length} 2 m, ${pits.filter((f) => f.depth === 4).length} 4 m), ${daises.length} daises (${daises.filter((h) => h.kind === 'Boss').length} thrones, ${daises.filter((h) => h.kind === 'Treasure').length} altars), ${wraps.length} wrapped galleries (${wraps.filter((w) => w.walls.length === 1).length} L, ${wraps.filter((w) => w.walls.length === 2).length} U), ${lavas.length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
+  const pieces = halls.flatMap((h) => (setPieceOf(h) ? [setPieceOf(h)!] : []));
+  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages, ${halls.filter((h) => h.shape !== 'rect').length} shaped Halls (${shaped('L')} L, ${shaped('T')} T, ${shaped('cross')} cross, ${shaped('ring')} ring), ${halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids), ${splits.length} split Halls (${splits.filter((f) => f.tiers.length === 2).length} two-tier, ${splits.filter((f) => f.tiers.length === 3).length} three-tier), ${pits.length} pits (${pits.filter((f) => f.depth === 2).length} 2 m, ${pits.filter((f) => f.depth === 4).length} 4 m), ${daises.length} daises (${daises.filter((h) => h.kind === 'Boss').length} thrones, ${daises.filter((h) => h.kind === 'Treasure').length} altars), ${wraps.length} wrapped galleries (${wraps.filter((w) => w.walls.length === 1).length} L, ${wraps.filter((w) => w.walls.length === 2).length} U), ${lavas.filter((l) => l.kind !== 'cross').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls), ${pieces.length} set pieces (${pieces.filter((k) => k === 'cross').length} crosses, ${pieces.filter((k) => k === 'uphill').length} uphills, ${pieces.filter((k) => k === 'spiral').length} spirals)`;
   const verdict = f.judgement.ok ? 'passes the judge' : `fails: ${f.judgement.reasons.join('; ')}`;
   return `Floor ${plan.floor} of seed ${plan.seed >>> 0}, attempt ${plan.attempt + 1}: ${halls.length} Halls (${kinds.join(', ')}), ${plan.passages.length} Passages (${loops} loops), ${plan.markers.patrols.length} patrols, ${vertical}; ${verdict}`;
 }

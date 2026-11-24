@@ -6,9 +6,9 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
-import { flatRooms, fullFloors, plainHalls } from './flat.testdata';
-import { BRIDGE_MIN, type DelverLava } from './plan';
-import { holeId, lavaId } from './source';
+import { flatRooms, fullFloors, noSetPieces, plainHalls } from './flat.testdata';
+import { BRIDGE_MIN, onlySetPiece, setPieceOf, type DelverLava, type DelverSpiral, type DelverUphill, type SetPieceKind } from './plan';
+import { holeId, lavaId, stepId } from './source';
 import type { Rect } from '../../mapEditor/source';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
@@ -59,6 +59,11 @@ const good = () => floors[0]!;
 const surfaceHeightAt = (b: BuiltFloor, s: number, x: number, z: number) => surfaceHeight(b.field.arena, s, x, z);
 /** The same Floor, built, with another plan (the field and the source stay the good Floor's). */
 const withPlan = (b: BuiltFloor, plan: FloorPlan): BuiltFloor => ({ ...b, plan });
+/** `describeFloor`'s set-piece counts (Stage 7f) for `plan`. */
+const setPieceText = (plan: FloorPlan): string => {
+  const kinds = plan.halls.flatMap((h) => (setPieceOf(h) ? [setPieceOf(h)!] : []));
+  return `${kinds.length} set pieces (${kinds.filter((k) => k === 'cross').length} crosses, ${kinds.filter((k) => k === 'uphill').length} uphills, ${kinds.filter((k) => k === 'spiral').length} spirals)`;
+};
 
 /** Somewhere in the abyss between the Halls (whole metres, not on any Hall or Passage). */
 function abyssPoint(b: BuiltFloor): { x: number; z: number } {
@@ -514,7 +519,8 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
 });
 
 describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning7b = bundled;
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7b's Floors.
+  const tuning7b = noSetPieces(bundled);
   const tb = tuning7b.delver.floor;
   const size = tuning7b.battle.field.size;
   /** The first attempt's plan of each of seeds 1 to 6 of Floors 1 to 9. */
@@ -637,7 +643,8 @@ describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => 
 });
 
 describe('the judge on Floors with vertical features and wrapped galleries (Stage 7c)', () => {
-  const t7 = bundled;
+  // Stage 7f's set pieces off (`noSetPieces`): these cases were found on 7c's Floors.
+  const t7 = noSetPieces(bundled);
   const tc = t7.delver.floor;
   const size = t7.battle.field.size;
   const at2 = { ...t7, battle: { ...t7.battle, crowd: { ...t7.battle.crowd, flowCell: 2 } } };
@@ -867,15 +874,15 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
       // Stage 7d adds the lava Halls at the end of the vertical summary.
       const lavas = hs.flatMap((h) => (h.lava ? [h.lava] : []));
       const rivers = lavas.filter((l) => l.kind === 'river');
-      const lavaText = `${lavas.length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((a, l) => a + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
-      expect(describeFloor(f)).toContain(`, ${text}, ${lavaText}; passes the judge`);
+      const lavaText = `${lavas.filter((l) => l.kind !== 'cross').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((a, l) => a + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls)`;
+      expect(describeFloor(f)).toContain(`, ${text}, ${lavaText}, ${setPieceText(b.plan)}; passes the judge`);
     }
   });
 });
 
 describe('the judge on Floors with lava (Stage 7d)', () => {
-  // The data as shipped (lava on, the tiers' own Hall counts).
-  const shipped = loadTuningData();
+  // The data as shipped (lava on, the tiers' own Hall counts), with Stage 7f's set pieces off (`noSetPieces`): these Floors were found on 7d's data.
+  const shipped = noSetPieces(loadTuningData());
   const size = shipped.battle.field.size;
   const planOf = (seed: number, floor: number, attempt = 0) =>
     planFloor(floorTuningOf(shipped.delver, floor), seed, floor, attempt, isBossFloor(shipped.delver, floor), tierOf(shipped.delver, floor));
@@ -1054,9 +1061,118 @@ describe('the judge on Floors with lava (Stage 7d)', () => {
     for (const f of lavaFloors) {
       const lavas = f.plan.halls.flatMap((h) => (h.lava ? [h.lava] : []));
       const rivers = lavas.filter((l) => l.kind === 'river');
-      const text = `, ${lavas.length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls); passes the judge`;
+      const text = `, ${lavas.filter((l) => l.kind !== 'cross').length} lava Halls (${lavas.filter((l) => l.kind === 'pit').length} pits, ${rivers.length} rivers with ${rivers.reduce((n, l) => n + l.bridges.length, 0)} bridges, ${lavas.filter((l) => l.kind === 'trough').length} trough Halls), ${setPieceText(f.plan)}; passes the judge`;
       expect(describeFloor(f)).toContain(text);
     }
-    expect(describeFloor(lavaFloors[2]!)).toMatch(/, [1-9]\d* lava Halls \(\d+ pits, [1-9]\d* rivers with [2-9]\d* bridges, \d+ trough Halls\); passes the judge$/);
+    expect(describeFloor(lavaFloors[2]!)).toMatch(/, [1-9]\d* lava Halls \(\d+ pits, [1-9]\d* rivers with [2-9]\d* bridges, \d+ trough Halls\), \d+ set pieces \(\d+ crosses, \d+ uphills, \d+ spirals\); passes the judge$/);
+  });
+});
+
+describe('the judge on Floors with set pieces (Stage 7f)', () => {
+  const shipped = loadTuningData();
+  const size = shipped.battle.field.size;
+  const ft = (floor: number) => floorTuningOf(shipped.delver, floor);
+  const planOn = (kind: SetPieceKind, seed: number, floor: number) => {
+    const tuning = onlySetPiece(shipped, kind);
+    return planFloor(floorTuningOf(tuning.delver, floor), seed, floor, 0, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+  };
+  const setReasons = (plan: FloorPlan) => judgePlan(ft(plan.floor), plan, size, shipped.battle).filter((r) => r.startsWith('setPieces: '));
+  const withHall = (plan: FloorPlan, k: number, patch: Partial<FloorPlan['halls'][number]>): FloorPlan => ({ ...plan, halls: plan.halls.map((h, i) => (i === k ? { ...h, ...patch } : h)) });
+  // Found on `onlySetPiece`, seeds 1 to 6, Floors 1, 4 and 7 (as source.test.ts's): every kind, a 2-level Uphill, Spirals of several bases and a great-hall cross.
+  const FLOORS = [['uphill', 1, 7], ['uphill', 3, 7], ['spiral', 1, 7], ['spiral', 4, 7], ['cross', 1, 7], ['cross', 3, 1]] as const;
+  let floors: (DelverFloor & { kind: SetPieceKind })[];
+  beforeAll(() => {
+    floors = FLOORS.map(([kind, seed, floor]) => ({ ...delverFloor(onlySetPiece(shipped, kind), seed, floor), kind }));
+  }, 300_000);
+  const first = (kind: SetPieceKind) => floors.find((f) => f.kind === kind)!;
+  const hallOf = (plan: FloorPlan, kind: SetPieceKind) => plan.halls.findIndex((h) => setPieceOf(h) === kind);
+
+  it('deals set-piece Floors that pass the judge on their first attempt', () => {
+    for (const f of floors) {
+      expect(f.judgement, `${f.kind} seed ${f.plan.seed} Floor ${f.plan.floor}`).toEqual({ ok: true, reasons: [] });
+      expect(f.attempts).toBe(1);
+      expect(f.plan.halls.some((h) => setPieceOf(h) === f.kind)).toBe(true);
+    }
+  });
+
+  it('`setPieces` is quiet on 72 plans of every kind', () => {
+    for (const kind of ['cross', 'uphill', 'spiral'] as const)
+      for (let seed = 1; seed <= 8; seed++) for (const floor of [1, 4, 7]) expect(setReasons(planOn(kind, seed, floor)), `${kind} ${seed}/${floor}`).toEqual([]);
+  });
+
+  it('`setPieces` fires on a Lava Bridge arm moved off its doorway', () => {
+    const plan = first('cross').plan;
+    const k = hallOf(plan, 'cross');
+    const h = plan.halls[k]!;
+    const lava = h.lava!;
+    const arm = lava.bridges[0]!;
+    const moved = arm.x0 === h.rect.x0 || arm.x1 === h.rect.x1 ? { ...arm, z0: arm.z0 + 4, z1: arm.z1 + 4 } : { ...arm, x0: arm.x0 + 4, x1: arm.x1 + 4 };
+    const got = setReasons(withHall(plan, k, { lava: { ...lava, bridges: [moved, ...lava.bridges.slice(1)] } }));
+    expect(got.some((r) => r.startsWith(`setPieces: `) && r.endsWith(`into ${h.id} is not on an arm`))).toBe(true);
+  });
+
+  it('`setPieces` fires on a Passage on an Uphill\'s side wall, and on its Ramp made too steep', () => {
+    const plan = first('uphill').plan;
+    const k = hallOf(plan, 'uphill');
+    const h = plan.halls[k]!;
+    const f = h.feature as DelverUphill;
+    const side = f.up === 'n' || f.up === 's' ? 'e' : 'n';
+    const p = plan.passages.findIndex((q) => q.a === k || q.b === k);
+    const moved = { ...plan, passages: plan.passages.map((q, i) => (i !== p ? q : q.a === k ? { ...q, sideA: side as typeof q.sideA } : { ...q, sideB: side as typeof q.sideB })) };
+    expect(setReasons(moved)).toContain(`setPieces: ${plan.passages[p]!.id} leaves ${h.id}'s Uphill by its side wall ${side}`);
+    const st = f.steps[0]!;
+    const steep = { ...f, steps: [{ ...st, lo: st.hi - 20 }] };
+    expect(setReasons(withHall(plan, k, { feature: steep })).some((r) => r.startsWith(`setPieces: ${h.id}'s Uphill rises 20 m`))).toBe(true);
+  });
+
+  it('`setPieces` fires on a marker under a Spiral\'s ledge, and on a Spiral on the Entrance with another leaf free', () => {
+    const plan = first('spiral').plan;
+    const k = hallOf(plan, 'spiral');
+    const h = plan.halls[k]!;
+    const f = h.feature as DelverSpiral;
+    const l = f.landings[2]!.rect;
+    const post = { hall: k, x: (l.x0 + l.x1) / 2, y: h.y, z: (l.z0 + l.z1) / 2 };
+    const got = setReasons({ ...plan, markers: { ...plan.markers, posts: [...plan.markers.posts, post] } });
+    expect(got).toContain(`setPieces: post${plan.markers.posts.length} stands within 2 m of ${h.id}-landing2`);
+    // The Spiral's Hall made the Entrance, its old Entrance (a leaf) left plain.
+    const swapped = { ...plan, entrance: k, halls: plan.halls.map((o, i) => (i === k ? { ...o, kind: 'Entrance' as const } : i === plan.entrance ? { ...o, kind: 'Fight' as const } : o)) };
+    expect(setReasons(swapped)).toContain(`setPieces: ${h.id}'s spiral is on the Entrance, though another leaf has none`);
+  });
+
+  describe('setPieceWalk', () => {
+    const walk = (b: BuiltFloor) => judgeFields(ft(b.plan.floor), b).filter((r) => r.startsWith('setPieceWalk: '));
+    const source = (b: BuiltFloor, brushes: BuiltFloor['source']['brushes']) => buildFromSource(shipped, b.plan, { ...b.source, brushes });
+
+    it('is quiet on every set-piece Floor', () => {
+      for (const f of floors) expect(walk(f)).toEqual([]);
+    });
+
+    it('fires on a Wall up to the roof along a Spiral Ramp\'s open edge', () => {
+      const b = first('spiral');
+      const h = b.plan.halls[hallOf(b.plan, 'spiral')]!;
+      const st = (h.feature as DelverSpiral).steps[1]!;
+      const d = st.rails[0] === 'e' ? 'w' : st.rails[0] === 'w' ? 'e' : st.rails[0] === 'n' ? 's' : 'n';
+      const q = st.rect;
+      const [a, z] = d === 'w' ? [{ x: q.x0, z: q.z0 }, { x: q.x0, z: q.z1 }] : d === 'e' ? [{ x: q.x1, z: q.z0 }, { x: q.x1, z: q.z1 }] : d === 's' ? [{ x: q.x0, z: q.z0 }, { x: q.x1, z: q.z0 }] : [{ x: q.x0, z: q.z1 }, { x: q.x1, z: q.z1 }];
+      const wall = { kind: 'wall' as const, id: 'tall', a, b: z, bottom: h.y - 1, top: h.top };
+      expect(walk(source(b, [...b.source.brushes, wall]))).toContain(`setPieceWalk: WALL_tall rises to ${h.top} along ${stepId(h, 1)}'s open edge`);
+    });
+
+    it('fires on a Lava Bridge arm\'s Hole widened over it', () => {
+      const b = first('cross');
+      const h = b.plan.halls[hallOf(b.plan, 'cross')]!;
+      const lava = h.lava!;
+      const arm = lava.bridges[0]!;
+      const n = lava.rects.findIndex((r) => r.x1 === arm.x0 || r.x0 === arm.x1 || r.z1 === arm.z0 || r.z0 === arm.z1);
+      const q = lava.rects[n]!;
+      const grown = { x0: Math.min(q.x0, arm.x0), z0: Math.min(q.z0, arm.z0), x1: Math.max(q.x1, arm.x1), z1: Math.max(q.z1, arm.z1) };
+      const got = walk(source(b, b.source.brushes.map((br) => (br.id === holeId(h, n) ? { ...br, rect: grown } : br))));
+      expect(got).toContain(`setPieceWalk: ${h.id}'s arm 0 is not floor`);
+    });
+  });
+
+  it('describeFloor counts the set pieces by kind', () => {
+    for (const f of floors) expect(describeFloor(f)).toContain(`, ${setPieceText(f.plan)}; passes the judge`);
+    expect(describeFloor(first('spiral'))).toMatch(/, [1-9]\d* set pieces \(0 crosses, 0 uphills, [1-9]\d* spirals\); passes the judge$/);
   });
 });

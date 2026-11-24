@@ -57,6 +57,19 @@ export interface DelverFloorTuning {
   readonly pillars: DelverPillarsTuning;
   /** Lava (docs/plans/delver.md, Stage 7d). */
   readonly lava: DelverLavaTuning;
+  /** Set pieces (docs/plans/delver.md, Stage 7f). */
+  readonly setPieces: DelverSetPiecesTuning;
+}
+
+/**
+ * Set pieces (docs/plans/delver.md, Stage 7f): a Lava Bridge (`cross`), an Uphill Room or a Spiral Stair in a Hall where it fits, picked before every
+ * other feature. `percent` all 0 makes every Floor as 7d's (no set piece, no pick made).
+ */
+export interface DelverSetPiecesTuning {
+  /** Per Run tier (the last for any deeper tier): the chance (in 100) that a Hall is rolled for a set piece. Non-empty. */
+  readonly percent: readonly number[];
+  /** The weights of a Lava Bridge, an Uphill and a Spiral (whole, at least 0, summing to at least 1). */
+  readonly weights: { readonly cross: number; readonly uphill: number; readonly spiral: number };
 }
 
 /**
@@ -703,6 +716,19 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   });
   const lava = { percent: lavaPercent, weights: weights(la.weights, `${lw2}.weights`, ['pit', 'river', 'trough'] as const), twoPercent: percent(la, 'twoPercent', lw2) };
 
+  const sp = record(f.setPieces, `${w}.setPieces`);
+  const sw = `${w}.setPieces`;
+  const spList = array(sp.percent, `${sw}.percent`);
+  if (spList.length === 0) fail(`${sw}.percent`, 'a non-empty array of percents (one per Run tier)', sp.percent);
+  const spPercent = spList.map((d, i) => {
+    if (typeof d !== 'number' || !Number.isInteger(d) || d < 0 || d > 100) fail(`${sw}.percent[${i}]`, 'a whole number 0 to 100', d);
+    return d;
+  });
+  const setPieces = { percent: spPercent, weights: weights(sp.weights, `${sw}.weights`, ['cross', 'uphill', 'spiral'] as const) };
+  // A Spiral's doors stand 0 to 3 levels over its well, an Uphill's high end 1 or 2 over its low end.
+  if (spPercent.some((d) => d > 0) && setPieces.weights.spiral > 0 && levelMax < 3) fail(`${sw}.weights.spiral`, '0 when levels.max is under 3 (a Spiral\'s last door stands 3 levels over its well)', setPieces.weights.spiral);
+  if (spPercent.some((d) => d > 0) && setPieces.weights.uphill > 0 && levelMax < 1) fail(`${sw}.weights.uphill`, '0 when levels.max is 0 (an Uphill\'s high end stands a level or two over its low end)', setPieces.weights.uphill);
+
   const turnPercent = percent(f, 'turnPercent', w);
   const gt = record(f.great, `${w}.great`);
   const gw = `${w}.great`;
@@ -745,6 +771,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     sizeHp,
     skillTints,
     traitor: parseTraitor(root.traitor),
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces },
   };
 }

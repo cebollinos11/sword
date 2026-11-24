@@ -18,8 +18,12 @@ export const solidId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${h
 export const pillarId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-pillar${n}`;
 export const pieceId = (p: Pick<DelverPassage, 'id' | 'pieces'>, k: number): string => (p.pieces.length === 1 ? p.id : `${p.id}-${k}`);
 
-/** The Brush id of Hall `hall`'s step `n` (a split's, a pit's or a dais's Ramp, from 0 in the feature's order). */
+/** The Brush id of Hall `hall`'s step `n` (a split's, a pit's, a dais's, an Uphill's or a Spiral's Ramp, from 0 in the feature's order). */
 export const stepId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-step${n}`;
+
+/** The Brush id of a Spiral's landing `n` (Stage 7f, from 0 in climbing order), and of an Uphill's high landing. */
+export const landingId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-landing${n}`;
+export const highId = (hall: Pick<DelverHall, 'id'>): string => `${hall.id}-high`;
 
 /** The Brush ids of Hall `hall`'s lava rect `n` (Stage 7d): the Hole in its floor and the lava Hazard under it. */
 export const holeId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-hole${n}`;
@@ -44,7 +48,7 @@ const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's']
 
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
- * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims or a dais, then its step Ramps), then (Stage 7d) each lava Hall's lava (for each lava rect, a Hole in the Hall's floor and then a lava Hazard `LAVA_DEPTH` under it, so every lava edge is an open ledge), a Ramp along each sloped leg, then (Stage 7b) each Hall's
+ * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims, a dais, an Uphill's high landing or a Spiral's landings (Stage 7f), then its step Ramps), then (Stage 7d) each lava Hall's lava (for each lava rect, a Hole in the Hall's floor and then a lava Hazard `LAVA_DEPTH` under it, so every lava edge is an open ledge), a Ramp along each sloped leg, then (Stage 7b) each Hall's
  * Blocks (its solids, which cut its shape out of its rect, and then its pillars), each from the Hall's floor to its ceiling, and the markers for the eye. A Hall with no solid or pillar writes no Block. Levels stand at every height a
  * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery or a feature asks for shortcut jump Links. A Hall's Enclosure stands at `hallBase` (a split's lowest tier).
  */
@@ -73,6 +77,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     if (f?.kind === 'split') for (const t of f.tiers) heights.add(t.y);
     else if (f?.kind === 'pit') heights.add(f.rim);
     else if (f?.kind === 'dais') heights.add(f.y);
+    else if (f?.kind === 'spiral') for (const l of f.landings) heights.add(l.y);
     if (h.lava) heights.add(h.lava.y);
   }
   for (const sp of spans) {
@@ -102,6 +107,18 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
       return [{ kind: 'platform', id: `${h.id}-tier`, rect: main.rect, top: h.y, material: HALL_MATERIAL[h.kind] }, ...steps];
     }
     if (f.kind === 'pit') return [...f.rims.map((rect, n): Brush => ({ kind: 'platform', id: `${h.id}-rim${n}`, rect, top: f.rim, material: HALL_MATERIAL[h.kind] })), ...steps];
+    // Stage 7f. An Uphill: its high landing, then its Ramp from the Enclosure's floor (the low landing) up to it.
+    if (f.kind === 'uphill') return [{ kind: 'platform', id: highId(h), rect: f.high, top: h.y, material: HALL_MATERIAL[h.kind] }, ...steps];
+    // A Spiral: its landings, each but the last written over the next Ramp's rect too (the Ramp continues its strip at its width), so that Ramp, whose foot
+    // stands above the well, is solid down to the well; then its Ramps.
+    if (f.kind === 'spiral') {
+      const under = (n: number) => {
+        const a = f.landings[n]!.rect;
+        const b = f.steps[n + 1]?.rect;
+        return b ? { x0: Math.min(a.x0, b.x0), z0: Math.min(a.z0, b.z0), x1: Math.max(a.x1, b.x1), z1: Math.max(a.z1, b.z1) } : a;
+      };
+      return [...f.landings.map((l, n): Brush => ({ kind: 'platform', id: landingId(h, n), rect: under(n), top: l.y, material: 'stone' })), ...steps];
+    }
     return [{ kind: 'platform', id: `${h.id}-dais`, rect: f.rect, top: f.y, material: 'stone' }, ...steps];
   });
   // Each lava Hall's lava (Stage 7d) in index order: for each rect n, a Hole in the Hall's floor (`<hall>-hole<n>`, at the Hall's height, which takes the floor away from the Enclosure

@@ -14,6 +14,7 @@
 - [x] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
 - [x] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [x] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
+- [ ] Stage 7f: set-piece rooms (Lava Bridge, Uphill Room, Spiral Stair; designed 2026-11-24; Tasks 1 to 5 done 2026-11-24, Tasks 6 and 7 left)
 - [ ] Stage 7e: archetypes (procedural room recipes per Hall kind) (parked)
 - [x] Stage 8: online co-op (up to four Players, Input Delay, soak)
 - [x] Stage 8a: traitors (humans on Team 1 driving Warband Soldiers; issue #134)
@@ -2644,6 +2645,325 @@ Battles, Duels and every Floor without lava are unchanged (the AI's new lava che
 - **5 Size tests fail on the base commit** (`src/lobby/size.test.ts` 2, `src/sim/size.test.ts` 2, `troops.test.ts`'s `sizeOfHp` 1), before and after 7d; not 7d's.
 - **The soak file is slow**: 916 s against 418 s.
 
+### Stage 7f: set-piece rooms
+**Model**: Opus (the geometry, the levels and the compiler), then Sonnet for the counts and the editor. The user's calls are in "Answered questions (2026-11-24, before Stage 7f)". The user's layouts (three spreadsheets, 9 × 13 cells with the doorways outside the walls) are summarised in §1; they are a layout, not a scale.
+- **Three set pieces**, hand-designed by the user (a change from 7e's "no hand-made templates", the user's call), scaled to the Hall they land in:
+  - a **Lava Bridge**: a cross of 4 m bridges over lava, meeting on a dry plaza in the middle;
+  - an **Uphill Room**: the whole Hall one big Ramp, from a low landing at one end to a high landing at the other;
+  - a **Spiral Stair**: a 4 m ledge that climbs round three walls of the Hall over an open floor, with a landing at each wall's doorway, each a level higher than the last.
+- **Where**: rect Halls of kind Fight, Empty, Boss or Stairs, and great halls where the size fits. Never the Entrance, a Rest Hall or a Treasure Hall. One feature a Hall: a set piece is picked before every other feature (galleries, splits, pits, daises, lava, shapes, pillars), which then skip its Hall.
+- **Amount**: about 1 Hall in 10, the three weighted alike. A rare set piece, not one a Floor.
+- **Done**:
+  - the 500 pairs, with each set piece counted per tier (one run, at the switch);
+  - a set-piece soak case (§14), not the full soak;
+  - `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` clean;
+  - a screenshot of each set piece in the Map Editor.
+
+#### Design
+Written 2026-11-24 with the user's answers of that day, on base commit `a0469b1`. Battles, Duels and every Floor with no set piece are unchanged. **No new hashed state**: all of 7f is in the plan and the Map Source, rebuilt on every peer from (Run seed, Floor), as 7a to 7d. `DELVER_VERSION` 14 → 15. `PROTOCOL_VERSION` stays (7d's reasoning: the Tuning Data hash folds in `DELVER_VERSION`). **With the 7f knob off** (`noSetPieces`, below) no 7f pick is made and a Floor's plan, source and map are byte for byte 7d's: every new plan field is optional and absent, every new filter is a no-op, and no Brush is written.
+
+**Resuming** (the user's call, 2026-11-24: this Design was written in one chat; the tasks run in a new one). Start at Task 1 with this Design as the contract. Where the code proves a rule here wrong, amend the Design in place with the date and the reason, as 7d did.
+
+**No baseline run** (the user's call, 2026-11-24). 7d's Result is the baseline:
+- the generator: build mean 363 ms, p95 677, max 845, navmesh mean 179 ms, 15 failed attempts in 500 pairs;
+- the soak: Tick mean 0.32 ms, p99 1.87.
+
+With the knob off, a Floor is byte for byte 7d's, and the golden pins prove it. So nothing measured before Task 1 would add anything. The budgets that decide pass or fail are absolute: an 800 ms build mean, a 2 s cap, and a 300 ms navmesh mean.
+
+**The flow** (the user's call: no wasted time or tokens):
+- **Run only the test files a task touches** (`npx vitest run <files>`) while working. Run the whole fast suite (`npm test`) once, at the end of Task 5. Never run a `*.slow.test.ts` before Task 5.
+- **Tune the rate with a plan-only probe**, not the slow test. A scratch script (not committed) calls `planFloor` over the 500 pairs; at about 2 ms a plan, that is about a second. It prints §4's shares and drops. Iterate `percent` and `weights` on it. Run `delverGen.slow.test.ts` once, alone, when the values are settled.
+- **Test in the Map Editor, never by playing a Run** ("Testing the generator" above; the user's call). No playtest is part of 7f: unlike 7d, there is no `autopilot` Run through Floors 1 to 9. Every visual and AI check is done in the editor:
+  - **Look at a set piece**: `npm run dev`, then open `/sword/#/mapeditor?dev=1&delverSeed=S&delverFloor=F&delverPiece=spiral` (or `cross`, `uphill`). The same works from File, Delver seed and floor, then the Set piece choice. The checks folder lists the set pieces and the map's problems.
+  - **Check the AI on it**: add `&aiwalk=1` (or press Walk the AI), and switch on AI navmesh and AI routes. On a Spiral, look at the jump Links up to R1 and L1 and at the routes round the ledge.
+  - **Check many Floors**: `npm run ai-walk -- --seeds 1-50 --floors 1,5,9`. It prints an editor link for each Floor with a problem: open that link rather than reproduce the problem in a Run.
+  - Start checking by eye as soon as Task 3 lands, rather than reasoning about geometry from tests alone.
+  - The screenshots of the Done list are taken in the editor.
+  - A Run is played only if the user asks, to judge how a room feels in a fight.
+- **The soak is one new case** (§14), run alone with `-t` on its name. The existing soak cases are not rerun: they never see a set piece, since their Floors are 7d's.
+- **Work in one session**, the tasks in order, without a subagent per task. For the review, use `/code-review high` once over the Stage's range, not `max`.
+- **Read only what a task needs**. This Design names the files; `plan.ts`'s 7c (3b′, 7b′) and 7d′ blocks are the templates to copy.
+
+**1. The user's layouts, read** (cell = a layout unit, not a metre; rows north to south as drawn, the south door at the bottom):
+- **Lava Bridge** (Sheet 1): all lava but a one-cell cross. One arm runs north–south between the north and south doors; the other runs west–east at the middle row between the west and east doors. The crossing is in the middle.
+- **Uphill** (Sheet 2): from the south door, 2 rows of Floor, then 7 rows of Ramp the full width of the Hall, then 2 rows of HighFloor up to the north door. The side walls hold no door (the user's call).
+- **Spiral** (Sheet 3), from the south door's floor, counter-clockwise seen from above:
+  - Floor0 is the big floor: the south door, the whole south half, and the west wall's lower half.
+  - The first ramp runs along the east wall to Floor1, the east door's landing.
+  - A ramp continues to Floor2, the NE corner.
+  - Along the north wall to Floor3, the north door's landing.
+  - On to Floor4, the NW corner.
+  - Down the west wall to Floor5, the west door's landing, where the ledge ends.
+  - The ledge is one cell wide and its inner edge is open (no rail): a Fighter can be knocked off it onto Floor0.
+
+**2. The words.**
+- A Hall's **set piece** is one of `cross` (the Lava Bridge), `uphill` and `spiral`.
+- The Lava Bridge is a fourth **lava** kind (`DelverLava`, Stage 7d), so the source, drops, revives, render, lights, maps and the AI's lava handling all read it with no new code path.
+- The Uphill and the Spiral are two new **vertical features** (`DelverFeature`, Stage 7c), so the one-feature rule, `hallBase`, `lift`, `raised`, `inRange` and the skips of daises, lava, shapes and pillars cover them.
+- A Spiral's **ledge** is its landings and ramps. Its **well** is the Hall's floor that the ledge does not cover (Floor0).
+
+**3. Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`, `delver.floor`), shipped at the switch (Task 5); Tasks 1 to 4 ship `percent` [0, 0, 0]:
+```json
+"setPieces": { "percent": [15, 20, 25], "weights": { "cross": 1, "uphill": 1, "spiral": 1 } }
+```
+- `percent`: per Run tier (`tierOf`; the last entry for any deeper tier), the chance (in 100) that a Hall is rolled for a set piece. These are starting estimates; Task 5 tunes them (§4, the rate).
+- `weights`: whole numbers, each at least 0, summing to at least 1, with exactly the keys `cross`, `uphill`, `spiral`, picked in that order with `byWeight`.
+- **Parse checks**:
+  - `percent` is a non-empty list of whole percents;
+  - `weights` as above, with exactly that key set;
+  - when `percent` has an entry > 0 and `weights.spiral > 0`, `levels.max ≥ 3`;
+  - when `percent` has an entry > 0 and `weights.uphill > 0`, `levels.max ≥ 1`.
+- **`noSetPieces(tuning)`** (tests only, `flat.testdata.ts`): `setPieces.percent` [0]. `flatHalls` and `noLava` apply it, so every existing knobs-off helper keeps its pins.
+- **`setPieces7f(tuning)`** (Tasks 1 to 4 only; removed in Task 5): the shipped values above.
+- **`onlySetPiece(tuning, kind)`** (tests and the editor, §9): `percent` [100], and that kind's weight 1 with the others 0.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts` gain the key and its checks.
+
+**4. The pick** (`plan.ts`):
+- **New `SALT` keys** go after 77, so no existing pick moves: setPiece 78, setPieceKind 79, uphillAxis 80, uphillEnd 81, spiralBase 82, spiralTurn 83.
+- **One roll a Hall.** With `p = setPieces.percent[min(tier, length) − 1]`, Hall h is **rolled** when `p > 0` and `pick(h, setPiece, 100) < p`. Its kind is then `byWeight(h, setPieceKind, [cross, uphill, spiral])`.
+- **Step 3a′ (new, after 3's growth and before 3b's galleries).** Each rolled Hall, in index order:
+  - If it is great, an `uphill` or `spiral` roll leaves it plain. The two features need side-centre doorways, and a great hall's long-side slots are not.
+  - If its kind fits (§5, §6, tested on the rect as it stands; a Boss Hall's growth only enlarges it), its feature is set in `feat[h]`, as 3b′'s are.
+  - A `cross` roll only **reserves** the Hall. Its fit is tested at step 7d″, once the kinds, the loops and the final rects are known.
+  - A reserved Hall, or one with an uphill or spiral, is skipped by:
+    - 3b's galleries;
+    - 3b′'s splits and pits;
+    - 7c′'s daises;
+    - 7d′'s lava, unless it is the reserved Hall's own Lava Bridge;
+    - 7c's shapes and pillars.
+
+  A kind that does not fit leaves the Hall plain, and no other kind is tried (7b's rule).
+- **3c. Levels** use the new lifts (§5, §6) through `lift`, `raised` and `inRange`. When a feature's range fails, `unwrap` drops it as it drops a split's, and the drop is counted.
+- **4. Loops**: `loopOk` also refuses a slot on an Uphill's side wall (`uphillSide(h, d)`). Door levels and the forced-flat rule come through `doorLevel` and `raised`, unchanged.
+- **7. Kinds**: the Entrance's pool, each Rest's pool and the Treasure's pool each drop the Halls with an uphill or a spiral (`setHall(h)`), but only when what is left is not empty. When it would be empty the pick is made as now, and the Hall keeps its set piece (counted; expected 0 in the 500 pairs). With no set piece, every filter is a no-op.
+- **7b′**: the Uphill's and the Spiral's geometry, cut from the Hall's final rect as a split's is (§5, §6).
+- **7d″ (new, after 7c′'s daises and before 7d′'s lava)**: each reserved Hall, in index order, takes a Lava Bridge when it fits (§7). Otherwise it stays plain: no lava is tried for it, but shapes and pillars may be.
+- **The rate** (Task 5): over the 500 pairs, print per tier and per kind the share of all Halls holding a set piece, and the dropped rolls by reason (great, size, door walls, kind, range). Task 5 moves each `percent` entry in steps of 5 until the share of all Halls with a set piece is within 7 to 13 % on every tier. It records the values. When a kind is under 20 % of the set pieces, its weight is raised.
+
+**5. The Uphill** (`DelverUphill`):
+```ts
+export interface DelverUphill {
+  kind: 'uphill';
+  axis: 'x' | 'z';
+  up: Side; /* the high end's wall */
+  rise: 1 | 2; /* levels */
+  low: Rect;
+  ramp: DelverStep;
+  high: Rect;
+}
+```
+- **Constants**: `UPHILL_FOOT = 6` (the low landing's depth: a doorway lane, `DOOR_LANE`) and `UPHILL_TOP = 10` (the high landing's depth; the centre stands in its middle, 5 m from the wall and the ramp's top).
+- **Fit**, on axis k, with half the Hall's half size along k:
+  - the ramp is `2·half − UPHILL_FOOT − UPHILL_TOP` long and must be at least `rise · LEVEL_RISE / MAX_SLOPE`. `rise` is 2 when that holds for 2, else 1; with neither, axis k does not fit. So a half of at least 10 is needed for 1 level and 12 for 2;
+  - **every tree Passage of the Hall leaves by an end wall of k** (the walls across k). None leaves by a side wall.
+  - With both axes fitting, k is `[x, z][pick(h, uphillAxis, 2)]`. `up` is the low-coordinate or high-coordinate end wall by `pick(h, uphillEnd, 2)` (0: s or w; 1: n or e).
+- **Heights**: the Hall's `level` and `y` are the high landing's, like a split's main tier.
+  - The Enclosure stands at `y − rise · LEVEL_RISE` (`hallBase`), and the low landing is its floor.
+  - The high landing is a Platform with its top at `y`.
+  - The ramp is a full-width Ramp from `lo = hallBase` to `hi = y`, rising toward `up`, with no rails: both long sides lie against the Hall's walls.
+  - `top = y + 4`, as a split's, so the low landing has `4 + 2·rise` m of headroom.
+- **Doors**:
+  - `lift` is 0 on the `up` wall and `−rise` on the opposite wall;
+  - the `up` wall is raised (its Passage is flat and cuts the door), so `doors` lists only the low end's wall;
+  - `inRange` requires `rise ≤ level ≤ levels.max`;
+  - the side walls hold no slot: the tree fit, plus `loopOk`.
+- **The centre** moves to the middle of the high landing: `(cx, z1 − UPHILL_TOP / 2)` for `up` n, and the turns of that for the other walls. It is set on the work Hall before 7c and step 9, as the ring's is. Every centre marker (posts, the Boss, the Stairs zone, patrol points) then stands on the high landing: the defenders hold the high ground.
+- There is no open edge anywhere: the ramp is full width and meets both landings flush.
+- Every edge lands on an odd metre: the walls are odd, and 6, 10 and the ramp's length are even.
+
+**6. The Spiral** (`DelverSpiral`):
+```ts
+export interface DelverSpiral {
+  kind: 'spiral';
+  base: Side; /* the wall of the well's door */
+  turn: 0 | 1; /* 0: counter-clockwise from above (s → e → n → w for base s); 1: clockwise */
+  landings: readonly DelverTier[]; /* 5, in climbing order: wall 2's door, corner, wall 3's door, corner, wall 4's door */
+  ramps: readonly DelverStep[]; /* 5, in climbing order, each before its landing */
+  well: readonly Rect[]; /* floorRects(rect, the ledge's footprints) */
+}
+```
+- **Constants**:
+  - `LEDGE_WIDE = 4`, the ledge's width (at least a Formation's file, `BRIDGE_MIN`);
+  - `SPIRAL_FOOT = 4`, the well floor between the base wall and the first ramp's foot, which is where the first ramp is entered from;
+  - `LANDING_HALF`: a door landing's span along its wall is `[oddDown(m − 2), oddUp(m + 2)]`, with m the wall's centre. That is the doorway and 0.5 m each side, 7d's door-bridge span, 4 or 6 m long.
+- **The walls in climbing order**:
+  1. `base` (the well's door, lift 0);
+  2. the next wall in the turn (lift +1);
+  3. the one after (+2);
+  4. the last (+3), whose ledge runs only from its corner to its door landing.
+
+  The rest of wall 4, and all of the base wall, face the well.
+- **Geometry** for base s and turn 0; the other cases are turns and mirrors of it:
+  - **R1** runs along wall e (strip `x ∈ [x1 − 4, x1]`) from `z0 + SPIRAL_FOOT` to the start of landing **L1** (wall e's door span). It rises from 0 to +2 m. Then L1 at +2 m.
+  - **R2** runs from L1's end to the NE corner square **L2** (`[x1 − 4, x1] × [z1 − 4, z1]`). It rises from +2 to +3 m.
+  - **R3** runs along wall n (strip `z ∈ [z1 − 4, z1]`) from L2 to **L3** (wall n's door span) at +4 m.
+  - **R4** runs from L3 to the NW corner **L4** at +5 m.
+  - **R5** runs along wall w from L4 down to **L5** (wall w's door span) at +6 m. The ledge ends at L5's far edge.
+  - Each ramp's `rails` hold only its long side against the Hall wall, and its inner long side is **open**. Each landing is a Platform; each ramp a Ramp solid underneath (§8). `lo` and `hi` are as above, relative to `y`.
+- **Fit**: both halves are at least 9, and every ramp is at least its rise / `MAX_SLOPE` long. R1 rises 2 m, so it needs 4 m, which wants a half of at least 11 along wall 2. The others rise 1 m and need 2 m each. Then:
+  - `base = [n, e, s, w][pick(h, spiralBase, 4)]`, and the next three in turn, tried in order: the first base that fits is taken;
+  - `turn = pick(h, spiralTurn, 2)`;
+  - tree Passages may leave by any wall.
+- **Heights**: `level` and `y` are the well's, and `hallBase` is `y`.
+  - `lift` is 0, 1, 2 and 3 on walls 1 to 4.
+  - Walls 2 to 4 are raised (their Passages are flat and cut the door at the landing's height), so `doors` lists only the base wall.
+  - `inRange` requires `level + 3 ≤ levels.max`. With the shipped max 4, the well is on level 0 or 1.
+  - `top = y + 3 · LEVEL_RISE + 4` (10 m: 4 m of headroom over L5, and a door 6 m up fits its 4 m Passage storey).
+- **The centre** stays at the rect's centre: with halves of at least 9, it keeps at least 5 m from the ledge, more than `CENTRE_CLEAR`.
+- **Falls**: a body knocked off the ledge falls up to 6 m onto the well: the fall damage is the threat (the user's call: open, no rail).
+  - Soldiers never drop more than `levels.drop` (3 m), so the Crowd takes only R1's low end and L1 down, and walks the ramps otherwise.
+  - The `shortcuts` flag is already set for any Floor with a feature. The navmesh adds Jump shortcut Links from the well up onto R1 and L1, where the rise is at most `JUMP_SHORTCUT_CAP`, and none higher.
+- Every edge lands on an odd metre: the walls are odd; 4 and the landing spans are even or odd by construction.
+
+**7. The Lava Bridge** (`LavaKind += 'cross'`; `DelverLava` gains `plaza?: Rect`):
+- **Fit** at 7d″:
+  - the Hall's kind is Fight, Empty, Boss or Stairs; it has no gallery and no feature; it is a rect;
+  - both halves are at least `CROSS_HALF = 11` (the plaza's 6, then at least 4 m of lava past it, odd-snapped);
+  - every held slot's door span (`[oddDown(ℓ − 2), oddUp(ℓ + 2)]` along its wall) lies within the plaza's span on that axis. Side-centre slots always do; a great hall's long-side slots do only when they are near enough the middle, else the Hall does not fit.
+- **Geometry**:
+  - The **plaza** is `[oddDown(cx − LAVA_CENTRE), oddUp(cx + LAVA_CENTRE)] × [same for z]`. It is 7d's dry centre square, odd-snapped, 12 to 14 m a side (larger than the 8 × 8 first proposed, since it must hold 7d's centre rule). The Warband, the Stairs zone and the Boss stand on it.
+  - **An arm for each held slot** (the user's call: no arm to a wall with no door). It spans the door span across, and runs from the wall to the plaza's edge. These are the `bridges`, ascending z then x. With 2 doors on opposite walls the result is a straight bridge, with 3 a T, with 4 the user's cross, and with 2 on adjacent walls an L. A leaf Hall gets a peninsula.
+  - **The lava** is `floorRects(rect, [plaza, ...arms])`, sorted z then x. A piece thinner than `LAVA_MIN` on either axis becomes floor, which widens its arm. With no lava left, the Hall does not fit.
+  - `walls` are the arms' walls in n, e, s, w order, and `y` is the Hall's `y − LAVA_DEPTH`.
+- Everything else is 7d's: the Hole and Hazard Brushes, `lavaDry`, drop spots, the Resurrection Stone, the render, the lights, the maps, `edgeKeep`. Arms are 4 m (6 m at an even slot line), as 7d's door bridges are, so a Formation files over them.
+
+**8. The source and the compiler** (`source.ts`, `compile.ts`):
+- **Uphill**: `<hall>-high` (a Platform, top `y`) and `<hall>-ramp0` (a Ramp, no rails).
+- **Spiral**: `<hall>-landing<n>` (Platforms) and `<hall>-ramp<n>` (Ramps), in climbing order.
+- Both are written where the 7c features are written, with ids from exported `landingId` and `rampId`. Each landing's `y` goes into `levels`.
+- **Cross**: as 7d's lava (`hole<n>`, `lava<n>`).
+- **Compiler checks (Task 1, hand-built maps first, as 7c's Task 1)**:
+  - (a) **A Ramp whose `lo` is above its Enclosure's floor** (R2 to R5) must be solid down to that floor, as a Platform is: no void under it, and face Walls on its open side. If it is not, either give Ramp Brushes a solid base, or write a Platform under each such Ramp at its `lo` height; Task 1 picks the smaller change and records it.
+  - (b) **7c found that every Ramp inside an Enclosure is walled to the roof on its open long sides.** That would wall a Spiral's inner edge to the ceiling, so it must change for a Spiral. Add an optional `open: Side[]` to `RampBrush`: an open side gets only the face Wall from the lower floor up to the Ramp's surface, never one to the roof. Parse rule: `open` is a long side and no `rails` side. Absent, the side compiles exactly as now, so no existing map's bytes move. The Spiral's ramps set `open` to their inner side.
+  - (c) `walkCheck` passes on a hand-built Uphill and Spiral. A Fighter knocked off L5 lands in the well. Jump Links go up onto R1 and L1 only.
+  - **Amended 2026-11-24 (Task 1), on hand-built maps in `enclosure.test.ts`**:
+    - (a) needs no compiler change. **Each landing but L5 is written as a Platform over its own rect and the next ramp's** (the union is a rect: the ramp continues the landing's strip at its width). Its top is that ramp's `lo`, so it cuts the Hall floor under the ramp, and the ramp cuts its top in turn: solid underneath, no warning, no extra Brush. The plan's landing rects stay the landings themselves; only the source widens them.
+    - (b) is not needed: the claim from 7c does not hold since issue #157. A Ramp's long side with no rail already compiles to a skirt stepped up to its slope where the floor beside is lower (each step's top at the slope's height at its high end), and the Enclosure's roof is no floor beside a Ramp. So the Spiral's inner edge is open as it stands, and `RampBrush.open` is not added (nor its parse test).
+    - (c) holds, with one correction: the shortcut jump Links from the well land on R1, L1 and **the foot of R2** (2.34 m, within `JUMP_SHORTCUT_CAP`), and none higher. §13's "no navmesh jump Link lands above L1" reads "none lands on R2 past its foot, or on L2 to L5".
+
+**Amended 2026-11-24 (Task 2), from the code:**
+- **Types**: every feature keeps its Ramps in `steps`, as 7c's do, so the clutter, the source and the judge read them with no new path. So `DelverUphill` is `{ kind, axis, up, rise, low, high, steps: [the Ramp] }` and `DelverSpiral` is `{ kind, base, turn, landings, steps: [R1 to R5], well }`. A Spiral landing's `level` is `y / LEVEL_RISE` (a half for a corner). The source names the Ramps `<hall>-step<n>` (`stepId`), the Uphill's high landing `<hall>-high` (`highId`) and a Spiral's landings `<hall>-landing<n>` (`landingId`).
+- **Roofs**: a split's roof is in fact `y + HALL_STOREY` (6 m), not `y + 4`. So an Uphill's `top` is `y + HALL_STOREY`, as a split's, and a Spiral's is `y + 3 · LEVEL_RISE + HALL_STOREY` (12 m over the well, 6 m over L5): every top floor keeps a full Jump's headroom, as issue #163 asked.
+- **Frames**: the Uphill and the Spiral are cut by `uphillGeometry` and `spiralGeometry` (exported, pure), written for base s and turn 0, then turned and mirrored into the world (`frameOf`), which keeps whole and odd metres. `spiralOrder(base, turn)` gives the walls in climbing order. An Uphill's frame is its low wall's.
+- **The drop counts** come out of `planFloor` through an optional last argument, `drops: SetPieceDrops` (`great`, `size`, `doorWalls`, `kind`, `range`, `fallback`). It is never part of the plan.
+- **No Uphill or Spiral on a Boss Hall**: under the shipped Tuning a Boss Floor's Boss Hall is always a great hall (`great.count[0]` ≥ 1). So §13's and the slow test's "each kind on a Boss Hall" holds for the Lava Bridge only; the Uphill and the Spiral must show on a Stairs Hall.
+- **The fallback is not 0**: tier 1's Floors have 7 Halls and often a single leaf, so the Entrance's pool can be only an Uphill (23 in the 1800 Floors of `plan.test.ts`, on the 7f values). The Hall keeps its set piece, as §4 says. The judge counts these rather than failing them (§10), and the slow test reports the count instead of expecting 0.
+- **A probe before tuning** (attempt 0, the 500 pairs, `percent` [15, 20, 25]): set pieces on 2.3 %, 2.4 % and 4.8 % of the Halls by tier. Most rolls drop for size (Halls under the least halves), so Task 5's `percent` will be well above the first estimates.
+
+**Amended 2026-11-24 (Task 5, the switch):**
+- **The rate**: on the plan-only probe (attempt 0, the 500 pairs) `percent` [40, 45, 35] gave 6.9 / 6.6 / 6.6 %, [55, 55, 40] 9.3 / 8.3 / 7.6 %, and **[60, 60, 50] 10.2 / 8.9 / 9.1 %**, which ships. Every kind is at least 21 % of the set pieces on every tier (crosses 21.7 / 29.5 / 24.4 %), so the weights stay 1, 1, 1.
+- **What the set pieces take from 7c and 7d**: picked first, a set-piece Hall (and a Hall reserved for a Lava Bridge that did not fit) takes no other feature and no 7d lava. So the shipped Floors hold fewer of both: Halls with a split, pit or dais fall from 23.9 % to 15.3 % (22.3 % counting the Uphills and Spirals), and the Halls that may hold 7d lava which do from 16.2 / 25.2 / 33.6 % to 13.7 / 20.2 / 25.9 % by tier. The slow test now checks 7c's and 7d's shares on the same pairs planned with set pieces off (what their knobs control) and prints the shipped ones. **Raising `features.percent` or `lava.percent` to win them back is the user's call**; nothing was retuned.
+- **The existing soak cases** play `loadTuningData()`, so from this switch they meet set pieces. They were not rerun (the Design's flow), so their Floors are no longer 7d's.
+
+**Result (2026-11-24, Tasks 6 and 7):**
+- **The AI check** (Task 6): `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` on the shipped data, run as four shards of seeds (1–13, 14–26, 27–39, 40–50) at once: 150 Floors, 0 with problems, 2,629 legs arrived. §11's fix was not needed, so it was not made, and the `--difficulty Beginner` run was skipped (no ally fault was found).
+- **The soak** (Task 7, `warbandSoak.slow.test.ts -t "set-piece Floors"`, run alone, 74 s). The Floors were found by a plan scan of the Runs `gen:greybox:<n>`, Floors 1 to 9, in seed order, the first two of each kind on the main path. Uphill: a Hall gone through by both end walls. Lava Bridge: a Fight Hall. Spiral: the main path uses wall 4's door (L5). The Floors are Run 2 Floors 5 and 8 (Uphills in hall2 and hall18), Run 1 Floors 1 and 4 (crosses in hall2) and Run 3 Floor 6 and Run 4 Floor 5 (Spirals in hall1, with base w and s, turn 0). All 6 reached their Stairs, in 141 to 502 s.
+  - The party's Fighter-Ticks: 1,016 on an Uphill's Ramp, 9,935 on a Lava Bridge's arm and 510 on a Spiral's L5.
+  - 0 falls off a Spiral's ledge. 63 Pickups and 0 revives, none on a ledge's edge or on lava or within 2.5 m of it. 0 Deaths by Lava.
+  - **No fight on a plaza**: 0 Hits on a plaza, 44 on an arm. On both cross Floors the Warband comes out to meet the party, and the fight is on the arm 1–2 m short of the plaza. **By the user's call the plaza fight is a measurement, not a must-show.**
+  - **Tick**: mean 0.52 ms, p99 2.73 over 117,009 Ticks. 7d's 0.32 and 1.87 are the 5-Run soak on one-tier Floors, so they are not like for like: these Floors are tier 1 to 3 on the full Tuning, with set pieces and 7d lava. Nothing was tuned for it.
+- **The review** (`/code-review high` over `fa4e9a8..HEAD` and the soak case): 4 findings, all in the soak's new watcher, all fixed.
+  - The plaza must-show is above.
+  - A walk down a Spiral (L2 to the well in under 3 s) would have counted as a walked-off fall. The watcher now keeps the last ledge Tick at any height, and counts a fall only from `levels.drop` or more over the well.
+  - The ledge-edge check ignored height, so a drop on the well floor beside R1 counted. It now asks for `levels.drop` over the well.
+  - The Tick line now labels 7d's numbers as not like for like.
+  - Nothing was found in the plan, the source, the judge or the editor.
+- The existing soak cases and `npm test` were not rerun: only the slow soak file changed after Task 5's `npm test`.
+
+**9. The Map Editor** (the user's test loop, "Testing the generator"): the Delver seed and floor dialog gains a **Set piece** choice (off, cross, uphill, spiral). The URL form is `&delverPiece=spiral`. It opens the Floor on `onlySetPiece(tuning, kind)`, editor only, never in a Run. So the user can open a Floor with many of one set piece and walk the AI on it (`&aiwalk=1`). The checks folder lists them under "Set pieces" (Hall id, kind, rise or base and turn, arms).
+
+**10. The judge** (`judge.ts`):
+- **New plan rule `setPieces`** (after `lava`). It fails with one line each:
+  - an uphill or spiral on a great hall, or on an Entrance, Rest or Treasure Hall while another Hall could have taken that kind. This is counted, not failed, when §4's fallback took it;
+  - an Uphill:
+    - a slot on a side wall;
+    - a ramp steeper than `MAX_SLOPE`;
+    - the landings not `UPHILL_FOOT` and `UPHILL_TOP` deep;
+    - the centre not in the high landing's middle;
+    - a door not at its end's height;
+  - a Spiral:
+    - 5 landings and 5 ramps that do not chain (each ramp's `lo` the previous floor and its `hi` its landing, along its wall, `LEDGE_WIDE` wide, no steeper than `MAX_SLOPE`);
+    - a door not inside its wall's landing span or not at its height;
+    - a marker within 2 m of the ledge's footprint, which would put its cell centre under the ledge (7c's dais lesson);
+  - a cross:
+    - a held slot's doorway ± 0.5 m not inside an arm;
+    - an arm under `BRIDGE_MIN`, or not running from its wall to the plaza;
+    - the plaza not holding the centre square;
+    - plus 7d's marker, keep and Warband-home rules, which already run on every lava kind.
+
+  Every edge must land on an odd metre.
+- **New built rule `setPieceWalk`** (after `lavaWalk`):
+  - the field toward the Hall's centre reads ≥ 0 at 1 m inside each held doorway (at its door's height), at each landing's centre and at the middle of each arm;
+  - at each Spiral ramp's inner edge, no Wall rises more than a step above the ramp's surface (the open edge compiled);
+  - under each cross arm the ground is floor, and beside it lava.
+- **A failed rule rerolls the Floor.** The pick only makes what fits, so the target is 0 rerolls.
+- **`describeFloor`** adds `, s set pieces (c crosses, u uphills, p spirals)`.
+- **Amended 2026-11-24 (Task 4)**:
+  - The Entrance and Treasure parts of "while another Hall could have taken that kind" are judged exactly (another leaf that is not great with no Uphill or Spiral; another Fight or Empty Hall off the main path with none). A Rest's pool is not rebuilt by the judge (its second pick depends on the first), so an Uphill or Spiral on a Rest is counted by the slow test, never failed.
+  - A door's height and a Lava Bridge doorway's lane were already judged by 7c's `features` rule (through `floorAt`, which now knows both new features) and 7d's `lava` rule (a cross's lanes are taken as a river's bank lanes: each doorway ± 0.5 m on an arm). `setPieces` adds the arm's own check all the same.
+  - 7c's `features` and `tiers` rules skip an Uphill and a Spiral, which `setPieces` and `setPieceWalk` judge instead.
+  - `describeFloor`'s lava count leaves out the crosses, which it counts as set pieces.
+
+**11. The AI and the Crowd.** Nothing changes up front:
+- the Lava Bridge is 7d's lava, which the AI already handles;
+- an Uphill is a Ramp;
+- a Spiral is Ramps and Platforms, which 7c's splits proved for the navmesh, the fields, `floorNear` and `levels.promote`.
+
+Task 6's `ai-walk` and Task 7's soak case are the evidence. If an ally, the pilot or a promoted Soldier walks off a Spiral's open edge with nothing pushing it (7d's classification, by Fall), Task 6 finds the cause and fixes it, with a scenario test of its own. `edgeKeep` today runs on lava Arenas only; extending it to tall open ledges is the likely place.
+
+**12. Existing tests this sub-stage rewrites** (only these):
+- `golden.test.ts`: new `NO_SET_PIECE_PINS` and `NO_SET_PIECE_TIER_PINS` tables on `noSetPieces(tuning)`. Their hashes and attempts are **exactly today's `PINS` and `TIER_PINS`** (Task 1 adds them). At the switch (Task 5) `PINS` and `TIER_PINS` are rewritten, and `HOLDS` records each pin's set piece.
+- `tuning.test.ts` and `src/tuning/delver.test.ts`: the key (Task 1) and the shipped values (Task 5).
+- `delverGen.slow.test.ts` (Task 5): the counts and must-shows (§13). The budget stays Stage 7c's: an 800 ms build mean, a 2 s cap, a 300 ms navmesh mean. If the set pieces need more, ask the user first.
+- Any other Delver test that fails only because its Floor's Halls changed at the switch runs on `noSetPieces(tuning)`, composed with what it already used, with its expectations unchanged. Task 5 lists each one. A test that still fails on `noSetPieces` is a bug to report.
+- No test is removed.
+
+**13. Tests to add**:
+- **Task 1**: the compiler cases of §8 in `enclosure.test.ts` and `nav.test.ts`, and the `RampBrush.open` parse in `source.test.ts` (mapEditor).
+- **Task 2** (`plan.test.ts` on `setPieces7f`, 200 seeds × Floors 1 to 9, with the tier passed):
+  - every rule of §5 to §7;
+  - set pieces only on the allowed Halls;
+  - no other feature on a set-piece Hall;
+  - across the 200: each kind on a Boss and a Stairs Hall, a 2-level Uphill, a cross with 4 arms, a T and a straight one, a cross in a great hall, and a Spiral with each base and both turns.
+
+  On `noSetPieces` the plan equals today's (`JSON.stringify`), and a changed 7f salt changes nothing. Add hand-cut cases of each kind at its smallest and its largest Hall.
+- **Task 3** (`source.test.ts`):
+  - the Brushes, ids, heights and order, and `levels`;
+  - each kind compiles and passes `walkCheck`;
+  - a Soldier `trace` up an Uphill and round a Spiral is allowed, and one off L5 is refused (6 m > `levels.drop`);
+  - no navmesh jump Link lands above L1.
+
+  On `noSetPieces` the source equals today's.
+- **Task 4** (`judge.test.ts`):
+  - set-piece Floors pass first try;
+  - `setPieces` fires on a moved arm, a side-wall slot on an Uphill, a ramp made too steep, a marker under the ledge, and a Spiral on an Entrance with another leaf free;
+  - `setPieceWalk` fires on a Spiral ramp given a Wall to the roof, and on an arm's Hole widened over it;
+  - `describeFloor`'s counts.
+- **`delverGen.slow.test.ts`** (Task 5, 500 pairs):
+  - per tier and kind: set pieces against all Halls, and dropped rolls by reason;
+  - Uphills by rise; Spirals by well level; crosses by arm count, with great-hall crosses;
+  - the §4 fallback count (expected 0), rerolls by rule, the budgets, and failed attempts at most 1 in 20 pairs.
+
+  **It must show, else fail**: each kind on every tier, a 2-level Uphill, a 4-arm cross, a great-hall cross, and each Spiral base, with the shares in range.
+
+**14. The soak** (Task 7: one new case in `warbandSoak.slow.test.ts`, run alone with `-t`; the immortal party). The existing cases are not rerun.
+- **Floors**: the first 6 Floors in seed order that hold each kind, 2 a kind, found with the plan-only probe and listed in the test. They are played on the shipped Tuning (not `onlySetPiece`), so each Floor is a real one. The case prints its Tick mean and p99 against 7d's 0.32 and 1.87.
+- **Must show, else fail**:
+  - the party walking each kind: a party Fighter's feet on an Uphill's ramp, on a cross's arm, and on a Spiral's L5;
+  - a fight on a cross's plaza;
+  - 0 walked-off Falls from a Spiral by an ally, the pilot or a promoted Soldier;
+  - 0 Pickups or revives on a ledge's edge or on lava.
+- Also, `npm run ai-walk -- --seeds 1-50 --floors 1,5,9` exits 0. It runs before the soak case: it is cheaper and finds most ledge faults. A run with `--difficulty Beginner` is needed only if an ally fault is found and fixed.
+
+**Tasks**, one after another:
+1. **The compiler**: §8 (`src/mapEditor/source.ts`, `compile.ts`, `checks.ts` if needed, and their tests). Hand-built maps only.
+2. **The plan and its Tuning**: `data/delver.json` (`percent` [0, 0, 0]), `src/tuning/delver.ts` and its tests, `plan.ts` (§4 to §7), `flat.testdata.ts`, `plan.test.ts`, and `golden.test.ts` (the `NO_SET_PIECE` tables only).
+3. **The source and the editor**: `source.ts` and its tests, then §9's `delverPiece` (`src/mapEditor/`). This is moved up from last, so every later task can be checked by eye. Take one screenshot of each set piece here, shown to the user and not committed. Fix any geometry they show before the judge is written.
+4. **The judge**: `judge.ts`, `generate.ts` (`describeFloor`), `judge.test.ts`.
+5. **The switch**: tune the values with the plan-only probe, then `version.ts` (15), the golden pins, `delverGen.slow.test.ts` (run once, alone), `setPieces7f` removed, the moved tests (listed), and `npm test` once.
+6. **The AI check**: `npm run ai-walk` (§14). Make §11's fix only on that evidence; otherwise record that it was skipped and why.
+7. **The soak case**: §14's one case. Then `/code-review high` over the Stage, and the Result.
+
 ### Stage 7e: archetypes
 **Model**: Opus (the recipes), then Sonnet.
 - **Archetypes**: seeded procedural recipes that combine 7a to 7d and scale to a Hall's size, shape and door sides. Examples: arena pit, throne room, bridge hall, colonnade, crypt, lava hall. There are no hand-made templates.
@@ -2952,3 +3272,22 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 2. **Which Halls**: Fight, Empty, Boss and Stairs Halls and great halls. Never the Entrance, a Rest Hall or a Treasure Hall.
 3. **Shapes**: a central pit ringed by floor, a river with one or two railless bridges at least 4 m wide, and troughs along a wall. No trough under a Deck's front or round a dais.
 4. **Proof**: screenshots of each lava shape. The generator's budget may rise to at most 900 ms build mean and 600 ms navmesh mean; the 2 s cap stays.
+
+## Answered questions (2026-11-24, before Stage 7f)
+The user designed three rooms (a Lava Bridge, an Uphill Room, a Spiral Stair) in a spreadsheet and took every proposed default:
+1. **Scale**: the sheets are a layout, not to scale. Walkways (bridges, ledge) stay 4 m wide, and the rest stretches to the Hall.
+2. **Size**: each set piece scales to the Hall, with a least size of its own. A Hall too small stays plain.
+3. **Lava Bridge posts**: a dry plaza at the crossing holds the Warband (7d's 12 m dry centre square).
+4. **Lava Bridge arms**: one for each wall with a doorway (a straight bridge, a T or a cross).
+5. **Uphill rise**: 1 or 2 levels, whichever fits the Hall's length.
+6. **Uphill doors**: at the two ends only.
+7. **Uphill ramp**: plain, with nothing on it.
+8. **Spiral heights**: its four doors 0, 1, 2 and 3 levels up, with half-level corner landings between them.
+9. **Spiral doors**: a doorway at each of the four landings.
+10. **Spiral ledge**: its inner edge open, with no rail.
+11. **Spiral fights**: the Warband guards the bottom floor (the well).
+12. **Which Halls**: Fight, Empty, Boss, Stairs and great halls where the size fits; never the Entrance, a Rest Hall or a Treasure Hall. (The Design keeps the Uphill and the Spiral off great halls, whose long-side doorways are not at a wall's centre; the Lava Bridge may take one.)
+13. **How often**: about 1 Hall in 10, the three weighted alike, picked before every other feature.
+14. **Hand-made rooms**: recorded as Stage 7f, a change from 7e's "no hand-made templates".
+15. **Process**: the Design is written in this plan, and implemented in a new chat.
+16. **No re-baseline, a lean flow** (asked after the Design): 7d's Result is the baseline; only the tests a task touches run while working; the rate is tuned with a plan-only probe; the generator slow test runs once; the soak is one new set-piece case; the editor comes early, for checks by eye.

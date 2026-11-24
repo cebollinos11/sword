@@ -48,6 +48,8 @@ import {
   warbandHomes,
   type LavaKind,
   type WarbandHomes,
+  setPieceOf,
+  type SetPieceKind,
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
 import { gateOpen } from "../sim/delverRun";
@@ -2132,7 +2134,7 @@ function platformWatcher(): {
           platforms.push({ id: `${h.id}-rim${n}`, rect, top: ft.rim }),
         );
         if (ft.depth === 4) pit4.add(k);
-      } else platforms.push({ id: `${h.id}-dais`, rect: ft.rect, top: ft.y });
+      } else if (ft.kind === "dais") platforms.push({ id: `${h.id}-dais`, rect: ft.rect, top: ft.y });
     });
     cache.set(
       name,
@@ -2428,7 +2430,7 @@ function lavaWatcher(): {
     const halls = built.plan.halls.flatMap((hall, k) =>
       hall.lava ? [{ k, hall }] : [],
     );
-    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0 };
+    const halls0: Record<LavaKind, number> = { pit: 0, river: 0, trough: 0, cross: 0 };
     for (const h of halls) halls0[h.hall.lava!.kind]++;
     cache.set(
       name,
@@ -5013,3 +5015,207 @@ describe("lava", { timeout: 60 * 60_000 }, () => {
     ).toEqual([]);
   });
 });
+
+// ------------------------------------------------------------------ set pieces (docs/plans/delver.md, Stage 7f, §14)
+
+/** The set-piece soak's Floors (see the case below). */
+const SET_PIECE_FLOORS: readonly { run: string; floor: number; kind: SetPieceKind }[] = [
+  { run: "gen:greybox:2", floor: 5, kind: "uphill" }, // hall2 (Empty), through by w and e
+  { run: "gen:greybox:2", floor: 8, kind: "uphill" }, // hall18 (Fight), through by s and n
+  { run: "gen:greybox:1", floor: 1, kind: "cross" }, // hall2 (Fight)
+  { run: "gen:greybox:1", floor: 4, kind: "cross" }, // hall2 (Fight)
+  { run: "gen:greybox:3", floor: 6, kind: "spiral" }, // hall1 (Fight), base w, turn 0: the main path leaves by L5's wall (n)
+  { run: "gen:greybox:4", floor: 5, kind: "spiral" }, // hall1 (Fight), base s, turn 0: the main path enters by L5's wall (w)
+];
+
+describe("set pieces", { timeout: 60 * 60_000 }, () => {
+  /**
+   * The Floors: the first two in seed order (the soak's Runs `gen:greybox:<n>`, Floors 1 to 9, on the shipped Tuning) whose set piece of each kind
+   * stands on the main path, so the party walks it: an Uphill; a Lava Bridge in a Fight Hall (its Warband on the plaza); a Spiral whose way on the main
+   * path uses its last door (L5's). Found by a plan scan, as the Design asks, and listed here; the case checks each still holds its kind.
+   */
+  const SET_FLOORS: readonly { run: string; floor: number; kind: SetPieceKind }[] = SET_PIECE_FLOORS;
+  const SET_FLOOR_SECONDS = 600;
+  /** The soak's Tick (ms) in 7d's Result, to print beside this case's. */
+  const TICK_7D = { mean: 0.32, p99: 1.87 };
+
+  it(`set-piece Floors: ${SET_FLOORS.length} Floors (2 of each kind), each played from its Entrance by the immortal party (the Delver pilot and two Hard allies) to its Stairs (cap ${SET_FLOOR_SECONDS} s); the party walks each kind, nobody walks off a Spiral's ledge, and no Pickup or revive lies on a ledge's edge or near lava`, () => {
+    const tuning = base;
+    const sp = setPieceWatcher();
+    const lava = lavaWatcher();
+    const ms: number[] = [];
+    const lines = [`\nSet-piece Floors (Stage 7f): the immortal party on the Delver pilot and two Hard allies from each Floor's Entrance to its Stairs or ${SET_FLOOR_SECONDS} s:`];
+    for (const pick of SET_FLOORS) {
+      const arenaName = floorArenaName(runSeed(pick.run), pick.floor);
+      const plan = floorOf(tuning, arenaName)!.plan;
+      expect(plan.halls.some((h) => setPieceOf(h) === pick.kind), `${pick.run} Floor ${pick.floor} holds no ${pick.kind}`).toBe(true);
+      let m = createMatch(tuning, { format: "Gauntlet", bestOf: 1, seed: 7, arena: pick.run, delverStart: pick.floor, teams: LINEUP.map((x) => x.team), humans: 1, players: [0] });
+      const controllers: Controller[] = lineupAis(tuning, LINEUP, "Gauntlet", { seed: 7 }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
+      let ended = "cap";
+      let ticks = 0;
+      for (; ticks < secondsToTicks(SET_FLOOR_SECONDS); ticks++) {
+        const at = m;
+        const t0 = performance.now();
+        m = withImmortalParty(stepMatch(at, controllerIntents(at.duel, controllers), tuning));
+        ms.push(performance.now() - t0);
+        sp.watch(at, m, tuning);
+        lava.watch(at, m, tuning);
+        if (m.status.status === "Over") {
+          ended = "Over";
+          break;
+        }
+        if (m.duel.arena !== at.duel.arena) {
+          ended = "Stairs";
+          break;
+        }
+      }
+      lines.push(`  Run ${pick.run} Floor ${pick.floor} (${arenaName}): ${plan.halls.filter((h) => setPieceOf(h)).map((h) => `${h.id} ${h.kind} ${setPieceOf(h)}`).join(", ")}; ${f(secs(ticks))} s, ended ${ended}`);
+    }
+    const sorted = [...ms].sort((a, b) => a - b);
+    const mean = ms.reduce((a, b) => a + b, 0) / ms.length;
+    const p99 = sorted[Math.floor(0.99 * sorted.length)]!;
+    const c = sp.check;
+    lines.push(
+      `  Tick: mean ${f(mean, 2)} ms, p99 ${f(p99, 2)} ms over ${ms.length} Ticks (7d's 5-Run soak, on one-tier Floors, so not like for like: ${TICK_7D.mean} and ${TICK_7D.p99})`,
+      `  party Fighter-Ticks: on an Uphill's Ramp ${c.uphill}, on a Lava Bridge's arm ${c.arm}, on a Spiral's last landing ${c.l5}; Hits on a plaza ${c.plaza}, on an arm ${c.armHits}`,
+      `  falls off a Spiral's ledge into its well: ${c.falls.length} (${c.falls.filter((x) => x.cause === "walked").length} walked off, of them by an ally, the pilot or a promoted Soldier ${c.falls.filter((x) => x.cause === "walked" && x.who !== "other" && x.who !== "traitor Soldier").length})`,
+      ...c.falls.map((x) => `    fall: ${x.line}`),
+      `  Pickups ${c.pickups} and revives ${c.revives}; on a ledge's edge: ${c.edgeLines.length}`,
+      ...c.edgeLines.map((l) => `    BAD: ${l}`),
+      ...lavaLines("  lava on these Floors", lava.check),
+    );
+    console.log(lines.join("\n"));
+    const problems: string[] = [];
+    if (c.uphill === 0) problems.push("the party never stood on an Uphill's Ramp");
+    if (c.arm === 0) problems.push("the party never stood on a Lava Bridge's arm");
+    if (c.l5 === 0) problems.push("the party never stood on a Spiral's last landing");
+    // A fight on the plaza is a measurement, not a must-show (the user's call, 2026-11-24): the Warbands come out to meet the party on the arms.
+    for (const x of c.falls) if (x.cause === "walked" && (x.who === "party Player" || x.who === "AI ally" || x.who === "promoted Soldier")) problems.push(`walked off: ${x.line}`);
+    problems.push(...c.edgeLines, ...lava.check.pickupLines, ...lava.check.reviveLines);
+    expect(problems, `the set-piece soak:\n${problems.join("\n")}`).toEqual([]);
+  });
+});
+
+/** What the set-piece watcher saw. */
+interface SetPieceCheck {
+  uphill: number;
+  arm: number;
+  l5: number;
+  plaza: number;
+  /** Hits with either Fighter on an arm and neither on the plaza. */
+  armHits: number;
+  falls: { who: LavaWho; cause: LavaCause; line: string }[];
+  pickups: number;
+  revives: number;
+  edgeLines: string[];
+}
+
+/**
+ * A `RunOptions.watch` for the Stage 7f checks: the party's Fighter-Ticks on an Uphill's Ramp, a Lava Bridge's arm and a Spiral's last landing (feet within
+ * 1 m of it, not airborne); Hits with either Fighter on a Lava Bridge's plaza; each fall off a Spiral's ledge into its well (a Fighter on the ledge `levels.drop`
+ * or more over the well, then on the well), classified as the lava watcher classifies a Death (a Kick, a Slide, a Whirlwind blow or a Knockdown on it in the 3 s
+ * before, else it walked off); and every Pickup and revive on a ledge's edge (within 1 m of both the ledge and the well, from above).
+ */
+function setPieceWatcher(): { watch: (at: MatchState, next: MatchState, tuning: TuningData) => void; check: SetPieceCheck } {
+  const check: SetPieceCheck = { uphill: 0, arm: 0, l5: 0, plaza: 0, armHits: 0, falls: [], pickups: 0, revives: 0, edgeLines: [] };
+  interface Spiral { id: string; y: number; rect: Rect; ledge: { rect: Rect; y0: number; y1: number }[]; well: readonly Rect[]; l5: { rect: Rect; y: number } }
+  interface Floor { uphills: { rect: Rect; lo: number; hi: number }[]; arms: { rect: Rect; y: number }[]; plazas: { rect: Rect; y: number }[]; spirals: Spiral[] }
+  const cache = new Map<string, Floor>();
+  const window = secondsToTicks(LAVA_WINDOW);
+  let pushes: { tick: number; target: number; kind: LavaCause | "phase" }[] = [];
+  /** Per Fighter: the last Tick it stood on a Spiral's ledge high over the well, and that ledge's Spiral and height. */
+  const high = new Map<number, { tick: number; spiral: Spiral; y: number }>();
+  let pickupArena = "";
+  let pickupsSeen = 0;
+  const floorOfName = (tuning: TuningData, name: string): Floor | null => {
+    let c = cache.get(name);
+    if (c) return c;
+    const built = floorOf(tuning, name);
+    if (!built) return null;
+    const halls = built.plan.halls;
+    c = {
+      uphills: halls.flatMap((h) => (h.feature?.kind === "uphill" ? [{ rect: h.feature.steps[0]!.rect, lo: h.feature.steps[0]!.lo, hi: h.feature.steps[0]!.hi }] : [])),
+      arms: halls.flatMap((h) => (h.lava?.kind === "cross" ? h.lava.bridges.map((rect) => ({ rect, y: h.y })) : [])),
+      plazas: halls.flatMap((h) => (h.lava?.kind === "cross" ? [{ rect: h.lava.plaza!, y: h.y }] : [])),
+      spirals: halls.flatMap((h) => {
+        const ft = h.feature;
+        if (ft?.kind !== "spiral") return [];
+        const ledge = [...ft.landings.map((l) => ({ rect: l.rect, y0: l.y, y1: l.y })), ...ft.steps.map((st) => ({ rect: st.rect, y0: st.lo, y1: st.hi }))];
+        return [{ id: h.id, y: h.y, rect: h.rect, ledge, well: ft.well, l5: { rect: ft.landings[4]!.rect, y: ft.landings[4]!.y } }];
+      }),
+    };
+    cache.set(name, c);
+    return c;
+  };
+  const near = (r: Rect, x: number, z: number, d: number) => rectGap2(r, x, z) < d * d;
+  /** On a ledge's edge: within 1 m of both the ledge and the well, and at least `drop` over the well (a step off it is a fall); the well's own floor, or a low ledge's edge, is not. */
+  const onEdge = (fl: Floor, x: number, y: number, z: number, drop: number) =>
+    fl.spirals.some((s) => y >= s.y + drop - ON_FLOOR && s.ledge.some((l) => near(l.rect, x, z, 1)) && s.well.some((w) => near(w, x, z, 1)));
+  const watch = (at: MatchState, next: MatchState, tuning: TuningData): void => {
+    const name = next.duel.arena;
+    if (!next.delver) return;
+    const fl = floorOfName(tuning, name);
+    if (!fl) return;
+    const fighters = next.duel.fighters;
+    if (pickupArena !== name) {
+      pickupArena = name;
+      pickupsSeen = 0;
+      pushes = [];
+      high.clear();
+    }
+    for (; pickupsSeen < next.delver.pickups.length; pickupsSeen++) {
+      const p = next.delver.pickups[pickupsSeen]!;
+      check.pickups++;
+      if (onEdge(fl, p.at.x, p.at.y, p.at.z, tuning.battle.levels.drop)) check.edgeLines.push(`${name} Tick ${next.tick}: ${p.kind} pickup ${p.id} at (${f(p.at.x, 2)}, ${f(p.at.z, 2)}) on a Spiral ledge's edge`);
+    }
+    for (const e of next.events as readonly MatchEvent[]) {
+      if (e.type !== "Revived") continue;
+      const x = fighters[e.fighter];
+      if (!x) continue;
+      check.revives++;
+      if (onEdge(fl, x.position.x, x.y, x.position.z, tuning.battle.levels.drop)) check.edgeLines.push(`${name} Tick ${next.tick}: Fighter ${e.fighter} revived at (${f(x.position.x, 2)}, ${f(x.position.z, 2)}) on a Spiral ledge's edge`);
+    }
+    if (name !== at.duel.arena) return;
+    for (const e of next.duel.events) {
+      if (e.type === "KickLanded") pushes.push({ tick: next.tick, target: e.defender, kind: "kick" });
+      else if (e.type === "Hit") {
+        if (e.whirlwind || e.heavy) pushes.push({ tick: next.tick, target: e.defender, kind: e.whirlwind ? "whirlwind" : "slide" });
+        const a = fighters[e.attacker];
+        const d = fighters[e.defender];
+        const on = (q: { rect: Rect; y: number }) => [a, d].some((x) => x && inRectXZ(q.rect, x.position.x, x.position.z) && Math.abs(x.y - q.y) < ON_FLOOR);
+        if (fl.plazas.some(on)) check.plaza++;
+        else if (fl.arms.some(on)) check.armHits++;
+      } else if (e.type === "ChainKnockdown") pushes.push({ tick: next.tick, target: e.fighter, kind: "chain" });
+      else if (e.type === "KnockdownPhase") pushes.push({ tick: next.tick, target: e.fighter, kind: "phase" });
+    }
+    pushes = pushes.filter((p) => next.tick - p.tick <= window);
+    const k = next.config.teams.length;
+    const traitors = next.config.traitors?.length ?? 0;
+    const drop = tuning.battle.levels.drop;
+    fighters.forEach((x, i) => {
+      if (!x || x.hp <= 0) return;
+      const px = x.position.x;
+      const pz = x.position.z;
+      if (i < k && !x.air) {
+        if (fl.uphills.some((u) => inRectXZ(u.rect, px, pz) && x.y >= u.lo - ON_FLOOR && x.y <= u.hi + ON_FLOOR)) check.uphill++;
+        if (fl.arms.some((a) => inRectXZ(a.rect, px, pz) && Math.abs(x.y - a.y) < ON_FLOOR)) check.arm++;
+        if (fl.spirals.some((s) => inRectXZ(s.l5.rect, px, pz) && Math.abs(x.y - s.l5.y) < ON_FLOOR)) check.l5++;
+      }
+      for (const s of fl.spirals) {
+        if (!inRectXZ(s.rect, px, pz)) continue;
+        // The last Tick on the ledge at any height, so a walk down R1 into the well leaves it near the well's floor: only a drop of `drop` or more from it is a fall.
+        if (s.ledge.some((l) => inRectXZ(l.rect, px, pz)) && x.y > s.y + ON_FLOOR) high.set(i, { tick: next.tick, spiral: s, y: x.y });
+        const was = high.get(i);
+        if (!was || was.spiral !== s || x.air || Math.abs(x.y - s.y) > 0.5 || !s.well.some((w) => inRectXZ(w, px, pz))) continue;
+        high.delete(i);
+        if (next.tick - was.tick > secondsToTicks(3) || was.y - s.y < drop) continue;
+        const who: LavaWho = i < k ? ((next.config.players ?? [0]).includes(i) ? "party Player" : "AI ally") : i < k + traitors ? "traitor Soldier" : x.soldier !== undefined ? "promoted Soldier" : "other";
+        const mine = pushes.filter((p) => p.target === i);
+        const hard = mine.filter((p) => p.kind !== "phase");
+        const cause: LavaCause = hard.length > 0 ? (hard[hard.length - 1]!.kind as LavaCause) : mine.length > 0 ? "knockdown" : "walked";
+        check.falls.push({ who, cause, line: `${name} Tick ${next.tick}: Fighter ${i} (${who}) fell ${f(was.y - x.y)} m off ${s.id}'s ledge into its well at (${f(px, 2)}, ${f(pz, 2)}) by ${cause}` });
+      }
+    });
+  };
+  return { watch, check };
+}

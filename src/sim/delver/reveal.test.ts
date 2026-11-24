@@ -182,7 +182,7 @@ describe('revealPlace on a Hall\'s floor parts (Stage 7c)', () => {
           const parts: { name: string; x: number; z: number }[] = [];
           if (f.kind === 'split') f.tiers.forEach((q) => parts.push({ name: q.y === h.y ? 'main' : 'outer', ...mid(q.rect) }));
           else if (f.kind === 'pit') parts.push({ name: 'pit', ...mid(f.pit) }, { name: 'rim', ...mid(f.rims[0]!) });
-          else parts.push({ name: 'dais', ...mid(f.rect) });
+          else if (f.kind === 'dais') parts.push({ name: 'dais', ...mid(f.rect) });
           for (const q of parts) {
             expect(revealPlace(p, q.x, q.z), `${q.name} of hall${i}`).toBe(i);
             seen.add(q.name);

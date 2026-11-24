@@ -35,6 +35,13 @@
  * Walk Surface are counted (none may exist). The test fails unless it exercised each kind on every tier, a river with two bridges, a 6 m bridge, a two-wall trough, lava in a Boss Hall, a Stairs Hall and a
  * great hall, the share of Halls that may hold lava which hold it on each tier (14 to 20 %, 22 to 28 % and 30 to 36 %: about 1 in 6, 1 in 4 and 1 in 3), and no Link onto lava.
  *
+ * Stage 7f (set pieces): the judge's `setPieces` and `setPieceWalk` rules run. Per Run tier and per kind the set pieces are counted against all Halls, and the rolls `planFloor` dropped by
+ * reason (great, size, door walls, kind, range) over every attempt, with the fallback count (an Uphill or Spiral the Entrance, a Rest or the Treasure took for want of another Hall); Uphills
+ * by rise, Spirals by base, turn and well level, Lava Bridges by arms and in great halls. The 7d lava counts leave the set pieces out (a Lava Bridge is lava, an Uphill or a Spiral a feature,
+ * but neither is what those Stages tuned), and the 7c feature share and 7d lava shares are checked on the same pairs planned with set pieces off (attempt 0): set
+ * pieces are picked first, so the shipped Floors hold fewer of those, and those shares are printed beside. The test fails unless it exercised each kind on every tier, a 2-level Uphill, a 4-arm Lava Bridge, one in a great
+ * hall, a Spiral on each base, and a share of Halls with a set piece of 7 to 13 % on every tier.
+ *
  * Stage 6 (levels): per Floor the Hall levels, galleries (balconies and stairwells), sloped Passages and Deck posts are counted, and the
  * rerolls by rule printed; on the 20 navmesh Floors every Deck must hold a shortcut jump Link onto it from its Hall's floor and no other
  * jump Link may exist. The budgets of the Design: the passing attempt's plan, build and judge average at most 600 ms and none passes 2 s;
@@ -48,8 +55,8 @@ import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
 import { deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { runPick } from '../dungeon';
-import { flatRooms } from './flat.testdata';
-import { LAVA_KEEP } from './plan';
+import { flatRooms, noSetPieces } from './flat.testdata';
+import { LAVA_KEEP, setPieceOf, type SetPieceDrops } from './plan';
 import { floorTuningOf, tierOf } from './troops';
 import { buildFloor, delverFloor, isBossFloor, judgeFields, judgePlan, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
@@ -59,7 +66,9 @@ const PAIRS = 500;
 const SAMPLE_EVERY = 25;
 const NAV_FLOORS = 20;
 const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight', 'Empty'];
-const RULES = ['rooms', 'levels', 'layout', 'shapes', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries', 'features', 'lava', 'tiers', 'lavaWalk'];
+const RULES = ['rooms', 'levels', 'layout', 'shapes', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries', 'features', 'lava', 'setPieces', 'tiers', 'lavaWalk', 'setPieceWalk'];
+/** Stage 7f: the set-piece rolls `planFloor` dropped, by reason, per Run tier, over every attempt. */
+const DROPS: SetPieceDrops[] = [0, 1, 2].map(() => ({ great: 0, size: 0, doorWalls: 0, kind: 0, range: 0, fallback: 0 }));
 /** The Design's budgets (ms), on the machine of the plans' measurements. */
 const BUILD_MEAN_MS = 800;
 const BUILD_MAX_MS = 2000;
@@ -113,7 +122,7 @@ function deal(k: number, wantNav: boolean): Dealt {
   const d: Dealt = { k, seed, floor, attempts: 0, layout: null, mapText: null, nav: null, ok: false, lastReasons: [], plan: 0, build: 0, judge: 0, sum: 0 };
   for (let attempt = 0; attempt < t.maxAttempts; attempt++) {
     const t0 = performance.now();
-    const plan = planFloor(ft, seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+    const plan = planFloor(ft, seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor), DROPS[tierOf(tuning.delver, floor) - 1]);
     const t1 = performance.now();
     d.attempts = attempt + 1;
     d.plan = t1 - t0;
@@ -378,26 +387,39 @@ describe('the Floor generator soak', () => {
     });
     lines.push(`  pits by Run tier (4 m of all, per Floor): ${deepPerFloor.map((x) => `tier ${x.tier} ${x.deep} of ${x.pits}, ${(x.deep / Math.max(1, x.floors)).toFixed(2)} a Floor`).join('; ')}`);
     const allH = hallsOf(floors);
-    const featured = allH.filter((h) => h.feature).length;
-    const featureShare = featured / allH.length;
+    const featured = allH.filter((h) => h.feature && h.feature.kind !== 'uphill' && h.feature.kind !== 'spiral').length;
+    // Stage 7f: set pieces are picked first and their Halls (and a Hall reserved for a Lava Bridge that did not fit) take no other feature or lava, so the shipped
+    // Floors hold fewer of 7c's features and less of 7d's lava than those Stages tuned. Their shares are checked on the same pairs planned with set pieces off
+    // (`noSetPieces`, attempt 0: what their knobs control) and the shipped ones printed beside them.
+    const off = noSetPieces(tuning);
+    const offPlans = passing.map((d) => ({ d, p: planFloor(floorTuningOf(off.delver, d.floor), d.seed, d.floor, 0, isBossFloor(off.delver, d.floor), tierOf(off.delver, d.floor)) }));
+    const offH = offPlans.flatMap((x) => x.p.halls);
+    const featureShare = offH.filter((h) => h.feature).length / offH.length;
+    const vertical = allH.filter((h) => h.feature).length;
     const galAll = galleriesOf(floors);
     const stairShare = galAll.filter((x) => x.g.high).length / Math.max(1, galAll.length);
-    lines.push(`  Halls with a split, a pit or a dais: ${featured} of ${allH.length} (${(featureShare * 100).toFixed(1)} %); stairwells ${(stairShare * 100).toFixed(1)} % of galleries`);
+    lines.push(`  Halls with a split, a pit or a dais: ${featured} of ${allH.length} (${(featured / allH.length * 100).toFixed(1)} %; with an Uphill or a Spiral too, ${vertical} (${(vertical / allH.length * 100).toFixed(1)} %)); with set pieces off (attempt 0) ${(featureShare * 100).toFixed(1)} %; stairwells ${(stairShare * 100).toFixed(1)} % of galleries`);
 
     // Stage 7d: lava, per Run tier and per kind, against the Halls that may hold it and against all Halls.
-    const mayHold = (h: FloorPlan['halls'][number]) => ['Fight', 'Empty', 'Boss', 'Stairs'].includes(h.kind) && !h.gallery && !h.feature;
+    // Stage 7f: a Lava Bridge is not 7d's lava, and a set-piece Hall never holds 7d's lava.
+    const mayHold = (h: FloorPlan['halls'][number]) => ['Fight', 'Empty', 'Boss', 'Stairs'].includes(h.kind) && !h.gallery && !h.feature && !setPieceOf(h);
+    const lava7d = (h: FloorPlan['halls'][number]) => !!h.lava && h.lava.kind !== 'cross';
     const LAVA_KINDS = ['pit', 'river', 'trough'] as const;
     const pct1 = (a: number, b: number) => `${(100 * a / Math.max(1, b)).toFixed(1)} %`;
-    const tierLava = [1, 2, 3].map((tier) => {
-      const hs = hallsOf(passing.filter((d) => tierOf(tuning.delver, d.floor) === tier).map((d) => d.layout!));
+    const lavaOf = (ps: { d: Dealt; p: FloorPlan }[]) => [1, 2, 3].map((tier) => {
+      const hs = hallsOf(ps.filter((x) => tierOf(tuning.delver, x.d.floor) === tier).map((x) => x.p));
       const may = hs.filter(mayHold);
-      const has = hs.filter((h) => h.lava);
+      const has = hs.filter(lava7d);
       return { tier, all: hs.length, may: may.length, has: has.length, kinds: LAVA_KINDS.map((k) => has.filter((h) => h.lava!.kind === k).length) };
     });
-    for (const x of tierLava) {
+    const shippedLava = lavaOf(passing.map((d) => ({ d, p: d.layout! })));
+    // The 7d shares are checked with set pieces off (see the 7c share above); the shipped ones are printed.
+    const tierLava = lavaOf(offPlans);
+    for (const x of tierLava) lines.push(`  lava with set pieces off (attempt 0), tier ${x.tier}: ${x.has} of ${x.may} that may hold it (${pct1(x.has, x.may)})`);
+    for (const x of shippedLava) {
       lines.push(`  lava, tier ${x.tier}: ${x.has} Halls with lava of ${x.may} that may hold it (${pct1(x.has, x.may)}) and of ${x.all} Halls (${pct1(x.has, x.all)}); by kind ${LAVA_KINDS.map((k, i) => `${k} ${x.kinds[i]} (${pct1(x.kinds[i]!, x.has)} of lava Halls, ${pct1(x.kinds[i]!, x.may)} of may-hold)`).join(', ')}`);
     }
-    const lavaAll = allH.filter((h) => h.lava);
+    const lavaAll = allH.filter(lava7d);
     lines.push(`  lava, all tiers: ${lavaAll.length} Halls of ${allH.filter(mayHold).length} that may hold it and ${allH.length} in all; by kind ${LAVA_KINDS.map((k) => `${k} ${lavaAll.filter((h) => h.lava!.kind === k).length}`).join(', ')}`);
     const rivers7d = lavaAll.filter((h) => h.lava!.kind === 'river');
     const troughs7d = lavaAll.filter((h) => h.lava!.kind === 'trough');
@@ -405,11 +427,29 @@ describe('the Floor generator soak', () => {
     const bridgeWidth = (h: FloorPlan['halls'][number], q: { x0: number; z0: number; x1: number; z1: number }) => (h.lava!.walls[0] === 'n' || h.lava!.walls[0] === 's' ? q.x1 - q.x0 : q.z1 - q.z0);
     const bridges7d = rivers7d.flatMap((h) => h.lava!.bridges.map((q) => bridgeWidth(h, q)));
     const trough7d = (h: FloorPlan['halls'][number]) => Math.min(...h.lava!.rects.map((q) => Math.min(q.x1 - q.x0, q.z1 - q.z0)));
-    const lavaRectsPerFloor = floors.map((p) => p.halls.reduce((n, h) => n + (h.lava?.rects.length ?? 0), 0));
+    const lavaRectsPerFloor = floors.map((p) => p.halls.reduce((n, h) => n + (lava7d(h) ? h.lava!.rects.length : 0), 0));
     lines.push(`  rivers ${rivers7d.length}: by bridges ${[1, 2].map((n) => `${n}: ${rivers7d.filter((h) => h.lava!.bridges.length === n).length}`).join(', ')}, other ${rivers7d.filter((h) => h.lava!.bridges.length < 1 || h.lava!.bridges.length > 2).length}; bridges ${bridges7d.length} by width ${[4, 6].map((w) => `${w} m: ${bridges7d.filter((x) => x === w).length}`).join(', ')}, other ${bridges7d.filter((x) => x !== 4 && x !== 6).length}`);
     lines.push(`  trough Halls ${troughs7d.length}: by walls ${[1, 2].map((n) => `${n}: ${troughs7d.filter((h) => h.lava!.walls.length === n).length}`).join(', ')}; by depth ${[2, 4].map((n) => `${n} m: ${troughs7d.filter((h) => trough7d(h) === n).length}`).join(', ')}; pits ${lavaAll.filter((h) => h.lava!.kind === 'pit').length}`);
     lines.push(`  lava in Boss Halls ${lavaAll.filter((h) => h.kind === 'Boss').length}, Stairs Halls ${lavaAll.filter((h) => h.kind === 'Stairs').length}, Fight ${lavaAll.filter((h) => h.kind === 'Fight').length}, Empty ${lavaAll.filter((h) => h.kind === 'Empty').length}, great halls ${lavaAll.filter((h) => h.great).length}; Floors with lava ${lavaRectsPerFloor.filter((n) => n > 0).length} of ${floors.length}; lava rects a Floor: mean ${fmt(mean(lavaRectsPerFloor))}, max ${Math.max(...lavaRectsPerFloor)}`);
     lines.push(`  navmesh Floors: jump Links that take off or land within ${LAVA_KEEP} m of lava or pass over it: ${nav.reduce((n, x) => n + x.nearLava, 0)}; Links onto or from a lava Walk Surface: ${nav.reduce((n, x) => n + x.ontoLava, 0)}`);
+
+    // Stage 7f: set pieces per Run tier and kind against all Halls; the dropped rolls; the kinds' own counts.
+    const PIECES = ['cross', 'uphill', 'spiral'] as const;
+    const tierPieces = [1, 2, 3].map((tier) => {
+      const hs = hallsOf(passing.filter((d) => tierOf(tuning.delver, d.floor) === tier).map((d) => d.layout!));
+      const has = hs.filter((h) => setPieceOf(h));
+      return { tier, all: hs.length, has: has.length, kinds: PIECES.map((k) => has.filter((h) => setPieceOf(h) === k).length) };
+    });
+    for (const x of tierPieces) {
+      lines.push(`  set pieces, tier ${x.tier}: ${x.has} of ${x.all} Halls (${pct1(x.has, x.all)}); by kind ${PIECES.map((k, i) => `${k} ${x.kinds[i]} (${pct1(x.kinds[i]!, x.has)})`).join(', ')}; dropped rolls (every attempt) ${JSON.stringify(DROPS[x.tier - 1])}`);
+    }
+    const piecesAll = allH.filter((h) => setPieceOf(h));
+    const uphills = piecesAll.flatMap((h) => (h.feature?.kind === 'uphill' ? [h.feature] : []));
+    const spirals = piecesAll.flatMap((h) => (h.feature?.kind === 'spiral' ? [{ h, f: h.feature }] : []));
+    const crosses = piecesAll.filter((h) => h.lava?.kind === 'cross');
+    const fallbacks = piecesAll.filter((h) => setPieceOf(h) !== 'cross' && ['Entrance', 'Rest', 'Treasure'].includes(h.kind));
+    lines.push(`  Uphills ${uphills.length} (rise 1: ${uphills.filter((f) => f.rise === 1).length}, rise 2: ${uphills.filter((f) => f.rise === 2).length}); Spirals ${spirals.length} (bases ${['n', 'e', 's', 'w'].map((b) => `${b} ${spirals.filter((x) => x.f.base === b).length}`).join(', ')}; turns ${[0, 1].map((tn) => `${tn}: ${spirals.filter((x) => x.f.turn === tn).length}`).join(', ')}; well levels ${[0, 1].map((l) => `${l}: ${spirals.filter((x) => x.h.level === l).length}`).join(', ')}); Lava Bridges ${crosses.length} (arms ${[1, 2, 3, 4].map((a) => `${a}: ${crosses.filter((h) => h.lava!.bridges.length === a).length}`).join(', ')}; in great halls ${crosses.filter((h) => h.great).length})`);
+    lines.push(`  set pieces by Hall kind: ${KINDS.map((k) => `${k} ${piecesAll.filter((h) => h.kind === k).length}`).join(', ')}; an Uphill or Spiral on the Entrance, a Rest or the Treasure (the fallback): ${fallbacks.length} (${fallbacks.map((h) => `${setPieceOf(h)} on ${h.kind}`).join(', ') || 'none'})`);
 
     // Stage 7b: Hall shapes, pillars and Blocks.
     const SHAPE_NAMES = ['L', 'T', 'cross', 'ring'] as const;
@@ -504,7 +544,7 @@ describe('the Floor generator soak', () => {
     expect(featureShare, 'share of Halls with a split, pit or dais').toBeGreaterThanOrEqual(0.22);
     expect(featureShare, 'share of Halls with a split, pit or dais').toBeLessThanOrEqual(0.28);
     // Stage 7d: every kind on every tier, the rarer shapes, the places lava may stand, the tiers' shares, and no Link onto lava.
-    for (const x of tierLava) {
+    for (const x of shippedLava) {
       LAVA_KINDS.forEach((k, i) => expect(x.kinds[i], `no ${k} on tier ${x.tier}`).toBeGreaterThan(0));
     }
     [[14, 20], [22, 28], [30, 36]].forEach(([lo, hi], i) => {
@@ -521,6 +561,16 @@ describe('the Floor generator soak', () => {
     for (const k of LAVA_KINDS) expect(lavaAll.filter((h) => h.lava!.kind === k).length / lavaAll.length, `${k} under a tenth of the lava Halls`).toBeGreaterThanOrEqual(0.1);
     expect(nav.reduce((n, x) => n + x.ontoLava, 0), 'a Link onto or from lava').toBe(0);
     expect(nav.reduce((n, x) => n + x.nearLava, 0), 'a jump Link that takes off or lands near lava or passes over it').toBe(0);
+    // Stage 7f: each kind on every tier, the cases the Design asks for, and about 1 Hall in 10 on every tier.
+    for (const x of tierPieces) {
+      PIECES.forEach((k, i) => expect(x.kinds[i], `no ${k} on tier ${x.tier}`).toBeGreaterThan(0));
+      expect((100 * x.has) / x.all, `share of Halls with a set piece, tier ${x.tier}`).toBeGreaterThanOrEqual(7);
+      expect((100 * x.has) / x.all, `share of Halls with a set piece, tier ${x.tier}`).toBeLessThanOrEqual(13);
+    }
+    expect(uphills.filter((f) => f.rise === 2).length, 'no 2-level Uphill').toBeGreaterThan(0);
+    expect(crosses.filter((h) => h.lava!.bridges.length === 4).length, 'no 4-arm Lava Bridge').toBeGreaterThan(0);
+    expect(crosses.filter((h) => h.great).length, 'no Lava Bridge in a great hall').toBeGreaterThan(0);
+    for (const b of ['n', 'e', 's', 'w']) expect(spirals.filter((x) => x.f.base === b).length, `no Spiral based ${b}`).toBeGreaterThan(0);
     const total = passing.map((d) => d.plan + d.build + d.judge);
     expect(mean(total), `passing attempt plan + build + judge averages ${fmt(mean(total))} ms`).toBeLessThanOrEqual(BUILD_MEAN_MS);
     expect(Math.max(...total), `slowest passing attempt ${fmt(Math.max(...total))} ms`).toBeLessThanOrEqual(BUILD_MAX_MS);
