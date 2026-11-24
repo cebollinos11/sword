@@ -14,7 +14,8 @@
 - [x] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
 - [x] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [x] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
-- [ ] Stage 7f: set-piece rooms (Lava Bridge, Uphill Room, Spiral Stair; designed 2026-11-24; Tasks 1 to 5 done 2026-11-24, Tasks 6 and 7 left)
+- [x] Stage 7f: set-piece rooms (Lava Bridge, Uphill Room, Spiral Stair)
+- [ ] Stage 7g: drawn rooms (special rooms drawn 1:1 in the Map Editor's room mode, saved as `data/delver/rooms/<name>.json`; designed 2026-11-24)
 - [ ] Stage 7e: archetypes (procedural room recipes per Hall kind) (parked)
 - [x] Stage 8: online co-op (up to four Players, Input Delay, soak)
 - [x] Stage 8a: traitors (humans on Team 1 driving Warband Soldiers; issue #134)
@@ -2963,6 +2964,216 @@ Task 6's `ai-walk` and Task 7's soak case are the evidence. If an ally, the pilo
 5. **The switch**: tune the values with the plan-only probe, then `version.ts` (15), the golden pins, `delverGen.slow.test.ts` (run once, alone), `setPieces7f` removed, the moved tests (listed), and `npm test` once.
 6. **The AI check**: `npm run ai-walk` (§14). Make §11's fix only on that evidence; otherwise record that it was skipped and why.
 7. **The soak case**: §14's one case. Then `/code-review high` over the Stage, and the Result.
+
+### Stage 7g: drawn rooms
+**Model**: Opus (the room format, the plan's placement and the editor's room mode), then Sonnet for the tests and the checks. Asked for by the user on 2026-11-24, after 7f: new special rooms should be drawn by the user in the Map Editor, not designed as code. The user's calls of that day:
+- a room is drawn **1:1**: never scaled; the Hall takes the room's size;
+- doorways stand **only at a wall's centre**, as every Hall's do today;
+- the drawn rooms share **one** set-piece weight, `room`, and are picked evenly within it.
+
+What 7g ships:
+- a **room mode** in the Map Editor: the user drags in the room's pieces, marks its doorways and centre, presses **Check room** (seconds, this room only) and **Save**;
+- a **room file** per room, `data/delver/rooms/<name>.json`;
+- a **fourth set-piece kind**, `room`, which places a drawn room in a Hall that can take it.
+
+Once 7g is in, **adding a room is data only**: draw, Check room, Save, commit. No code, no version bump, no golden pin to retake (§9).
+
+- **Done**:
+  - a room drawn in the editor, checked, saved, and seen in a generated Floor (`&delverPiece=room&delverRoom=<name>`);
+  - the fixture room's tests (§10);
+  - `npm run ai-walk -- --seeds 1-20 --floors 1,5,9 --piece room` clean;
+  - a screenshot of the room mode and of a placed room.
+
+#### Design
+Written 2026-11-24 on base commit `11a4378` (7f done). Battles, Duels and every Floor with no drawn room are unchanged. **No new hashed state**: a room is Tuning Data, so the plan and the Map Source are rebuilt from (Run seed, Floor) on every peer, as 7a to 7f. `DELVER_VERSION` 15 → 16 (the engine). A new room file changes the Tuning Data hash by itself, so it needs no version bump. **With no room file, or `weights.room` 0**, no room is picked, and a Floor's plan, source and map are byte for byte 7f's.
+
+**The flow** (the user's calls for 7f hold):
+- Test in the Map Editor and with the AI check, never by playing a Run ("Testing the generator").
+- Run only the test files a task touches. Run `npm test` once, at the end.
+- No `*.slow.test.ts` is rerun. No soak case is added: Check room (§5) and `ai-walk` are the evidence.
+- Work in one session, the tasks in order. Review once with `/code-review high` over the Stage.
+- Where the code proves a rule here wrong, amend this Design in place with the date and the reason.
+
+**1. The words.**
+- A **drawn room** (a *room*) is a special room the user draws in the Map Editor's room mode and saves as a room file.
+- The **room frame** is its own coordinates: its centre at (0, 0), north +z, its floor (the doorway level 0) at y 0.
+- A room is placed in one of 8 **frames**: 4 quarter turns, each optionally mirrored. Turns and mirrors keep whole metres and the walls' parity, as `frameOf` does for 7f.
+- Like the Uphill and the Spiral, a room is a **vertical feature** (`DelverFeature += DelverRoom`). So the one-feature rule, `hallBase`, `lift`, `raised`, `inRange` and the skips of galleries, splits, pits, daises, 7d lava, shapes and pillars all cover it.
+
+**2. The room file** (`data/delver/rooms/<name>.json`; Tuning Data, parsed by `parseRoom` in `src/tuning/delverRooms.ts`, bundled by a glob as `data/battlemaps/` is, and folded into `tuningDataHash`):
+```json
+{
+  "name": "crucible",
+  "half": [11, 9],
+  "doorways": { "n": 0, "s": 0, "e": 2 },
+  "centre": [0, -3],
+  "kinds": ["Fight", "Empty", "Stairs"],
+  "brushes": [ { "kind": "platform", "id": "p0", "rect": { "x0": -11, "z0": 5, "x1": 11, "z1": 9 }, "top": 2 }, "..." ]
+}
+```
+- `name` is the file's name: letters, digits and `-`.
+- `half` is [half-width, half-depth] in whole metres, each within `delver.floor.halfSize` ([7, 14] shipped: rooms 14 to 28 m a side).
+  - Great halls are **not** in 7g: their long-side doorways are not at a wall's centre.
+- `doorways`: the walls that **may** hold a doorway (at the wall's centre, `passage` wide), each with its floor's height in levels (`LEVEL_RISE`), relative to the room's floor.
+  - At least one wall must be listed.
+  - Any wall left out is always solid. A listed wall that the Floor does not use is solid too.
+- `centre`: the room's centre point (room frame), where every centre marker stands: posts, the Warband home, the Boss, the Stairs zone, patrol points.
+- `kinds`: the Hall kinds it may serve, from Fight, Empty, Stairs and Boss. Absent means all four.
+  - Never Entrance, Rest or Treasure (7f's rule).
+  - Boss works only once a room is great-sized, so in practice not in 7g.
+- `brushes`: the pieces, in room-frame metres. They are Map Source Brushes parsed by the Map Editor's own parser (`parseMapSource`'s Brush half):
+  - allowed kinds: `platform`, `ramp`, `block`, `rail`, `wall`, `hole` and `hazard` (`hazard: "lava"` only; a lava pool is a Hole with its Hazard under it, as 7d writes them);
+  - no `enclosure`, `floor` or `deck`: the generator writes the Hall's Enclosure from `half` and the used doorways.
+- **Parse checks**:
+  - every Brush lies inside the room's rect;
+  - every rect edge, and every Rail or Wall end, is a whole even number of metres from the walls. Then it lands on an odd world metre, off the fields' 2 m dots, in every frame;
+  - every height is a whole metre at or above `−LAVA_DEPTH`;
+  - each doorway floor is a whole level in 0..3. The floor 1 m inside the doorway must be at that height: the room's floor at 0, or a Platform's `top`;
+  - no Ramp is steeper than `MAX_SLOPE`;
+  - `centre` is on a floor, at least `CENTRE_CLEAR` from any Block, Hole, lava or edge;
+  - the `id`s are unique.
+
+  A room that fails is refused by `loadTuningData` with the file and the reason, as a bad Battle map is.
+- A room's **top** is its highest floor (doorway or Platform) plus `HALL_STOREY`, as a Spiral's is.
+
+**3. The Tuning** (`data/delver.json`, `delver.floor.setPieces`):
+- `weights` gains `room`, **last** in the pick order: `[cross, uphill, spiral, room]`.
+  - With `room` 0, `byWeight` picks exactly as 7f does. Task 1 proves this; if it does not hold, `room` gets its own roll instead and this line is amended.
+- Shipped: `room` 0 until the first room file lands. Task 5 sets it to 1 if a room file has shipped by then.
+- **Parse check**: `room` > 0 needs at least one room file.
+- `noRooms(tuning)` (tests, `flat.testdata.ts`): `weights.room` 0 and no rooms. `noSetPieces` applies it.
+- `onlySetPiece(tuning, 'room', name?)`: as 7f's, and with `name`, that room only (the editor and `ai-walk`).
+
+**4. The pick** (`plan.ts`, step 3a′, beside the Uphill and the Spiral):
+- **New `SALT` keys** go after 83, so no existing pick moves: `roomPick` 84, `roomFrame` 85.
+- When a Hall's set-piece kind is `room`:
+  - It is great: it stays plain (counted, `great`).
+  - Otherwise, the **candidates** are each (room, frame) pair where:
+    - the Hall's kind can be one of the room's `kinds` (the kinds come at step 7, so this filter is applied there, as 7f's Entrance, Rest and Treasure filters are);
+    - every tree Passage of the Hall leaves by a wall that is a doorway in that frame;
+    - `inRange` holds: `level + max(doorway lifts, Platform tops / LEVEL_RISE) ≤ levels.max`, and `level ≥ 0`.
+
+    With no candidate, the Hall stays plain (counted, `fit`).
+  - Among the candidates, the room is `pick(h, roomPick, rooms)`, picked **evenly** among the rooms that have at least one fitting frame (the user's call). Its frame is `pick(h, roomFrame, frames)`, among that room's fitting frames.
+  - **The Hall takes the room's size**: its half-width and half-depth become the frame's `half` (swapped on a quarter turn).
+    - This happens before any Passage is cut. Task 2 checks in `plan.ts` that the Passages' rects are cut from the final Hall rects. If any is cut earlier, it re-cuts it, and records which.
+    - `halfSize` bounds the room, so the lattice gaps (which hold `halfSize[1]`) still fit.
+- **4. Loops**: `loopOk` refuses a slot on a wall that is not a doorway in the room's frame.
+- **Door heights**: `lift` on each doorway wall is its level. A wall with lift > 0 is `raised` (its Passage is flat and cuts the door at that height), as the Spiral's walls 2 to 4 are.
+- The Hall's `level` and `y` are the room's floor. `hallBase` is `y` lowered by the room's deepest Hole (lava or a pit), if it has one.
+- **The centre** is set from `centre` (in the frame) on the work Hall before 7c and step 9, as the Uphill's is.
+- **Kinds (7)**: the Entrance's, each Rest's and the Treasure's pool drop the Halls with a room (`setHall(h)`), as 7f's do, with the same fallback. A Hall whose final kind is not in its room's `kinds` loses the room and stays plain (counted, `kind`).
+- `DelverRoom` is `{ kind: 'room', name, frame, half, steps, lava }`:
+  - `steps`: its Ramps as `DelverStep`, so the clutter, the source and the judge read them;
+  - `lava`: its lava rects, given to `DelverLava` as a new `LavaKind` `'room'`, so drops, revives, the Resurrection Stone, `edgeKeep`, the render, the lights and the maps cover it with no new path.
+- `SetPieceDrops` gains `fit`, and reuses `great` and `kind`.
+
+**5. The Map Editor's room mode** (`src/mapEditor/`; the user's test loop):
+- **File → New dungeon room**: a name, a width and a depth (even, 14 to 28 m, from `halfSize`).
+  - It opens a source holding the room's Enclosure, **locked**: it cannot be moved, resized or deleted.
+  - It also has an abyss field, as the spike Floor has, and a stub Passage 8 m long at each doorway.
+  - Levels 0 to 3 (`LEVEL_RISE` apart) are set up.
+- **File → Open dungeon room** lists the bundled `data/delver/rooms/*.json`, or takes a file.
+- **The Room folder**:
+  - per wall, a doorway toggle and its level; the stub Passage follows;
+  - the room's `kinds`;
+  - the **centre**, a marker dragged like an Objective;
+  - the room's size, which can be changed later; Brushes outside the new rect are flagged red.
+- **The tools** are the usual ones, limited to the allowed kinds (§2). **Lava** is one tool that writes the Hole and its Hazard together, at `LAVA_DEPTH`.
+  - The grid snaps to whole metres and to 2 m steps from the walls, so every edge meets §2's parity.
+  - Heights snap to whole metres.
+- **Check room** (button, and `&roomcheck=1` on the URL) works on the room alone, as the stub map, in frame 0 and in one turned and mirrored frame:
+  1. `parseRoom` (§2's checks);
+  2. compile, then `walkCheck`;
+  3. the navmesh;
+  4. **the AI walk** (`walkAll`, `navWalk.ts`, as `&aiwalk=1` uses):
+     - a leg from the centre to 1 m inside each doorway and back;
+     - a leg between each pair of doorways;
+     - a leg from the centre to the middle of each Platform and each Ramp's top.
+
+  Problems are listed in the Checks folder under "Room", with the AI traces drawn as today. No Floor is generated, so it takes seconds.
+  - A Platform no leg reaches is a **warning**, not an error: a ledge may be meant to be reached only by a Jump.
+  - A doorway or the centre unreachable is an **error**.
+- **Save** writes the room file (`saveJsonFile`), only once Check room has passed on the source as it stands. Otherwise the first problem is shown, as a Battle map's Save does.
+- **Try in a Floor**: the Delver dialog's Set piece choice gains `room`, and a Room choice lists the rooms.
+  - The URL form is `&delverPiece=room&delverRoom=<name>`.
+  - It deals the Floor on `onlySetPiece(tuning, 'room', name)`, editor only.
+  - The room being edited is used even if unsaved (it is passed to the Tuning in place of the bundled file).
+- `npm run room-check -- <name>` (or `--all`): the same checks from the command line, for an agent. It exits 1 on a problem and prints the editor link (`#/mapeditor?dev=1&room=<name>&roomcheck=1`).
+
+**6. The source** (`source.ts`):
+- The Hall's Enclosure, with `top` from §2.
+- Then the room's Brushes, turned into its frame and moved to the Hall's centre, with ids `<hall>-<brush id>`.
+- Each Platform's `top` and each lava floor go into `levels`.
+- The Brushes are written where the 7c features are, so the order is fixed by the Hall index and the room's Brush order.
+
+**7. The judge** (`judge.ts`):
+- **New plan rule `rooms`** (after `setPieces`). It fails, one line each, on:
+  - the Hall's rect not the frame's size;
+  - a held slot on a wall that is not a doorway;
+  - a door's height not its doorway's;
+  - the centre not at the frame's centre point;
+  - a room on a kind outside its `kinds`, or on the Entrance, a Rest or the Treasure (counted, not failed, on 7f's fallback);
+  - a Brush outside the rect.
+- **New built rule `roomWalk`** (after `setPieceWalk`): the field toward the centre reads ≥ 0 at 1 m inside each held doorway, at its height.
+- 7d's marker, keep and Warband-home rules already run on every lava kind, so they run on `'room'` too.
+- `describeFloor` adds `r drawn rooms` to its set-piece count.
+
+**8. The AI.** Nothing changes up front: a room is Platforms, Ramps, Blocks and 7d lava, which the AI already handles. Check room and `ai-walk` are the evidence.
+- If a fault shows only in rooms (most likely an ally walking off a tall open Platform edge with nothing pushing it), Task 5 fixes it with a scenario test. 7f's §11 note about `edgeKeep` applies.
+
+**9. Pins and tests that a new room must not break**:
+- The existing golden pins (`PINS`, `TIER_PINS`) run on `noRooms(shipped)`, and so do the existing Delver tests that use the shipped Tuning. So committing a room file moves no pin.
+- The rooms' own pins use a **fixture room** (`src/sim/delver/rooms.testdata.ts`), not the shipped files.
+- `src/tuning/delverRooms.test.ts` loads **every** shipped room file and runs `parseRoom` and Check room's checks on each, without the AI walk. That makes a bad room file a fast test failure.
+- `delverGen.slow.test.ts` is not changed by 7g.
+
+**10. Tests to add**:
+- **Task 1**:
+  - `delverRooms.test.ts`: each §2 parse check refused with its reason, and the 8 frames of the fixture keep whole metres and parity;
+  - `tuning.test.ts`: the `room` key and its check;
+  - with `room` 0, `planFloor` equals 7f's (`JSON.stringify`) over 200 seeds × Floors 1 to 9.
+- **Task 2** (`plan.test.ts`, on `onlySetPiece(tuning, 'room')` with the fixture):
+  - the Hall takes the frame's size;
+  - Passages only on doorway walls, at the doorway's height;
+  - the centre is placed;
+  - no other feature in the Hall;
+  - kinds are respected;
+  - each frame is seen over the 200 seeds;
+  - on `noRooms`, the plan equals 7f's.
+- **Task 3** (`source.test.ts`): the Brushes in each frame, ids and `levels`; the placed room compiles and passes `walkCheck`; on `noRooms`, the source equals 7f's.
+- **Task 4** (the editor):
+  - `session.test.ts`: the locked Enclosure refuses a move, resize and delete; the Lava tool writes both Brushes;
+  - `roomCheck` tests on the fixture, and on a broken copy with a walled-off doorway (an error) and an unreachable Platform (a warning).
+- **Task 5** (`judge.test.ts`): `rooms` fires on a moved door, a slot on a solid wall and a wrong door height; `roomWalk` fires on a doorway blocked by a Block; `describeFloor`'s count.
+
+**Tasks**, one after another:
+1. **The room file and the Tuning**:
+   - `src/tuning/delverRooms.ts` (`parseRoom`, the frames, the glob) and its tests;
+   - `delver.ts`'s `room` weight;
+   - `flat.testdata.ts`'s `noRooms`;
+   - the fixture room.
+2. **The plan**: §4, `plan.test.ts`, the golden pins moved onto `noRooms` (their hashes unchanged), and `version.ts` (16).
+3. **The source**: §6 and its tests.
+4. **The editor**: §5 (room mode, Check room, Save, Try in a Floor, `room-check`).
+   - Then the user's first room is drawn in it. The user draws it, or Claude draws the fixture through the session in the console.
+   - Take the screenshots, shown to the user and not committed. Fix anything they show before the judge is written.
+5. **The judge and the AI check**:
+   - §7, `judge.test.ts`;
+   - `npm run ai-walk -- --seeds 1-20 --floors 1,5,9 --piece room` (`--piece room` deals on `onlySetPiece(tuning, 'room')` over every shipped room);
+   - §8's fix only on that evidence;
+   - `weights.room` 1 if a shipped room exists;
+   - `npm test` once. Then `/code-review high` over the Stage, and the Result.
+
+**Adding a room after 7g** (the checklist for the user, or for an agent asked to add one):
+1. `npm run dev`, open `/sword/#/mapeditor?dev=1`, then File → New dungeon room (or Open dungeon room).
+2. Draw it, set the doorways, the kinds and the centre.
+3. Check room until it is clean.
+4. Save it to `data/delver/rooms/<name>.json`.
+5. Optionally, Try in a Floor with `&delverPiece=room&delverRoom=<name>&aiwalk=1`.
+6. `npx vitest run src/tuning/delverRooms.test.ts`, then commit the file.
+
+No other test, pin or version needs to change.
 
 ### Stage 7e: archetypes
 **Model**: Opus (the recipes), then Sonnet.
