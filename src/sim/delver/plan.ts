@@ -9,7 +9,7 @@
  * floating-point trig, every tie broken by the lower index.
  */
 import type { TuningData } from '../../tuning';
-import type { DelverFloorTuning } from '../../tuning/delver';
+import type { DelverFloorTuning, GalleryPiece } from '../../tuning/delver';
 import type { Brush, Doors, Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
 import { framedRoom, frameHalf, ROOM_FRAMES, type DrawnRoom } from '../../tuning/delverRooms';
@@ -256,6 +256,81 @@ export function onlySetPiece(tuning: TuningData, kind: SetPieceKind, room?: stri
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { percent: [100], weights }, drawnRooms } } };
 }
 
+/** The Set Piece Gallery's lattice is at most this many columns wide, snaking back and forth over as many rows as it needs. */
+const GALLERY_COLS = 5;
+const galleryCache = new WeakMap<DelverFloorTuning, DelverFloorTuning>();
+
+/**
+ * The Set Piece Gallery (dev only): `f` made into a Floor that holds every set piece, one after another: a Lava Bridge, an Uphill, a Spiral, then each
+ * drawn room in file order. The Halls snake over the lattice (left to right, then back), from the Entrance to the Stairs, each joined to the one before
+ * by a straight Passage; the Hall after the Entrance and those where the snake turns are plain, so each set piece has its doorways on opposite walls.
+ * Each set piece Hall is a Fight (a drawn room that may not be one, Empty) and each plain Hall Empty. No loops, Rests, Treasure, great halls or other features. `planFloor` follows `gallery` instead of rolling; `delverFloor` refuses an
+ * attempt where a piece did not fit. The same object for the same `f`.
+ */
+export function galleryFloorTuning(f: DelverFloorTuning): DelverFloorTuning {
+  const cached = galleryCache.get(f);
+  if (cached) return cached;
+  const wanted: GalleryPiece[] = [{ kind: 'cross' }, { kind: 'uphill' }, { kind: 'spiral' }, ...f.drawnRooms.map((r) => ({ kind: 'room' as const, room: r.name }))];
+  const cols = Math.min(GALLERY_COLS, wanted.length + 2);
+  // The Entrance alone on row 0; the snake from the cell north of it, over rows 1 on, one cell at a time: first a plain Hall (the Passage into it turns,
+  // so no Warband is in sight of the spawns), then the pieces in order, but where the snake turns: a row's end cell (where it turns north) and the next
+  // row's first are plain. Then the Stairs.
+  const path: number[] = [0];
+  const pieces: (GalleryPiece | null)[] = [null];
+  let next = 0;
+  for (let k = 0; next < wanted.length || pieces[pieces.length - 1] !== null; k++) {
+    const j = 1 + Math.floor(k / cols);
+    const along = k % cols;
+    const i = j % 2 === 1 ? along : cols - 1 - along;
+    path.push(j * cols + i);
+    const turn = along === 0 || (along === cols - 1 && next < wanted.length);
+    pieces.push(turn || next >= wanted.length ? null : wanted[next++]!);
+  }
+  const rows = Math.floor(path[path.length - 1]! / cols) + 1;
+  const big = f.halfSize[1];
+  const out: DelverFloorTuning = {
+    ...f,
+    cols,
+    rows,
+    rooms: path.length,
+    // Gaps wide enough for the biggest Halls with a Passage of a few metres between, and Halls as big as they come (a set piece wants the room).
+    gaps: [2 * big + f.minPassage + 4],
+    halfSize: [Math.max(f.halfSize[0], big - 2), big],
+    farPercent: 0,
+    turnPercent: 0,
+    loops: [0, 0],
+    rests: [0, 0],
+    treasures: 0,
+    emptyPercent: 0,
+    patrols: 0,
+    maxAttempts: Math.max(f.maxAttempts, 100),
+    levels: { ...f.levels, galleryPercent: 0, min: 1 },
+    galleries: { ...f.galleries, wrapPercent: 0, stairPercent: 0 },
+    features: { ...f.features, percent: 0, daisPercent: 0 },
+    great: { ...f.great, count: [0, 0] },
+    shapes: { ...f.shapes, percent: 0 },
+    pillars: { ...f.pillars, percent: 0 },
+    lava: { ...f.lava, percent: [0] },
+    setPieces: { ...f.setPieces, percent: [100] },
+    gallery: { path, pieces },
+  };
+  galleryCache.set(f, out);
+  return out;
+}
+
+/** The reasons a Set Piece Gallery plan is refused: each Hall whose set piece is not the one `t.gallery` wants (it did not fit). [] for a plan that is not a gallery's. */
+export function galleryReasons(t: DelverFloorTuning, plan: FloorPlan): string[] {
+  if (!t.gallery) return [];
+  return t.gallery.pieces.flatMap((want, h) => {
+    const hall = plan.halls[h];
+    if (!hall) return [`gallery: Hall ${h} missing`];
+    const got = setPieceOf(hall);
+    const gotRoom = hall.feature?.kind === 'room' ? hall.feature.name : undefined;
+    if ((want?.kind ?? undefined) === got && want?.room === gotRoom) return [];
+    return [`gallery: ${hall.id} wants ${want ? (want.room ?? want.kind) : 'no set piece'}, got ${gotRoom ?? got ?? 'none'}`];
+  });
+}
+
 /** Why a set-piece roll left its Hall plain or was undone (Stage 7f): a plan-only count, never part of the plan. */
 export interface SetPieceDrops {
   great: number;
@@ -386,6 +461,8 @@ export interface FloorPlan {
   /** The Halls in line with the Entrance (never posts or patrol Halls), in the order followed. */
   readonly inLine: readonly number[];
   readonly markers: DelverMarkers;
+  /** The Set Piece Gallery's Floor (dev only, `galleryFloorTuning`); absent on every Run's Floor. */
+  readonly gallery?: true;
 }
 
 /** `runPick` salts, so each choice made for one slot is independent of the others. */
@@ -1111,7 +1188,9 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
 
   // 3. Growth: the spanning tree. A Boss Floor with great halls wanted starts with one (Hall 0, the Boss Hall).
   const G = t.great.count[1] > 0 ? t.great.count[0] + pick(0, SALT.greatCount, t.great.count[1] - t.great.count[0] + 1) : 0;
-  const start = pick(0, SALT.start, cells);
+  // The Set Piece Gallery (dev only) grows along its path: from its first cell, each Hall joined to the one before.
+  const gallery = t.gallery;
+  const start = gallery ? gallery.path[0]! : pick(0, SALT.start, cells);
   const startGreat = boss && G >= 1;
   if (startGreat) {
     const k: 'x' | 'z' = pick(0, SALT.greatAxis, 2) === 0 ? 'x' : 'z';
@@ -1137,6 +1216,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const c1 = stepCell(slot.cell, d);
         if (c1 < 0) continue;
         if (reserved[c1] || occupied[c1]! >= 0) continue;
+        if (gallery && (h !== halls.length - 1 || c1 !== gallery.path[halls.length])) continue;
         near.push({ h, s: sIdx, d, c1 });
         const c2 = stepCell(c1, d);
         if (c2 >= 0 && !reserved[c2] && occupied[c2]! < 0) far.push({ h, s: sIdx, d, c1, c2 });
@@ -1255,8 +1335,10 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   if (setP > 0) {
     const sw = t.setPieces.weights;
     halls.forEach((hall, h) => {
-      if (pick(h, SALT.setPiece, 100) >= setP) return;
-      const want = SET_PIECE_KINDS[byWeight(h, SALT.setPieceKind, [sw.cross, sw.uphill, sw.spiral, sw.room])]!;
+      const forced = gallery ? gallery.pieces[h] ?? null : undefined;
+      if (forced === null) return;
+      if (forced === undefined && pick(h, SALT.setPiece, 100) >= setP) return;
+      const want = forced ? forced.kind : SET_PIECE_KINDS[byWeight(h, SALT.setPieceKind, [sw.cross, sw.uphill, sw.spiral, sw.room])]!;
       if (want === 'cross') {
         crossRes[h] = true;
         return;
@@ -1269,7 +1351,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       const held = (d: number) => hall.slots.some((sl) => sl.d === d && sl.p !== -1);
       if (want === 'room') {
         // Stage 7g: each (room, frame) that fits, then a room picked evenly among those with a fitting frame, then one of its frames. The Hall takes the frame's size.
-        const fits = t.drawnRooms.map((room) => ROOM_FRAMES.filter((f) => roomFits(h, room, f) !== null));
+        const fits = t.drawnRooms.map((room) => (forced && room.name !== forced.room ? [] : ROOM_FRAMES.filter((f) => roomFits(h, room, f) !== null)));
         const rooms = t.drawnRooms.flatMap((_, k) => (fits[k]!.length > 0 ? [k] : []));
         if (rooms.length === 0) {
           drops.fit = (drops.fit ?? 0) + 1;
@@ -1668,7 +1750,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     stairs = 0;
   } else {
     const pool = plainOf(flats.length > 0 ? flats : notGreat.length > 0 ? notGreat : leaves.length > 0 ? leaves : halls.map((_, h) => h));
-    entrance = pool[pick(0, SALT.entrance, pool.length)]!;
+    entrance = gallery ? 0 : pool[pick(0, SALT.entrance, pool.length)]!;
     stairs = entrance;
   }
 
@@ -1890,9 +1972,10 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
 
   // Fight / Empty: the Halls left. Those in line are Empty; of the others, a share by a seeded order, a great hall never one of them (it is a Fight).
   const left = halls.map((_, h) => h).filter((h) => kind[h] === null);
-  const leftInLine = left.filter((h) => isInLine[h]);
+  // The Set Piece Gallery's Halls are all in line: there its plain Halls are Empty and its set pieces the others (a set piece is tried with its Warband).
+  const leftInLine = left.filter((h) => (gallery ? !gallery.pieces[h] : isInLine[h]));
   const free = left
-    .filter((h) => !isInLine[h])
+    .filter((h) => (gallery ? !!gallery.pieces[h] : !isInLine[h]))
     .map((h) => ({ h, key: pick(h, SALT.order, 0x1_0000_0000) }))
     .sort((a, b) => a.key - b.key || a.h - b.h);
   const empties = Math.max(0, Math.floor((left.length * t.emptyPercent) / 100) - leftInLine.length);
@@ -2372,5 +2455,5 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       ...(lava ? { lava } : {}),
     };
   });
-  return { seed, floor, attempt, halls: outHalls, passages: plannedPassages, entrance, stairs, mainPath, inLine, markers };
+  return { seed, floor, attempt, halls: outHalls, passages: plannedPassages, entrance, stairs, mainPath, inLine, markers, ...(gallery ? { gallery: true as const } : {}) };
 }

@@ -15,7 +15,7 @@ import { stepBubbles, unboundSlot, type BossHold } from './bubble';
 import { treasurePickups, warbandDrops } from './delverLoot';
 import { stepCrowd, type CrowdState } from './crowd';
 import { battleMapOf } from './destinations';
-import { arenaTuning, floorArenaName, floorOf } from './delver/world';
+import { arenaTuning, floorOf, runFloorArena } from './delver/world';
 import { deployWarbands, warbandHomes } from './delver/warbands';
 import { isBossFloor } from './delver/troops';
 import { emptyReveal, fullReveal, revealPlace, withReveal } from './delver/reveal';
@@ -92,7 +92,7 @@ function entranceFacing(plan: FloorPlan): number {
  * revives the fallen, and nobody is healed. Pure.
  */
 export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number, previous: SimState | null, rng: SimState['rng'], relics: readonly string[] = []): SimState {
-  const arena = floorArenaName(runSeed(config.arena), floor);
+  const arena = runFloorArena(config, floor);
   const t = arenaTuning(tuning, arena);
   const floorBuilt = floorOf(tuning, arena)!;
   const { plan } = floorBuilt;

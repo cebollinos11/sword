@@ -62,6 +62,17 @@ export interface DelverFloorTuning {
   readonly setPieces: DelverSetPiecesTuning;
   /** The drawn rooms (docs/plans/delver.md, Stage 7g): `data/delver/rooms/*.json` in file order, the set-piece kind `room`'s pool. [] for none. */
   readonly drawnRooms: readonly DrawnRoom[];
+  /**
+   * Dev only, never parsed from the JSON: the Set Piece Gallery (`galleryFloorTuning` in `sim/delver/plan.ts`). The lattice cells the Halls take, in
+   * growth order (each joined to the one before), and the set piece each must hold (a drawn room by its name), null for a plain Hall. Absent on every Run's Floor.
+   */
+  readonly gallery?: { readonly path: readonly number[]; readonly pieces: readonly (GalleryPiece | null)[] };
+}
+
+/** One Hall of the Set Piece Gallery: a set piece kind, and for `room` the drawn room's name. */
+export interface GalleryPiece {
+  readonly kind: 'cross' | 'uphill' | 'spiral' | 'room';
+  readonly room?: string;
 }
 
 /**

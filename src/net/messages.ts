@@ -1,6 +1,6 @@
-import { ATTACK_PHASES, WHIRLWIND_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
+import { ATTACK_PHASES, WHIRLWIND_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
-import { floorArenaName } from '../sim/delver/world';
+import { runFloorArena } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
@@ -271,7 +271,8 @@ function isMatchOptions(v: unknown): boolean {
     isSessionFormatOnMap(v.format, v.arena) &&
     (v.humans === undefined || isPartyHumans(v.humans, v.format === 'Gauntlet')) &&
     // A Run never starts on a dev start Floor online (`delverStart`: solo, dev mode only).
-    v.delverStart === undefined
+    v.delverStart === undefined &&
+    v.delverGallery === undefined
   );
 }
 
@@ -669,7 +670,7 @@ function isDelverRun(v: unknown, players: readonly number[]): boolean {
 /** A Delver Run's Match and its Duel are on the Arena of the Floor the Run is on: `battle:delver<F>s<S>` for its Run seed (`config.arena`'s) and Floor. */
 const isFloorOfRun = (v: Obj, config: Obj): boolean => {
   const floor = (v.delver as Obj).floor as number;
-  return v.arena === floorArenaName(runSeed(config.arena as string), floor) && (v.duel as Obj).arena === v.arena;
+  return v.arena === runFloorArena(config as { arena: string; delverGallery?: true }, floor) && (v.duel as Obj).arena === v.arena;
 };
 
 /** A Run's Duel names the Run's Floor and phase (and the Players away). */
@@ -735,6 +736,7 @@ function isMatchState(v: unknown): v is MatchState {
     (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
     // A Run, and only a Run, carries its progress (`delver`), and its Duel names its Floor.
     config.delverStart === undefined &&
+    config.delverGallery === undefined &&
     // (Nor the retired `delver` flag: a Gauntlet is a Run.)
     config.delver === undefined &&
     (config.traitors === undefined || config.format === 'Gauntlet') &&

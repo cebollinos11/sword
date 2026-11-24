@@ -11,7 +11,7 @@ describe('Floor arena names', () => {
     for (const [seed, floor] of [[SEED, 1], [0, 9], [4_294_967_295, 12]] as const) {
       const name = floorArenaName(seed, floor);
       expect(name).toBe(`battle:delver${floor}s${seed}`);
-      expect(parseFloorArena(name)).toEqual({ seed, floor });
+      expect(parseFloorArena(name)).toEqual({ seed, floor, gallery: false });
     }
   });
 

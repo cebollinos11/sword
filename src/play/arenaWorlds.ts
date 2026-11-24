@@ -1,5 +1,5 @@
-import { arenaOf, navMesh, nextArenaName, runSeed, withGeneratedArena, type Layout, type MatchState } from '../sim';
-import { arenaTuning, floorArenaName, parseFloorArena } from '../sim/delver';
+import { arenaOf, navMesh, nextArenaName, withGeneratedArena, type Layout, type MatchState } from '../sim';
+import { arenaTuning, parseFloorArena, runFloorArena } from '../sim/delver';
 import type { TuningData } from '../tuning';
 
 /**
@@ -41,7 +41,7 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
 function nextFloor(match: MatchState): string | null {
   const run = match.delver;
   if (!run || match.status.status === 'Over' || run.floor >= run.floors) return null;
-  return floorArenaName(runSeed(match.config.arena), run.floor + 1);
+  return runFloorArena(match.config, run.floor + 1);
 }
 
 /**

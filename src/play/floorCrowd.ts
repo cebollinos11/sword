@@ -134,7 +134,8 @@ export class FloorCrowd {
   private nextOf(arena: string): string | null {
     const f = parseFloorArena(arena);
     const { tiers, floorsPerTier } = this.tuning.delver;
-    return f && f.floor < tiers * floorsPerTier ? floorArenaName(f.seed, f.floor + 1) : null;
+    // (The Set Piece Gallery is one Floor.)
+    return f && !f.gallery && f.floor < tiers * floorsPerTier ? floorArenaName(f.seed, f.floor + 1) : null;
   }
 
   /** Prefab `prefab`'s atlas: kept, under way, or baked now (`paced`: a few cells a frame, unless something is in a hurry). */
