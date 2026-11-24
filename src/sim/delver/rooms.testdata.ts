@@ -9,7 +9,7 @@ export const FIXTURE_ROOM_RAW = {
   name: 'fixture',
   half: [11, 9],
   doorways: { n: 0, e: 1, s: 0 },
-  centre: [-1, -3],
+  centre: [1, 1],
   brushes: [
     { kind: 'platform', id: 'ledge', rect: { x0: 7, z0: -9, x1: 11, z1: 9 }, top: 2 },
     { kind: 'ramp', id: 'up', rect: { x0: 3, z0: -9, x1: 7, z1: -5 }, lo: 0, hi: 2, up: 'e', rails: ['s'] },

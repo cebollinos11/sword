@@ -11,7 +11,7 @@
  * Pure: whole metres only, every list in file order.
  */
 import { parseBrush, SIDES, type Brush, type GroundPoint, type Rect, type Side } from '../mapEditor/source';
-import { HALL_STOREY, LAVA_DEPTH, LEVEL_RISE, MAX_SLOPE, CENTRE_CLEAR } from '../sim/delver/plan';
+import { CENTRE_CLEAR, DOOR_LANE, DOOR_SIDE, HALL_STOREY, LAVA_CENTRE, LAVA_DEPTH, LAVA_LANE, LEVEL_RISE, MAX_SLOPE } from '../sim/delver/plan';
 import { array, record, TuningDataError } from './validate';
 
 /** The Hall kinds a drawn room may serve: never the Entrance, a Rest or the Treasure (Stage 7f's rule). */
@@ -257,6 +257,22 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
     if (f.x0 < keep.x1 && keep.x0 < f.x1 && f.z0 < keep.z1 && keep.z0 < f.z1) fail(`${at}.centre`, `at least ${CENTRE_CLEAR} m from every Brush, but ${b.id} is nearer`);
   });
   if (roomFloorAt(room0, centre[0], centre[1]) !== 0) fail(`${at}.centre`, 'on the room\'s floor (y 0)');
+
+  // Lava (7d's rules, which the judge holds a Floor's lava to): no pool within LAVA_CENTRE of the centre (the Stairs zone, the pedestals and the Warband stand
+  // round it), and every pool LAVA_LANE clear of each doorway's lane (the doorway, DOOR_SIDE and DOOR_SHIFT each side, DOOR_LANE deep).
+  const square: Rect = { x0: centre[0] - LAVA_CENTRE, z0: centre[1] - LAVA_CENTRE, x1: centre[0] + LAVA_CENTRE, z1: centre[1] + LAVA_CENTRE };
+  const lanes = SIDES.filter((s) => doorways[s] !== undefined).map((s) => {
+    const w = passage / 2 + DOOR_SIDE + DOOR_SHIFT + LAVA_LANE;
+    const deep = DOOR_LANE + LAVA_LANE;
+    const r: Rect = s === 'n' ? { x0: -w, z0: hd - deep, x1: w, z1: hd } : s === 's' ? { x0: -w, z0: -hd, x1: w, z1: -hd + deep } : s === 'e' ? { x0: hw - deep, z0: -w, x1: hw, z1: w } : { x0: -hw, z0: -w, x1: -hw + deep, z1: w };
+    return { s, r };
+  });
+  const cross = (p: Rect, q: Rect) => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
+  for (const b of brushes) {
+    if (b.kind !== 'hazard') continue;
+    if (cross(b.rect, square)) fail(`${at}.brushes (${b.id})`, `a lava pool keeps ${LAVA_CENTRE} m from the centre (the Stairs zone, the pedestals and the Warband stand round it)`);
+    for (const l of lanes) if (cross(b.rect, l.r)) fail(`${at}.brushes (${b.id})`, `a lava pool keeps ${LAVA_LANE} m from the ${l.s} doorway's lane (${DOOR_LANE} m deep, the doorway and ${DOOR_SIDE + DOOR_SHIFT} m each side)`);
+  }
 
   // A Block stands from the floor to the room's ceiling, whatever `top` the file gives it.
   return { name: name as string, half, doorways, centre, kinds, brushes: brushes.map((b) => (b.kind === 'block' ? { ...b, top } : b)), top };

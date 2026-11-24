@@ -221,6 +221,8 @@ export interface DelverRoom {
   readonly lava: readonly Rect[];
   /** Its ceiling over the Hall's floor (m): the room's `top`. */
   readonly top: number;
+  /** Its centre point (world metres): where the Hall's centre and every centre marker stand. */
+  readonly centre: readonly [number, number];
   /**
    * How far (m) the room stands off its cell's lattice point, on x and z: 0, or 1 m either way where its wall would land on an even metre. A doorway on a wall
    * along a shifted axis is then 1 m off the room's wall centre, at the Passage's line, and cut by the Passage (as a raised door is).
@@ -658,7 +660,7 @@ export function roomFeature(id: string, room: DrawnRoom, frame: number, rect: Re
   });
   const steps: DelverStep[] = brushes.flatMap((b) => (b.kind === 'ramp' ? [{ rect: b.rect, lo: b.lo, hi: b.hi, up: b.up, rails: b.rails }] : []));
   const lava = brushes.flatMap((b) => (b.kind === 'hazard' && b.hazard === 'lava' ? [b.rect] : []));
-  return { kind: 'room', name: room.name, frame, half: fr.half, doorways: fr.doorways, steps, lava, brushes, top: room.top, shift: [0, 0] };
+  return { kind: 'room', name: room.name, frame, half: fr.half, doorways: fr.doorways, steps, lava, brushes, top: room.top, centre: [ox + fr.centre[0], oz + fr.centre[1]], shift: [0, 0] };
 }
 
 interface Edge {
@@ -1469,6 +1471,11 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const unwrap = (h: number): boolean => {
     if (feat[h]) {
       if (feat[h]!.kind === 'uphill' || feat[h]!.kind === 'spiral' || feat[h]!.kind === 'room') drops.range++;
+      // A drawn room dropped gives its Hall back its own cell's rect (its Passages grew against it), centred on its lattice point.
+      if (feat[h]!.kind === 'room') {
+        halls[h]!.rect = cellRect(halls[h]!.cells[0]!);
+        roomAt[h] = null;
+      }
       feat[h] = null;
       return true;
     }
@@ -1749,10 +1756,9 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const L = level[h]!;
     if (f.kind === 'room') {
       // Stage 7g: the room in its frame, moved to the Hall's centre and up to its floor; the centre markers stand at its centre point.
-      featureOf[h] = { ...roomFeature(`hall${h}`, f.room, f.frame, r, y), shift: f.shift };
-      const fr = framedRoom(f.room, f.frame);
-      hall.cx = (r.x0 + r.x1) / 2 + fr.centre[0];
-      hall.cz = (r.z0 + r.z1) / 2 + fr.centre[1];
+      const placed = { ...roomFeature(`hall${h}`, f.room, f.frame, r, y), shift: f.shift };
+      featureOf[h] = placed;
+      [hall.cx, hall.cz] = placed.centre;
       return;
     }
     if (f.kind === 'uphill') {

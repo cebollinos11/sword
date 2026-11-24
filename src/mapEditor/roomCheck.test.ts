@@ -25,7 +25,7 @@ describe('Check room (docs/plans/delver.md, Stage 7g)', () => {
 
   it('errs on a doorway walled off from the centre, and on a Platform nothing walks up to (the walk check refuses it before the AI walk)', () => {
     // With no ledge, a Block across the room from wall to wall walls the n doorway off (the walk check finds it before the AI does); with no Ramp, nothing walks up onto the ledge.
-    const walled = { ...base, doorways: { n: 0, s: 0 }, brushes: [brushes[2], brushes[3], { kind: 'block', id: 'bar', rect: { x0: -11, z0: 3, x1: 11, z1: 5 }, top: 8 }] };
+    const walled = { ...base, doorways: { n: 0, s: 0 }, brushes: [brushes[2], brushes[3], { kind: 'block', id: 'bar', rect: { x0: -11, z0: 5, x1: 11, z1: 7 }, top: 8 }] };
     const c = checkRoom(walled, tuning);
     expect(c.ok).toBe(false);
     expect(c.issues.some((i) => i.severity === 'error' && /(n doorway|walk check)/.test(i.message)), roomCheckText('walled', c)).toBe(true);
