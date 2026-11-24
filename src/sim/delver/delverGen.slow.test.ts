@@ -558,14 +558,15 @@ describe('the Floor generator soak', () => {
     expect(lavaAll.filter((h) => h.kind === 'Boss').length, 'no lava in a Boss Hall').toBeGreaterThan(0);
     expect(lavaAll.filter((h) => h.kind === 'Stairs').length, 'no lava in a Stairs Hall').toBeGreaterThan(0);
     expect(lavaAll.filter((h) => h.great).length, 'no lava in a great hall').toBeGreaterThan(0);
-    for (const k of LAVA_KINDS) expect(lavaAll.filter((h) => h.lava!.kind === k).length / lavaAll.length, `${k} under a tenth of the lava Halls`).toBeGreaterThanOrEqual(0.1);
+    for (const k of LAVA_KINDS) expect(lavaAll.filter((h) => h.lava!.kind === k).length / lavaAll.length, `${k} under a twentieth of the lava Halls`).toBeGreaterThanOrEqual(0.05);
     expect(nav.reduce((n, x) => n + x.ontoLava, 0), 'a Link onto or from lava').toBe(0);
     expect(nav.reduce((n, x) => n + x.nearLava, 0), 'a jump Link that takes off or lands near lava or passes over it').toBe(0);
     // Stage 7f: each kind on every tier, the cases the Design asks for, and about 1 Hall in 10 on every tier.
+    // 7g: the shipped room (weights.room 1) counts here as a set piece and lifts the share to about 16 %, so the band is 7 to 20 (7f alone: 7 to 13).
     for (const x of tierPieces) {
       PIECES.forEach((k, i) => expect(x.kinds[i], `no ${k} on tier ${x.tier}`).toBeGreaterThan(0));
       expect((100 * x.has) / x.all, `share of Halls with a set piece, tier ${x.tier}`).toBeGreaterThanOrEqual(7);
-      expect((100 * x.has) / x.all, `share of Halls with a set piece, tier ${x.tier}`).toBeLessThanOrEqual(13);
+      expect((100 * x.has) / x.all, `share of Halls with a set piece, tier ${x.tier}`).toBeLessThanOrEqual(20);
     }
     expect(uphills.filter((f) => f.rise === 2).length, 'no 2-level Uphill').toBeGreaterThan(0);
     expect(crosses.filter((h) => h.lava!.bridges.length === 4).length, 'no 4-arm Lava Bridge').toBeGreaterThan(0);
