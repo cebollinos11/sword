@@ -50,9 +50,41 @@ export class View3D {
     this.canvas = this.renderer.domElement;
     this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:none';
     parent.appendChild(this.canvas);
+    // Shift + drag is a free look (the camera turns on the spot); registered before the orbit controls so it can claim the drag first.
+    this.canvas.addEventListener('pointerdown', (e) => this.startLook(e), true);
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.addEventListener('change', () => this.render());
     new ResizeObserver(() => this.fit()).observe(this.canvas);
+  }
+
+  /** Shift + left drag: turn the camera where it stands, carrying the orbit target along so the next orbit pivots around what it now faces. */
+  private startLook(e: PointerEvent): void {
+    if (!e.shiftKey || e.button !== 0) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    const canvas = this.canvas;
+    canvas.setPointerCapture(e.pointerId);
+    let x = e.clientX;
+    let y = e.clientY;
+    const move = (m: PointerEvent): void => {
+      const k = (2 * Math.PI) / Math.max(1, canvas.clientHeight);
+      const offset = this.controls.target.clone().sub(this.camera.position);
+      const s = new THREE.Spherical().setFromVector3(offset);
+      s.theta -= (m.clientX - x) * k;
+      s.phi = Math.min(Math.PI - 0.01, Math.max(0.01, s.phi - (m.clientY - y) * k));
+      x = m.clientX;
+      y = m.clientY;
+      this.controls.target.copy(this.camera.position).add(offset.setFromSpherical(s));
+      this.controls.update();
+    };
+    const end = (): void => {
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', end);
+      canvas.removeEventListener('pointercancel', end);
+    };
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
   }
 
   show(on: boolean): void {
