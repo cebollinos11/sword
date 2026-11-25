@@ -118,7 +118,7 @@ function rectOf(plan: FloorPlan, x: number, z: number): Chosen {
 /**
  * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the rect of a Hall's `rects` holding the point (so a fall in an L's arm lays its spots in that arm), else the rect of the Passage piece (leg or corner) holding it, else
  * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. In a Hall with lava, R is instead the rect of the Hall's floor at least `LAVA_KEEP` from its lava (`lavaDry`) nearest the fall point (the first on a tie), so every spot lies at least `LAVA_KEEP` + `DROP_MARGIN` from the lava, and the floor is looked up at the Hall's own height (the fall's `y` is the lava's when a Fighter fell in). A candidate within `DROP_MARGIN` of a pillar of the Hall R belongs to
- * (nearer than it, or inside it) is skipped, as one too near a taken spot is; if no candidate is left, the one spot is the fall point clamped into R (the first candidate), so there is always one. The first is the point clamped in; the others
+ * (nearer than it, or inside it) is skipped, as one too near a taken spot is, and so is one within `LAVA_KEEP` of any lava of the Floor (a Passage's doorway can open beside a lava Hall's lava, as at a Lava Bridge's arm); if no candidate is left, the one spot is the candidate clear of pillars farthest from lava (the fall point clamped into R when there is none), so there is always one. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
  * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the floor nearest the fall's height `y` (`floorNear` of the Floor's `arena`: neither deadly nor a roof, above or below `y`; so a fall on a Deck lies on the Deck, one beside it on the floor, one on a Ramp on the Ramp), at `y` itself where there is none. Pure.
  */
@@ -144,19 +144,29 @@ export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuni
   const alongX = r.x1 - r.x0 >= r.z1 - r.z0;
   const bx = clamp(x, x0, x1);
   const bz = clamp(z, z0, z1);
+  // Every lava rect of the Floor: a Passage piece (or a lava-free Hall) can meet a lava Hall's lava at its doorway, e.g. a Lava Bridge's arm.
+  const lavaRects: Box[] = plan.halls.flatMap((q) => q.lava?.rects ?? []);
+  const lavaGap2 = (sx: number, sz: number): number => lavaRects.reduce((g, q) => Math.min(g, gap2(q, sx, sz)), Infinity);
+  const keep2 = LAVA_KEEP * LAVA_KEEP;
+  let driest: { x: number; z: number; g: number } | null = null;
   const found: PickupAt[] = [];
   for (let j = 0; j < DROP_TRIES && found.length < count; j++) {
     const along = (j % 2 === 1 ? (j + 1) / 2 : -j / 2) * DROP_GAP;
     const sx = alongX ? clamp(bx + along, x0, x1) : bx;
     const sz = alongX ? bz : clamp(bz + along, z0, z1);
     if (pillars.some((q) => gap2(q, sx, sz) < DROP_MARGIN * DROP_MARGIN)) continue;
+    const g = lavaGap2(sx, sz);
+    if (!driest || g > driest.g) driest = { x: sx, z: sz, g };
+    if (g < keep2) continue;
     const ground = floorNear(arena, sx, sz, y);
     const spot: PickupAt = { x: sx, y: ground >= 0 ? surfaceHeight(arena, ground, sx, sz) : y, z: sz };
     if (found.every((s) => (s.x - spot.x) ** 2 + (s.z - spot.z) ** 2 >= DROP_APART * DROP_APART)) found.push(spot);
   }
   if (found.length === 0) {
-    const ground = floorNear(arena, bx, bz, y);
-    found.push({ x: bx, y: ground >= 0 ? surfaceHeight(arena, ground, bx, bz) : y, z: bz });
+    const fx = driest ? driest.x : bx;
+    const fz = driest ? driest.z : bz;
+    const ground = floorNear(arena, fx, fz, y);
+    found.push({ x: fx, y: ground >= 0 ? surfaceHeight(arena, ground, fx, fz) : y, z: fz });
   }
   return Array.from({ length: count }, (_, k) => found[k % found.length]!);
 }
