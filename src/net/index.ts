@@ -7,6 +7,7 @@ export { splitTransport, type Channels } from './channels';
 export { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 export {
   BATTLE_INPUT_DELAY,
+  BATTLE_MAX_INPUT_DELAY,
   DUEL_MAX_INPUT_DELAY,
   targetInputDelay,
   CHECKSUM_INTERVAL,

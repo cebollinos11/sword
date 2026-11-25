@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultWeaponName, loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
 import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
-import { CHECKSUM_INTERVAL, createRollbackSession, DUEL_MAX_INPUT_DELAY, ROLLBACK_WINDOW, targetInputDelay, type SessionEvent } from './session';
+import { CHECKSUM_INTERVAL, createRollbackSession, BATTLE_INPUT_DELAY, BATTLE_MAX_INPUT_DELAY, DUEL_MAX_INPUT_DELAY, ROLLBACK_WINDOW, targetInputDelay, type SessionEvent } from './session';
 import { PROTOCOL_VERSION } from './messages';
 
 const repoTuning = loadTuningData();
@@ -261,7 +261,7 @@ describe('Rollback session: adaptive Input Delay', () => {
    * An adaptive Duel on a link that turns bad (latencyMs one way) for `badTicks`, then good again. performance.now follows the
    * virtual clock, so the pings measure the link. The guest records the Intent each Tick finally played for the host's Fighter.
    */
-  function adaptiveDuel(bad: { latencyMs: number; jitterMs: number }, badTicks: number, goodTicks: number) {
+  function adaptiveDuel(bad: { latencyMs: number; jitterMs: number }, badTicks: number, goodTicks: number, delay = { min: 0, max: DUEL_MAX_INPUT_DELAY }) {
     let clock = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => clock);
     const pair = createMemoryTransportPair({ ...bad, seed: 4 });
@@ -270,8 +270,8 @@ describe('Rollback session: adaptive Input Delay', () => {
       played.set(state.tick + 1, intents[0]!);
       return stepMatch(state, intents, t);
     };
-    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, maxInputDelay: DUEL_MAX_INPUT_DELAY });
-    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, maxInputDelay: DUEL_MAX_INPUT_DELAY, step });
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, inputDelay: delay.min, maxInputDelay: delay.max });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, inputDelay: delay.min, maxInputDelay: delay.max, step });
     const guestEvents: SessionEvent[] = [];
     guest.onEvent((e) => guestEvents.push(e));
     let made = 0;
@@ -328,6 +328,21 @@ describe('Rollback session: adaptive Input Delay', () => {
     const played = [...r.played].filter(([t]) => t <= r.confirmedTo);
     expect(r.jumps).toBeGreaterThan(10);
     expect(played.filter(([, i]) => i.jump).length).toBe(r.jumps);
+  });
+
+  it('in a Battle or a Run, adapts above its fixed delay and never comes down below it', () => {
+    const range = { min: BATTLE_INPUT_DELAY, max: BATTLE_MAX_INPUT_DELAY };
+    const r = adaptiveDuel({ latencyMs: 70, jitterMs: 30 }, TICK_RATE * 12, TICK_RATE * 20, range);
+    expect(r.badDelay.host).toBeGreaterThan(BATTLE_INPUT_DELAY);
+    expect(r.badDelay.guest).toBeGreaterThan(BATTLE_INPUT_DELAY);
+    for (const d of r.delays) {
+      expect(Math.min(d.host, d.guest)).toBeGreaterThanOrEqual(BATTLE_INPUT_DELAY);
+      expect(Math.max(d.host, d.guest)).toBeLessThanOrEqual(BATTLE_MAX_INPUT_DELAY);
+    }
+    expect(r.host.inputDelay).toBe(BATTLE_INPUT_DELAY);
+    expect(r.guest.inputDelay).toBe(BATTLE_INPUT_DELAY);
+    expect(r.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
+    expect([...r.played].filter(([t, i]) => t <= r.confirmedTo && i.jump).length).toBe(r.jumps);
   });
 
   it.each([

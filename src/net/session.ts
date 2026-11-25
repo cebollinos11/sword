@@ -9,7 +9,8 @@
  * - Local Intents apply immediately, or `inputDelay` Ticks later (ADR 0025: an online
  *   Battle's, so the others' arrive before the Tick they are for and nothing is
  *   re-simulated); with `maxInputDelay`, the delay follows the round trip (ADR 0030:
- *   an online Duel's, from none up to DUEL_MAX_INPUT_DELAY). Every other Player's Intents are predicted
+ *   online, from none up to DUEL_MAX_INPUT_DELAY in a Duel, from BATTLE_INPUT_DELAY up to
+ *   BATTLE_MAX_INPUT_DELAY in a Battle or a Run). Every other Player's Intents are predicted
  *   (repeat their last known one) and corrected by Rollback: when a real Intent
  *   differs from the prediction, the session restores the snapshot before that
  *   Tick and re-simulates forward.
@@ -126,6 +127,11 @@ export const MAX_INPUT_DELAY = 8;
  * Latency beyond it is left to Rollback.
  */
 export const DUEL_MAX_INPUT_DELAY = 4;
+/**
+ * The most Ticks an online Battle's or Run's Input Delay adapts up to, from BATTLE_INPUT_DELAY (ADR 0030): 100 ms. Their Ticks are dear, and a
+ * Rollback deep enough re-simulates more than a frame holds (ADR 0025), so a bad link is worth more delay there than in a Duel.
+ */
+export const BATTLE_MAX_INPUT_DELAY = 6;
 /** Adaptive Input Delay: round trips (pongs, about one a second) the target must stay below the delay before it is lowered a Tick. */
 const DELAY_LOWER_AFTER = 3;
 /** Adaptive Input Delay: a Tick of delay is only added past this fraction of a Tick of one-way latency (plus jitter), so a LAN plays with none. */
