@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, spinUpChargeTicks, weaponByName, whirlTurns, withWeapon } from '../tuning';
-import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, wait, whirlwindTimings, type Intent, type SimState, type Track } from '../sim';
-import { arenaSurface, matchCues, soundCues, type SoundCue } from './cues';
+import { attack, commonItem, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, wait, startingInventory, whirlwindTimings, type Intent, type Inventory, type SimState, type Track } from '../sim';
+import { arenaSurface, equipCues, inventoryMarks, matchCues, soundCues, type SoundCue } from './cues';
 import { CHEST } from './spatial';
 import { stockFor } from './stock';
 
@@ -324,9 +324,10 @@ describe('the Flail’s sounds (docs/plans/flail.md, Stage 3)', () => {
     // Defending with a Flail is no Flail blow: the attacker's Weapon decides.
     const defended = cuesOf(at(1.3, ['Arming Sword', 'Flail'], hold(150, { block: true, direction: 'Overhead' }))).find((c) => c.sound === 'Block');
     expect(defended && 'chain' in defended).toBe(false);
-    // Played: the ball's thud from the deep stock blow, pitched down; its shaft as before.
-    expect(stockFor(ball!)).toMatchObject({ clip: 'heavy-hit' });
+    // Played: the ball cuts, so it is a blade blow, pitched down; its shaft thumps like any shaft.
+    expect(stockFor(ball!)).toMatchObject({ clip: 'hit' });
     expect(stockFor(ball!)!.rate).toBeLessThan(1);
+    expect(stockFor(shaft!)).toMatchObject({ clip: 'heavy-hit' });
   });
 
   it('every other Weapon sounds exactly as before, with the Tuning Data or without', () => {
@@ -337,11 +338,69 @@ describe('the Flail’s sounds (docs/plans/flail.md, Stage 3)', () => {
       ];
       for (const run of runs) {
         const plain = run.states.flatMap((s) => soundCues(s.events, s));
-        expect(run.states.flatMap((s) => soundCues(s.events, s, tuning)), weapon).toEqual(plain);
+        // Only the blunt flag needs the Tuning Data (which Weapons cut).
+        const unblunt = (c: SoundCue) => {
+          const { blunt: _blunt, ...rest } = c as SoundCue & { blunt?: true };
+          return rest;
+        };
+        expect(run.states.flatMap((s) => soundCues(s.events, s, tuning)).map(unblunt), weapon).toEqual(plain.map(unblunt));
         expect(plain.length, weapon).toBeGreaterThan(0);
         expect(plain.some((c) => 'chain' in c || (c.sound === 'Hit' && c.by === 'Ball')), weapon).toBe(false);
       }
     }
+  });
+});
+
+describe('blunt and blade Weapons', () => {
+  const at = (weapons: [string, string], b: Track = wait(1)) =>
+    runDuel(tuning, { distance: 1.3, weapons, a: attack('Overhead', 30), b });
+  const cuesOf = (run: { states: readonly SimState[] }) => run.states.flatMap((s) => soundCues(s.events, s, tuning));
+
+  it('the Quarterstaff and the Sledge Hammer are blunt, every other Weapon a blade', () => {
+    for (const weapon of Object.keys(tuning.weapons)) {
+      const swing = cuesOf(at([weapon, 'Arming Sword'])).find((c) => c.sound === 'Swing');
+      expect(swing && 'blunt' in swing, weapon).toBe(weapon === 'Quarterstaff' || weapon === 'Sledge Hammer');
+    }
+  });
+
+  it('a Block with a blunt Weapon on either side is blunt, a Block of two blades is not', () => {
+    const block = (weapons: [string, string]) => cuesOf(at(weapons, hold(150, { block: true, direction: 'Overhead' }))).find((c) => c.sound === 'Block');
+    expect(block(['Arming Sword', 'Longsword'])).toBeDefined();
+    expect('blunt' in block(['Arming Sword', 'Longsword'])!).toBe(false);
+    expect(block(['Quarterstaff', 'Arming Sword'])).toMatchObject({ blunt: true });
+    expect(block(['Arming Sword', 'Sledge Hammer'])).toMatchObject({ blunt: true });
+  });
+
+  it('a Hit is blunt from a Quarterstaff or Sledge Hammer anywhere and from any shaft, never from a blade’s Head', () => {
+    const hit = (weapon: string) => cuesOf(at([weapon, 'Arming Sword'])).find((c) => c.sound === 'Hit');
+    expect(hit('Arming Sword')).toBeDefined();
+    expect(hit('Arming Sword') && 'blunt' in hit('Arming Sword')!).toBe(false);
+    expect(hit('Quarterstaff')).toMatchObject({ blunt: true });
+    expect(hit('Sledge Hammer')).toMatchObject({ blunt: true });
+    const point = { x: 0, y: 1, z: 0 };
+    const shaft = soundCues([{ type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, heavy: false, damage: 6 }]);
+    expect(shaft[0]).toMatchObject({ blunt: true });
+  });
+});
+
+describe('equipCues', () => {
+  const stateWith = (inventories: (Inventory | undefined)[]): SimState => {
+    const base = createInitialState(tuning, 1, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 2 }, facing: Math.PI }], ['Arming Sword', 'Arming Sword']);
+    return { ...base, fighters: base.fighters.map((f, i) => ({ ...f, ...(inventories[i] ? { inventory: inventories[i] } : {}) })) } as SimState;
+  };
+  const inv = (patch: Partial<Inventory> = {}): Inventory => ({ ...startingInventory('Arming Sword'), ...patch });
+
+  it('a pickup, a wielded Weapon and an equipped Relic sound; a drop and an unchanged inventory do not', () => {
+    const before = stateWith([inv(), undefined]);
+    const marks = inventoryMarks(before);
+    const heard = (now: SimState) => equipCues(marks, now).map((c) => c.sound);
+    expect(heard(before)).toEqual([]);
+    expect(heard(stateWith([inv({ weapons: [commonItem('Arming Sword'), commonItem('Longsword')] }), undefined]))).toEqual(['Equip']);
+    expect(heard(stateWith([inv({ relics: [commonItem(tuning.relics[0]!.name)] }), undefined]))).toEqual(['Equip']);
+    const two = inventoryMarks(stateWith([inv({ weapons: [commonItem('Arming Sword'), commonItem('Longsword')] }), undefined]));
+    expect(equipCues(two, stateWith([inv({ weapons: [commonItem('Arming Sword'), commonItem('Longsword')], weapon: 1 }), undefined])).map((c) => c.sound)).toEqual(['Equip']);
+    expect(equipCues(two, stateWith([inv(), undefined]))).toEqual([]);
+    expect(equipCues(undefined, before)).toEqual([]);
   });
 });
 

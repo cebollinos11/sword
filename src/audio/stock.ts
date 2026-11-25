@@ -8,11 +8,19 @@ import type { SoundCue } from './cues';
 
 /** Each clip set: how many variants (`<clip>-<n>.mp3`, n from 0) and how loud it plays. */
 export const STOCK_CLIPS = {
-  swing: { count: 3, level: 0.9 },
-  clang: { count: 4, level: 0.9 },
-  hit: { count: 9, level: 1.1 },
-  'heavy-hit': { count: 5, level: 1.2 },
-  parry: { count: 1, level: 1 },
+  // 0..2 the low, mid and high whooshes (a blunt Weapon's, by weight); 3.. the blade swings.
+  swing: { count: 12, level: 0.9 },
+  // Steel on steel: a blade's Block.
+  clang: { count: 6, level: 0.9 },
+  // A blade in flesh: 0..8 knife blows, 9..12 sword slices.
+  hit: { count: 13, level: 1.1 },
+  // A blunt blow in flesh (staff, hammer, any shaft, a Kick).
+  'heavy-hit': { count: 6, level: 1.2 },
+  parry: { count: 2, level: 1 },
+  // Wood and iron knocking: a blunt Weapon's Block, Chamber and Wall strike, in place of any steel.
+  'blunt-hit': { count: 7, level: 1 },
+  // A pickup or an equip in the inventory.
+  equip: { count: 1, level: 0.9 },
   thud: { count: 3, level: 1 },
   death: { count: 5, level: 0.9 },
   lava: { count: 1, level: 0.9 },
@@ -40,6 +48,9 @@ export interface StockPlay {
   readonly wet: number;
 }
 
+/** The first variant of the `swing` set that is a blade's (those before it are the three whooshes a blunt Weapon uses). */
+const BLADE_SWING_FIRST = 3;
+
 /** A spray this strong (0..1) or stronger splatters with the long clip. */
 export const SPLATTER_HEAVY = 0.6;
 
@@ -63,27 +74,33 @@ const pickOf = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.leng
 /** The clip a cue plays, or null when it stays synthesised. */
 export function stockFor(cue: SoundCue): StockPlay | null {
   switch (cue.sound) {
-    case 'Swing':
-      // Lugaru's low, mid and high whooshes: the heavier the Weapon, the lower.
-      return play('swing', 1, { variant: cue.weight > 0.6 ? 0 : cue.weight > 0.25 ? 1 : 2, rate: cue.direction === 'Thrust' ? 1.15 : 1, wet: 0.12 });
+    case 'Swing': {
+      const thrust = cue.direction === 'Thrust' ? 1.15 : 1;
+      // A blunt Weapon's whoosh is Lugaru's low, mid or high one (the heavier the Weapon, the lower), never a blade's swish.
+      if (cue.blunt) return play('swing', 1, { variant: cue.weight > 0.6 ? 0 : cue.weight > 0.25 ? 1 : 2, rate: thrust, wet: 0.12 });
+      // A blade's: any of the swishes, pitched lower the heavier the Weapon.
+      return play('swing', 1, { variant: BLADE_SWING_FIRST + Math.floor(Math.random() * (STOCK_CLIPS.swing.count - BLADE_SWING_FIRST)), rate: thrust * (1.05 - 0.2 * cue.weight), wet: 0.12 });
+    }
     case 'Block':
+      if (cue.blunt) return play('blunt-hit', 0.55 + 0.45 * cue.strength, { rate: 1.05 - 0.2 * cue.weight, wet: 0.3 });
       return play('clang', 0.55 + 0.45 * cue.strength, { rate: 1.1 - 0.2 * cue.weight, wet: 0.35 });
     case 'Hit':
+      // A blunt Weapon (a staff or hammer anywhere, a shaft) and a Kick thump; a blade cuts.
+      if (cue.blunt || cue.by === 'Shaft' || cue.by === 'Kick') return play('heavy-hit', 0.6 + 0.4 * cue.strength, { wet: 0.18 });
       switch (cue.by) {
         case 'Edge':
           return play('hit', 0.6 + 0.4 * cue.strength, { wet: 0.18 });
         case 'Ball':
-          // A flail's spiked ball: the deep blow, pitched down and heavier (the synth adds the spikes' crunch and the chain).
-          return play('heavy-hit', 0.8 + 0.4 * cue.strength, { rate: 0.78, wet: 0.22 });
+          // A flail's spiked ball cuts, deep: the blade blow pitched down and louder (the synth adds the spikes' crunch and the chain).
+          return play('hit', 0.8 + 0.4 * cue.strength, { rate: 0.8, wet: 0.22 });
         case 'Dagger':
           return play('hit', 0.45 + 0.3 * cue.strength, { rate: 1.15, wet: 0.18 });
-        case 'Shaft':
-        case 'Kick':
-          return play('heavy-hit', 0.6 + 0.4 * cue.strength, { wet: 0.18 });
       }
       return null;
     case 'Chamber':
-      return play('parry', 1, { wet: 0.45 });
+      return play(cue.blunt ? 'blunt-hit' : 'parry', 1, { wet: 0.45 });
+    case 'Equip':
+      return play('equip', 1, { wet: 0.1 });
     case 'BodyFall':
       return play('thud', 1, { variant: 0, wet: 0.25 });
     case 'Land':
@@ -97,7 +114,7 @@ export function stockFor(cue: SoundCue): StockPlay | null {
     case 'Thunk':
       return play('arrow-hit', 0.8, { wet: 0.15 });
     case 'WallStrike':
-      return play('armor', 0.5 + 0.5 * cue.strength, { wet: 0.3 });
+      return play(cue.blunt ? 'blunt-hit' : 'armor', 0.5 + 0.5 * cue.strength, { wet: 0.3 });
     case 'Splatter':
       // The long, wet one for a strong Hit's spray, the short one for a light Hit's; each a little different in pitch.
       return play('splatter', 0.6 + 0.4 * cue.strength, { variant: cue.strength >= SPLATTER_HEAVY ? 0 : 1, rate: 0.9 + Math.random() * 0.2, wet: 0.2 });

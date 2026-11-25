@@ -29,6 +29,8 @@ export interface SwingCue extends Placed {
   readonly fighter: number;
   readonly direction: Direction;
   readonly weight: number;
+  /** The Weapon is blunt (it does not cut: Quarterstaff, Sledge Hammer): no steel rings. Absent for a blade. */
+  readonly blunt?: true;
 }
 
 /** An Attack was Blocked by rule: steel on steel. `strength` is 0..1, from the Blade Speed; `weight` is the attacker's Weapon's. */
@@ -39,6 +41,8 @@ export interface BlockCue extends Placed {
   readonly weight: number;
   /** The attacker's Weapon is a flail: its chain rattles too. Absent for every other Weapon. */
   readonly chain?: true;
+  /** Either Weapon in the clash is blunt: wood and iron knocking, not steel on steel. Absent when both are blades. */
+  readonly blunt?: true;
 }
 
 /**
@@ -85,12 +89,16 @@ export interface HitCue extends Placed {
   readonly zone: HitZone;
   readonly strength: number;
   readonly by: 'Edge' | 'Ball' | 'Shaft' | 'Kick' | 'Dagger';
+  /** A blunt Weapon landed (a Quarterstaff or Sledge Hammer anywhere, or any Weapon's shaft): a thump, not a cut. Absent for a blade and a Dagger. */
+  readonly blunt?: true;
 }
 
 /** An Attack was Chambered: a ringing clash, the counter's blade sliding along the other's. */
 export interface ChamberCue extends Placed {
   readonly sound: 'Chamber';
   readonly chamberer: number;
+  /** Either Weapon is blunt: no ringing steel. Absent when both are blades. */
+  readonly blunt?: true;
 }
 
 /** A Feint: the Wind-up is pulled back, a quick flick of cloth. */
@@ -163,6 +171,12 @@ export interface DrawCue extends Placed {
   readonly weight: number;
 }
 
+/** A Fighter picked up an item or equipped one (a Weapon wielded, a Relic put on or taken off) in the inventory: a short rustle of gear. */
+export interface EquipCue extends Placed {
+  readonly sound: 'Equip';
+  readonly fighter: number;
+}
+
 /** A thrown dagger was Blocked by rule: a light clink. */
 export interface ClinkCue extends Placed {
   readonly sound: 'Clink';
@@ -196,6 +210,8 @@ export interface WallStrikeCue extends Placed {
   readonly surface: Surface;
   /** The Weapon is a flail: its chain rattles too. Absent for every other Weapon. */
   readonly chain?: true;
+  /** The Weapon is blunt: a thump on the Wall, no ring of steel. Absent for a blade. */
+  readonly blunt?: true;
 }
 
 /**
@@ -261,6 +277,7 @@ export type SoundCue =
   | ThrowCue
   | SheatheCue
   | DrawCue
+  | EquipCue
   | ClinkCue
   | RicochetCue
   | ClatterCue
@@ -325,6 +342,11 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
     const f = fighter(i);
     return !!f && !!tuning && weaponByName(tuning, f.weapon).look === 'flail';
   };
+  /** Whether Fighter `i` wields a blunt Weapon, one that does not cut (known only with the Tuning Data). */
+  const blunt = (i: number): boolean => {
+    const f = fighter(i);
+    return !!f && !!tuning && !weaponByName(tuning, f.weapon).cuts;
+  };
   /** Where a Fighter's sounds come from: its chest. */
   const body = (i: number): Vec3 | undefined => {
     const f = fighter(i);
@@ -333,7 +355,7 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
   for (const e of events) {
     switch (e.type) {
       case 'AttackPhase':
-        if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter) });
+        if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter), ...(blunt(e.fighter) ? { blunt: true as const } : {}) });
         break;
       case 'Block':
         cues.push({
@@ -343,6 +365,7 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
           weight: weaponWeight(fighter(e.attacker)),
           at: e.point,
           ...(flail(e.attacker) ? { chain: true as const } : {}),
+          ...(blunt(e.attacker) || blunt(e.defender) ? { blunt: true as const } : {}),
         });
         // A Block Break puts the defender on the floor.
         if (e.broken) cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
@@ -354,14 +377,15 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
           surface,
           at: e.point,
           ...(flail(e.attacker) ? { chain: true as const } : {}),
+          ...(blunt(e.attacker) ? { blunt: true as const } : {}),
         });
         break;
       case 'Hit':
-        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? (flail(e.attacker) ? 'Ball' : 'Edge') : 'Shaft', at: e.point });
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? (flail(e.attacker) ? 'Ball' : 'Edge') : 'Shaft', at: e.point, ...(!e.head || blunt(e.attacker) ? { blunt: true as const } : {}) });
         if (e.heavy) cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
       case 'Chamber':
-        cues.push({ sound: 'Chamber', chamberer: e.chamberer, at: e.point });
+        cues.push({ sound: 'Chamber', chamberer: e.chamberer, at: e.point, ...(blunt(e.chamberer) || blunt(e.attacker) ? { blunt: true as const } : {}) });
         break;
       case 'Feint':
         cues.push({ sound: 'Feint', fighter: e.fighter, at: body(e.fighter) });
@@ -451,6 +475,40 @@ function whirled(now: SimState, i: number, tuning: TuningData): number | undefin
   const before = a.charge < full ? a.charge - 1 : a.charge;
   if (Math.floor(whirlTurns(w, now.tick, a.charge)) <= Math.floor(whirlTurns(w, now.tick - 1, before))) return undefined;
   return Math.min(1, a.charge / Math.max(1, full));
+}
+
+/** What of a Fighter's inventory an equip or a pickup changes, to hear it against the next Tick's. */
+export interface InventoryMark {
+  /** Items carried: Weapons and Relics together. */
+  readonly items: number;
+  readonly wielded: number;
+  readonly equipped: string;
+}
+
+/** The marks of every Fighter's inventory in `state` (undefined where a Fighter has none). */
+export function inventoryMarks(state: SimState): (InventoryMark | undefined)[] {
+  return state.fighters.map((f) => {
+    const inv = f.inventory;
+    return inv && { items: inv.weapons.length + inv.relics.length, wielded: inv.weapon, equipped: inv.equipped.join(',') };
+  });
+}
+
+/**
+ * The equip sounds between two Ticks' inventories: a Fighter that carries more than it did (a pickup), or the same count with another
+ * Weapon wielded or other Relics equipped. A drop makes none. Pure, from the marks alone, so a replay hears the same.
+ */
+export function equipCues(prev: readonly (InventoryMark | undefined)[] | undefined, now: SimState): SoundCue[] {
+  if (!prev) return [];
+  const cues: SoundCue[] = [];
+  inventoryMarks(now).forEach((m, i) => {
+    const p = prev[i];
+    if (!p || !m) return;
+    const changed = m.items > p.items || (m.items === p.items && (m.wielded !== p.wielded || m.equipped !== p.equipped));
+    if (!changed) return;
+    const f = now.fighters[i]!;
+    cues.push({ sound: 'Equip', fighter: i, at: { x: f.position.x, y: f.y + CHEST, z: f.position.z } });
+  });
+  return cues;
 }
 
 /** The sounds of a Match's own events in one Match Tick: a Duel starting, the Match won. */

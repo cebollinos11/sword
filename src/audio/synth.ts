@@ -214,6 +214,8 @@ export class WebAudioPlayer implements SoundPlayer {
     if (cue.sound === 'Hit' && cue.by === 'Ball') this.spikes(cue.strength);
     if ((cue.sound === 'Block' || cue.sound === 'WallStrike') && cue.chain) this.rattle(cue.strength);
     if (recorded) return;
+    // A blunt Weapon's clash is a recording or nothing: the synthesised one is steel ringing.
+    if ((cue.sound === 'Block' || cue.sound === 'Chamber' || cue.sound === 'WallStrike') && cue.blunt) return;
     switch (cue.sound) {
       case 'Swing':
         return this.swing(cue);
@@ -272,6 +274,7 @@ export class WebAudioPlayer implements SoundPlayer {
       case 'CrowdFall':
       case 'WhirlwindCry':
       case 'Splatter':
+      case 'Equip':
         // A cry, or blood landing, is a recording or nothing: a synthesised one would not pass.
         return;
     }
