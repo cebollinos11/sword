@@ -131,7 +131,7 @@ describe('Combat determinism', () => {
 });
 
 describe('Duel end', () => {
-  const swings: Track = Array.from({ length: 8 }, () => [...attack('Overhead'), ...wait(80)]).flat();
+  const swings: Track = Array.from({ length: 10 }, () => [...attack('Overhead'), ...wait(80)]).flat();
 
   it('the Duel ends when HP reaches zero, with the other Fighter the winner', () => {
     const run = runDuel(tuning, { distance: 1.2, a: swings });

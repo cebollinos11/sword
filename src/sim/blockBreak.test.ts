@@ -41,19 +41,19 @@ describe('Block Break', () => {
   });
 
   it('a Halberd swing at the far end of its reach breaks it too', () => {
-    const run = into(tuning, 'Halberd', 'Left', 1.5);
+    const run = into(tuning, 'Halberd', 'Left', 2.1);
     expect(blockOf(run).broken).toBe(true);
     expect(tickOf(run, blockOf(run)).fighters[1]!.action.kind).toBe('Knockdown');
   });
 
   it('the strength compared is the Block Impact strength: Relic mods and the Weapon scale it', () => {
-    const run = into(tuning, 'Halberd', 'Left', 1.5);
+    const run = into(tuning, 'Halberd', 'Left', 2.1);
     const at = tickOf(run, blockOf(run));
     const strength = startBlockImpact(at.fighters[0]!, at.fighters[1]!, 'Left', blockOf(run).bladeSpeed, tuning).strength;
     expect(strength).toBeGreaterThanOrEqual(dagger.blockImpact.breakAt);
     // The same swing with the break bar above that strength does not break.
     const sturdy = withWeapon(tuning, { blockImpact: { ...dagger.blockImpact, breakAt: strength + 0.01 } }, 'Dagger');
-    expect(blockOf(into(sturdy, 'Halberd', 'Left', 1.5)).broken).toBeUndefined();
+    expect(blockOf(into(sturdy, 'Halberd', 'Left', 2.1)).broken).toBeUndefined();
   });
 
   it('a slower swing (closer in, below the bar) is Blocked as before: the Block holds and nothing breaks', () => {

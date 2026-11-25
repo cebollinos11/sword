@@ -3,7 +3,7 @@
   "grip": "twoHanded",
   "length": 1,
   "damage": 40,
-  "speed": 22,
+  "speed": 29,
   "gripLength": 0.28,
   "offHandGrip": {
     "along": 0.14,

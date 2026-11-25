@@ -285,8 +285,8 @@ describe('the Spin-up', () => {
       b: [...wait(20), ...hold(60, { block: true, direction: 'Right' }), ...attack('Thrust')],
     });
     expect(run.events.filter((e) => e.type === 'Hit' || e.type === 'Block')).toHaveLength(2);
-    // Recorded on the code before the Spin-up.
-    expect(hashState(run.final)).toBe('3d3fe12b');
+    // Recorded on the code before the Spin-up (3d3fe12b), re-recorded when the Longsword's reference speed was recalibrated 22 → 29.
+    expect(hashState(run.final)).toBe('ee210bfb');
   });
 
   it('a state saved mid-spin restores and re-simulates to the same hash (Rollback)', () => {
