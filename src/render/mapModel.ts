@@ -225,6 +225,35 @@ function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number
   return out;
 }
 
+/**
+ * How low (m) the side of Ramp `r`'s wedge from `p` to `q` (two corners on one edge of its rect) is drawn: `BELOW` under the lowest of the
+ * floors beneath that edge, either side of it (each probe's highest floor no higher than the foot; not the Ramp's own slope, a roof or the
+ * abyss), and never higher than `BELOW` under the foot. Render only, as `overLava`: the Simulation's skirt is as the compiler stood it.
+ */
+function wedgeBottom(draft: DraftMap, r: RampBrush, p: THREE.Vector3, q: THREE.Vector3): number {
+  const { map, arena } = draft;
+  const len = Math.hypot(q.x - p.x, q.z - p.z);
+  const pieces = Math.max(1, Math.round(len / BANK_PIECE));
+  const [nx, nz] = [-(q.z - p.z) / len, (q.x - p.x) / len];
+  let low = r.lo;
+  for (let n = 0; n < pieces; n++) {
+    const t = (n + 0.5) / pieces;
+    for (const side of [-1, 1]) {
+      const x = p.x + (q.x - p.x) * t + nx * BANK_PROBE * side;
+      const z = p.z + (q.z - p.z) * t + nz * BANK_PROBE * side;
+      let best = -Infinity;
+      for (const j of surfacesAt(arena, x, z)) {
+        const w = map.walk[j]!;
+        if (w.roof || w.abyss || draft.surfaceBrush[j] === r.id) continue;
+        const y = surfaceHeight(arena, j, x, z);
+        if (y <= r.lo + LEVEL_EPS && y > best) best = y;
+      }
+      if (best > -Infinity && best < low) low = best;
+    }
+  }
+  return low - BELOW;
+}
+
 /** The model of `source` as compiled (`draft`, from `compileDraft(source, …)`): a group of one mesh per material, the torches' lights, and its sky. */
 export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const buckets = new MeshBuckets();
@@ -352,11 +381,19 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
       corners.forEach((a, k) => shaded.push({ a, b: corners[(k + 1) % 4]!, bottom, top: b.top, thick: 0, centre }));
     }
     if (b.kind !== 'ramp') continue;
-    // A Ramp's wedge: each long side from under its foot up to the slope, and its head's end from under its foot up to its top.
+    // A Ramp's wedge: each long side up to the slope, its head's end up to its top and its foot's end up to its foot, each from under the
+    // floor beneath it (`wedgeBottom`): a Ramp whose foot stands over a lower floor (a level 1 to 2 Ramp in a room floored at 0) is solid
+    // down to it, as the compiler's skirt and foot face are (which are not drawn: this wedge stands in their place).
     const { foot, head } = rampCorners(b);
-    const down = (p: THREE.Vector3) => new THREE.Vector3(p.x, b.lo - BELOW, p.z);
-    for (const k of [0, 1] as const) buckets.quad(look, down(foot[k]), down(head[k]), head[k], foot[k]);
-    buckets.quad(look, down(head[0]), down(head[1]), head[1], head[0]);
+    const down = (p: THREE.Vector3, y: number) => new THREE.Vector3(p.x, y, p.z);
+    for (const k of [0, 1] as const) {
+      const y = wedgeBottom(draft, b, foot[k], head[k]);
+      buckets.quad(look, down(foot[k], y), down(head[k], y), head[k], foot[k]);
+    }
+    const yh = wedgeBottom(draft, b, head[0], head[1]);
+    buckets.quad(look, down(head[0], yh), down(head[1], yh), head[1], head[0]);
+    const yf = wedgeBottom(draft, b, foot[1], foot[0]);
+    buckets.quad(look, down(foot[1], yf), down(foot[0], yf), foot[0], foot[1]);
   }
 
   // The ground beyond the field: four strips round it at the ground's height (the first Floor's; else the lowest walkable floor's), in its material.

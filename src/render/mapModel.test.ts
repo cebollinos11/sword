@@ -168,6 +168,19 @@ describe('the model of a Map Editor map', () => {
     expect(flat(modelOf(dressedSampleSource()))).toEqual(flat(modelOf(dressedSampleSource())));
   });
 
+  it('draws a Ramp whose foot stands over a lower floor solid down to it: no gap under a level 1 to 2 Ramp in a room floored at 0', () => {
+    const mid: Brush = { kind: 'platform', id: 'mid', rect: { x0: -4, z0: -10, x1: 4, z1: -4 }, top: 2, material: 'stone' };
+    const high: Brush = { kind: 'platform', id: 'high', rect: { x0: -4, z0: 4, x1: 4, z1: 10 }, top: 4, material: 'stone' };
+    const ramp = (lo: number): Brush => ({ kind: 'ramp', id: 'stair', rect: { x0: -2, z0: -4, x1: 2, z1: 4 }, lo, hi: 4, up: 'n', rails: [], material: 'marble' });
+    const wedge = (s: MapSource) => box(mesh(modelOf(s), 'Map_Marble')!);
+    // Its foot on the 2 m Platform, the ground 0 m under it: its sides, head and foot reach a metre under the ground, not a metre under its foot.
+    const raised = wedge(withBrushes([GROUND, mid, high, ramp(2)], [0, 2, 4]));
+    expect(raised.min.y).toBeCloseTo(-1, 5);
+    expect(raised.max.y).toBeCloseTo(4, 5);
+    // A Ramp from the ground is drawn as before: a metre under its foot.
+    expect(wedge(withBrushes([GROUND, high, ramp(0)], [0, 4])).min.y).toBeCloseTo(-1, 5);
+  });
+
   it('draws an Enclosure’s Walls outside its rect, their inner faces on the lines bodies and the camera stop at; a shared Wall between two rooms', () => {
     const room = (id: string, x0: number, x1: number, doors: EnclosureBrush['doors'] = {}): EnclosureBrush => ({ kind: 'enclosure', id, rect: { x0, z0: -5, x1, z1: 5 }, y: 0, doors });
     const stone = (s: MapSource) => {
