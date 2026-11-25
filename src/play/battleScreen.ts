@@ -29,6 +29,7 @@ import { ObjectiveMarks } from '../render/objectiveMarks';
 import { bakeImpostorAtlases, type ImpostorAtlases } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
+import { firstPersonBlocked, type FirstPersonView } from '../render/firstPerson';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { soldierAt } from '../render/impostor';
 import { deathTint, flightCamera, flybyCamera, FLIGHT_SECONDS, TakeoverMark } from '../render/takeoverView';
@@ -132,6 +133,8 @@ export class BattleScreen {
     existing?: LoadingBar,
     /** Plays a sound from the view (the takeover's rush of air). */
     private readonly onCue: (cue: SoundCue) => void = () => {},
+    /** The Player's first-person view, if the game has one (P toggles it). */
+    private readonly firstPerson: FirstPersonView | null = null,
   ) {
     renderer.scene.add(this.mark.root);
     this.hud = new BattleHud(container, tuning.battle);
@@ -303,6 +306,14 @@ export class BattleScreen {
       this.focus.z += (aim.z - this.focus.z) * k;
       const y = battlefieldHeight(hf, this.focus.x, this.focus.z);
       placeOrbitCamera(camera, { ...this.tuning.camera, ...SPECTATOR }, { x: this.focus.x, y, z: this.focus.z }, this.local.yaw, this.renderer.collider);
+    }
+    // First person while the Player fights on its own feet; back out for a takeover's flight, a Whirlwind, a Knockdown, a fall.
+    const fp = this.firstPerson;
+    if (fp) {
+      const own = status === 'Fighting' && !this.flight;
+      fp.update(seconds, !own || firstPersonBlocked(f));
+      fp.apply(camera, own ? this.renderer.headOf(before, duel, me, alpha) : null, at, this.local.yaw, this.local.pitch, f.size?.height ?? 1);
+      this.renderer.setFirstPerson(own && fp.hidesBody ? me : -1);
     }
     if (status !== 'Out') [this.focus.x, this.focus.z] = [f.position.x, f.position.z];
     // Grey while down; clearing as the camera flies to the Soldier.
