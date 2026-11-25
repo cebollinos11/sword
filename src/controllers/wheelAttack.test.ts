@@ -8,7 +8,7 @@ import { attackTimings, createInitialState, step, TICK_RATE, type FighterState, 
 import { LocalController, WHEEL_QUEUE_SECONDS } from './local';
 
 const tuning = loadTuningData();
-const overhead = attackTimings(tuning, 'arming-sword', 'Overhead');
+const overhead = attackTimings(tuning, 'Arming Sword', 'Overhead');
 
 /** One Fighter alone, driven by a Local Controller; `before(t)` feeds it input before Tick t is sampled. */
 function play(ticks: number, before: (local: LocalController, t: number, me: FighterState) => void): FighterState[] {

@@ -82,7 +82,7 @@ describe('Feint', () => {
 
   it('Release and Recovery are committed: changing Direction or pressing block does not cancel them', () => {
     // Attack held in Release would Whiff Chain (whiffChain.test.ts), so Release sees only block; attack joins once Recovery is under way.
-    const { windUpEnd, releaseEnd } = attackTimings(tuning, 'arming-sword', 'Overhead');
+    const { windUpEnd, releaseEnd } = attackTimings(tuning, 'Arming Sword', 'Overhead');
     // The Intent on Tick t acts on the state after t Ticks: the tap's Wind-up holds through Tick windUpEnd, its Release through releaseEnd.
     const inRelease = windUpEnd + 2;
     const inRecovery = releaseEnd + 1;

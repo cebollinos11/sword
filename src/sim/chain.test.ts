@@ -21,7 +21,7 @@ function largestHandJump(run: ScriptRun, from = 1, to = run.states.length - 1): 
   return largest;
 }
 
-const overhead = attackTimings(tuning, 'arming-sword', 'Overhead');
+const overhead = attackTimings(tuning, 'Arming Sword', 'Overhead');
 /** An Overhead tapped on Tick 1, then attack pressed again in Left this many Ticks later (well into Recovery). */
 const PRESS_AGAIN = overhead.releaseEnd + 6;
 /** Attack is let go on this Tick in both runs below. */
@@ -56,7 +56,7 @@ describe('Chain', () => {
 
   it('stays smooth, and ends exactly on the Wind-up’s held pose', () => {
     expect(largestHandJump(run)).toBeLessThan(largestHandJump(unchained) * 1.5);
-    const left = attackTimings(tuning, 'arming-sword', 'Left');
+    const left = attackTimings(tuning, 'Arming Sword', 'Left');
     const heldAt = idleAt + 1 + left.windUpEnd;
     expect(fighter(run, heldAt).motion).toEqual({ name: 'Left', tick: left.windUpEnd });
     expect(fighter(run, heldAt - 1).motion.blend).toBeDefined();

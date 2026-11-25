@@ -194,9 +194,9 @@ describe('Whirlwind contacts: Blocks', () => {
   });
 
   it('a Dagger Blocking a Whirlwind blow strong enough to break it is Block Broken as usual: knocked down, no damage, the spinner unharmed', () => {
-    // At the Weapon's reference speed no Weapon reaches the Dagger's bar by default (the strongest, a Sledge Hammer, gives 2.34 against 2.4):
-    // lower the bar just under it, as the Block Break tests do for a swing, and the rule is the usual one.
-    const attacker = 'Sledge Hammer';
+    // A Whirlwind blow counts at the Weapon's reference speed, so its strength is `dealt` × `taken`. A Longsword's (1.56) stays under
+    // the Dagger's bar: lower the bar just under it, as the Block Break tests do for a swing, and the rule is the usual one.
+    const attacker = 'Longsword';
     const who: Who = { x: 1.0, z: 0, weapon: 'Dagger', intent: blocking };
     const plain = spin([who], { weapon: attacker, tuning: arenaWith([NORTH]) });
     expect(plain.blocks[0]!.broken).toBeUndefined();
@@ -212,6 +212,13 @@ describe('Whirlwind contacts: Blocks', () => {
     expect(at.fighters[1]!.hp).toBe(base.fighter.maxHp);
     expect(probe.hits).toEqual([]);
     expect(spinner(at).action.kind).toBe('Whirlwind');
+  });
+
+  it('at the default bar, a Halberd or Sledge Hammer Whirlwind (2.34) breaks a Dagger Block, a Longsword one (1.56) does not', () => {
+    const who: Who = { x: 1.0, z: 0, weapon: 'Dagger', intent: blocking };
+    for (const [weapon, breaks] of [['Halberd', true], ['Sledge Hammer', true], ['Longsword', undefined]] as const) {
+      expect(spin([who], { weapon, tuning: arenaWith([NORTH]) }).blocks[0]!.broken, weapon).toBe(breaks);
+    }
   });
 });
 

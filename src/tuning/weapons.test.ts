@@ -34,14 +34,14 @@ describe('Weapon roster', () => {
   it('loads every Weapon from data/weapons/, the Arming Sword first (the default)', () => {
     expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Dagger', 'Flail', 'Halberd', 'Longsword', 'Quarterstaff', 'Sledge Hammer']);
     expect(defaultWeaponName(tuning)).toBe('Arming Sword');
-    expect(tuning.weapons['Arming Sword']).toMatchObject({ grip: 'oneHanded', length: 0.9, damage: 30, speed: 25, gripLength: 0.12, head: 0.9, look: 'sword' });
+    expect(tuning.weapons['Arming Sword']).toMatchObject({ grip: 'oneHanded', length: 0.9, damage: 30, speed: 30, gripLength: 0.12, head: 0.9, look: 'sword' });
     expect(tuning.weapons['Arming Sword']!.offHandGrip).toBeUndefined();
-    expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 22, gripLength: 0.28, offHandGrip: { along: 0.14 } });
+    expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 29, gripLength: 0.28, offHandGrip: { along: 0.14 } });
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.45 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
-    expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.15 } });
-    expect(tuning.weapons.Quarterstaff).toMatchObject({ grip: 'twoHanded', length: 1.5, head: 1.5, damage: 35, look: 'staff', cuts: false, heavyBlow: { speed: 0.7 } });
-    expect(tuning.weapons.Quarterstaff!.tempo).toEqual(tuning.weapons.Halberd!.tempo);
-    expect(tuning.weapons.Dagger).toMatchObject({ grip: 'oneHanded', length: 0.45, head: 0.45, damage: 30, look: 'dagger', tempo: { windUp: 0.75, release: 0.75, recovery: 0.75 }, blockImpact: { dealt: 0.7, taken: 1.3, breakAt: 2.4 }, sheathe: { slot: 'hip' } });
+    expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 0.77 } });
+    expect(tuning.weapons.Quarterstaff).toMatchObject({ grip: 'twoHanded', length: 1.5, head: 1.5, damage: 30, look: 'staff', cuts: false, heavyBlow: { speed: 0.39 } });
+    expect(tuning.weapons.Quarterstaff!.tempo).toEqual(UNIT_TEMPO);
+    expect(tuning.weapons.Dagger).toMatchObject({ grip: 'oneHanded', length: 0.45, head: 0.45, damage: 30, look: 'dagger', tempo: { windUp: 0.75, release: 0.75, recovery: 0.75 }, blockImpact: { dealt: 0.7, taken: 1.3, breakAt: 2.1 }, sheathe: { slot: 'hip' } });
     expect(tuning.weapons.Dagger!.heavyBlow).toEqual(NO_HEAVY_BLOW);
     // Only the Dagger has a Block Break.
     expect(Object.values(tuning.weapons).filter((w) => w.blockImpact.breakAt > 0).map((w) => w.name)).toEqual(['Dagger']);

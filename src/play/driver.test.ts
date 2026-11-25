@@ -14,8 +14,8 @@ const versus = (difficulty: string): Lineup => [
 ];
 
 /** Drive a Player vs AI Match with a per-Tick local Intent, counting the AI's Blocks of the player's Attacks. */
-function play(difficulty: string, local: (tick: number) => Intent, ticks: number) {
-  const driver = playerVsAi(tuning, { arena: 'circle', lineup: versus(difficulty), weapon, bestOf: 3, seed: 7 });
+function play(difficulty: string, local: (tick: number) => Intent, ticks: number, seed = 7) {
+  const driver = playerVsAi(tuning, { arena: 'circle', lineup: versus(difficulty), weapon, bestOf: 3, seed });
   let blocks = 0;
   let hits = 0;
   for (let t = 0; t < ticks; t++) {
@@ -48,10 +48,12 @@ describe('Player vs AI Match driver', () => {
     // Step in to 1.3 m, then tap an Overhead every 90 Ticks.
     const local = (t: number): Intent =>
       t < 12 ? { ...IDLE_INTENT, move: { x: 0, z: 1 } } : { ...IDLE_INTENT, attack: t % 90 === 0 };
-    const easy = play('Easy', local, 2400);
-    const hard = play('Hard', local, 2400);
-    expect(easy.hits).toBeGreaterThan(0);
-    expect(hard.hits).toBeLessThan(easy.hits);
+    // Summed over a few seeds: a single Match has only a handful of Hits either way.
+    const hitsOver = (difficulty: string) => [1, 2, 3, 4, 5, 6].reduce((n, seed) => n + play(difficulty, local, 2400, seed).hits, 0);
+    const easy = hitsOver('Easy');
+    const hard = hitsOver('Hard');
+    expect(easy).toBeGreaterThan(0);
+    expect(hard).toBeLessThan(easy);
   });
 
   it('rejects an unknown difficulty', () => {

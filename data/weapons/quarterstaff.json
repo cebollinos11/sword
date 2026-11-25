@@ -2,8 +2,8 @@
   "name": "Quarterstaff",
   "grip": "twoHanded",
   "length": 1.5,
-  "damage": 35,
-  "speed": 20,
+  "damage": 30,
+  "speed": 36,
   "gripLength": 0.8,
   "offHandGrip": {
     "along": 0.45,
@@ -18,7 +18,7 @@
     "taken": 0.7
   },
   "heavyBlow": {
-    "speed": 0.7,
+    "speed": 0.39,
     "knockdownSlide": 0.9,
     "knockdownSlideTicks": 24,
     "blockSlide": 0.3,

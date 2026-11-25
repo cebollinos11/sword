@@ -21,8 +21,8 @@ function largestHandJump(run: ScriptRun, from = 1, to = run.states.length - 1): 
   return largest;
 }
 
-const overhead = attackTimings(tuning, 'arming-sword', 'Overhead');
-const left = attackTimings(tuning, 'arming-sword', 'Left');
+const overhead = attackTimings(tuning, 'Arming Sword', 'Overhead');
+const left = attackTimings(tuning, 'Arming Sword', 'Left');
 // An Overhead tapped on Tick 0: state i shows the Motion's Tick i - 1, so Release ends (Recovery begins) in state 1 + releaseEnd.
 const RECOVERY_AT = 1 + overhead.releaseEnd;
 /** A Tick inside the Overhead's Release, when attack is pressed again. */

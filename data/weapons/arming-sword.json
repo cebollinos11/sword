@@ -3,7 +3,7 @@
   "grip": "oneHanded",
   "length": 0.9,
   "damage": 30,
-  "speed": 25,
+  "speed": 30,
   "gripLength": 0.12,
   "head": 0.9,
   "shaftDamage": 1,
@@ -12,9 +12,9 @@
     "taken": 1
   },
   "tempo": {
-    "windUp": 1,
+    "windUp": 0.9047619047619048,
     "release": 1,
-    "recovery": 1
+    "recovery": 0.9
   },
   "sheathe": {
     "slot": "hip",
