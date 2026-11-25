@@ -5,6 +5,7 @@ import { Renderer } from './render/renderer';
 import { BODY_MODELS, preloadBody } from './render/bodyModel';
 import { LoadingBar, WARM_UP_DETAIL } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
+import { FIRST_PERSON_KEY, firstPersonBlocked, FirstPersonView } from './render/firstPerson';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
 import { createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
@@ -222,6 +223,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let inShot = false;
   /** Jolts the player's camera on the Hits, Knockdowns and hurting Landings of the live Match (never during the Final Blow Shot). */
   const shake = new CameraShake();
+  /** The first-person view (P toggles it; no touch button): render-only, so each Player chooses their own, online too. */
+  const firstPerson = new FirstPersonView();
 
   /** The Lobby the player is in (a Skirmish's, or a Room's), if any. */
   let lobby: Lobby | null = null;
@@ -589,7 +592,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         bar.dispose();
         return;
       }
-      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged, bar, (cue) => audio.playCue(cue));
+      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged, bar, (cue) => audio.playCue(cue), firstPerson);
     });
   }
 
@@ -858,6 +861,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   addEventListener('keydown', (e) => {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
+    // Only in play, so typing a P into the menu (a name, a Room code) does not flip it.
+    if (e.code === FIRST_PERSON_KEY && !e.repeat && driver && !menu.visible) firstPerson.toggle();
     const mapAction = mapKeyAction(e.code, hud.map.open);
     if (mapAction && !e.repeat) {
       if (mapAction === 'toggle') toggleMap();
@@ -1184,6 +1189,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           renderer.impacts.onTick(m.tick, m.duel);
         }
         const { camera } = tuning;
+        firstPerson.reset();
+        renderer.setFirstPerson(-1);
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
         if (drawFloorCrowd(curr, shot.to, shot.alpha, 0)) renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
       } else {
@@ -1198,6 +1205,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else if (spectating && fallen) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
         else if (spectating) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha, 0), yaw, renderer.collider);
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+        // First person steps back out while the Fighter Whirlwinds, is knocked down, falls or is not its own (a traitor's Soldier, a watcher).
+        const own = !spectating && followed < 0;
+        firstPerson.update(frozen ? 0 : elapsed, !own || firstPersonBlocked(curr.duel.fighters[me]));
+        if (own) firstPerson.apply(renderer.camera, renderer.headOf(before, curr.duel, me, alpha), yaw, local.pitch, curr.duel.fighters[me]?.size?.height ?? 1);
+        renderer.setFirstPerson(own && firstPerson.hidesBody ? me : -1);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
         if (drawFloorCrowd(curr, curr.duel, alpha, frozen ? 0 : elapsed)) renderer.render(before, curr.duel, alpha);
@@ -1233,6 +1245,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(duel, duel, 1), (now / 1000) * ORBIT_SPEED, renderer.collider);
       }
       renderer.setPlayer(me, menu.body);
+      renderer.setFirstPerson(-1);
+      firstPerson.reset();
       renderer.setChosenBodies(chosen);
       renderer.render(duel, duel, 1);
     }

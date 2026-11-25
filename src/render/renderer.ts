@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
-import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
+import { arenaOf, fighterPose, type Layout, type SimState, type Vec3 } from '../sim';
 import { sizedTuning, weaponByName, type TroopTuning, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
@@ -72,6 +72,8 @@ export class Renderer {
   private readonly forced = forcedBody();
   /** The Fighter the local player drives (-1: none, e.g. behind the menu) and the Body they chose. */
   private player: { fighter: number; body: Body } = { fighter: -1, body: 'female' };
+  /** The Fighter seen from inside its head (`setFirstPerson`): its body is not drawn, only its Weapon. -1: none. */
+  private firstPerson = -1;
   /** The Bodies the other players chose, by Fighter (undefined: none, so a random one). */
   private others: readonly (string | undefined)[] = [];
   private lastDraw = performance.now();
@@ -222,6 +224,25 @@ export class Renderer {
     this.player = { fighter, body };
   }
 
+  /** Fighter `fighter` is seen from inside its head (-1: none): from the next frame on its body is hidden and only its Weapon drawn. */
+  setFirstPerson(fighter: number): void {
+    this.firstPerson = fighter;
+  }
+
+  /**
+   * Where Fighter `i`'s head is drawn a share `alpha` of the way from Tick `prev` to Tick `curr` (its centre), for the first-person
+   * camera; null if it is not standing in the Duel (fallen, Benched, or not in it).
+   */
+  headOf(prev: SimState, curr: SimState, i: number, alpha: number): Vec3 | null {
+    const f = curr.fighters[i];
+    if (!f || f.death || f.benched) return null;
+    const { tuning } = this.world(curr.arena);
+    const b = fighterPose(f, tuning).joints.head;
+    const g = prev.fighters[i];
+    const a = g && !g.death ? fighterPose(g, tuning).joints.head : b;
+    return { x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha, z: a.z + (b.z - a.z) * alpha };
+  }
+
   /** The Bodies the other players chose, by Fighter; a Fighter with none (an AI) wears a random one. Takes effect at once. */
   setChosenBodies(byFighter: readonly (string | undefined)[]): void {
     this.others = byFighter;
@@ -299,6 +320,7 @@ export class Renderer {
         this.stage.scene.add(slot.view.root);
       }
       slot.view.root.visible = true;
+      slot.view.bodyVisible = i !== this.firstPerson;
       slot.view.setFade(fade);
       slot.view.setBlood(this.impacts.blades.marksOf(i));
       slot.view.setWounds(this.impacts.bodies.marksOf(i));
