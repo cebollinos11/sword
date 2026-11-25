@@ -1,0 +1,17 @@
+{
+  "name": "brink",
+  "half": [14, 10],
+  "doorways": {"n":0,"e":0,"s":0,"w":0},
+  "centre": [0,0],
+  "kinds": ["Fight","Empty","Stairs"],
+  "brushes": [
+    {"kind":"hole","id":"pool-nw","rect":{"x0":-14,"z0":6,"x1":-6,"z1":10},"y":0},
+    {"kind":"hazard","id":"lava-nw","rect":{"x0":-14,"z0":6,"x1":-6,"z1":10},"y":-4,"hazard":"lava"},
+    {"kind":"hole","id":"pool-ne","rect":{"x0":6,"z0":6,"x1":14,"z1":10},"y":0},
+    {"kind":"hazard","id":"lava-ne","rect":{"x0":6,"z0":6,"x1":14,"z1":10},"y":-4,"hazard":"lava"},
+    {"kind":"hole","id":"pool-sw","rect":{"x0":-14,"z0":-10,"x1":-6,"z1":-6},"y":0},
+    {"kind":"hazard","id":"lava-sw","rect":{"x0":-14,"z0":-10,"x1":-6,"z1":-6},"y":-4,"hazard":"lava"},
+    {"kind":"hole","id":"pool-se","rect":{"x0":6,"z0":-10,"x1":14,"z1":-6},"y":0},
+    {"kind":"hazard","id":"lava-se","rect":{"x0":6,"z0":-10,"x1":14,"z1":-6},"y":-4,"hazard":"lava"}
+  ]
+}
