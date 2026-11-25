@@ -12,9 +12,9 @@
     "taken": 1
   },
   "tempo": {
-    "windUp": 1,
+    "windUp": 0.9047619047619048,
     "release": 1,
-    "recovery": 1
+    "recovery": 0.9
   },
   "sheathe": {
     "slot": "hip",

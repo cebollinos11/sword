@@ -160,7 +160,7 @@ describe('Interrupting the spinner', () => {
   it('a Trade of the spinner\'s blade and a Thrust on one Tick lands both, and the Spin ends', () => {
     const fs = run({
       placements: [SPINNER, in1(0, 2.0, Math.PI)],
-      weapons: ['Dagger', 'Halberd'],
+      weapons: ['Dagger', 'Quarterstaff'],
       teams: [0, 1],
       give: (at) => [{}, { direction: 'Thrust', attack: at < 12 }],
     });

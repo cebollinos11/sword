@@ -534,8 +534,8 @@ describe('AI Controller: repertoire', () => {
     const firstEvent = (pressAhead: number, late: number) =>
       vsAi(eager, skill(pressAhead), answer(late), start + 120).run.events.find((e) => e.type === 'Hit' || e.type === 'Block' || e.type === 'Chamber');
     // Well behind it: with pressAhead it hits first; without (and no preempt) it gives the hit up and Blocks.
-    expect(firstEvent(1, 14)).toMatchObject({ type: 'Hit', attacker: 1, defender: 0 });
-    expect(firstEvent(0, 14)).toMatchObject({ type: 'Block', defender: 1 });
+    expect(firstEvent(1, 12)).toMatchObject({ type: 'Hit', attacker: 1, defender: 0 });
+    expect(firstEvent(0, 12)).toMatchObject({ type: 'Block', defender: 1 });
     // Only just behind it, not clearly ahead: it Blocks either way.
     expect(firstEvent(1, 2)).toMatchObject({ type: 'Block', defender: 1 });
   });

@@ -25,9 +25,9 @@
     "blockSlideTicks": 8
   },
   "tempo": {
-    "windUp": 1,
+    "windUp": 1.1904761904761905,
     "release": 1,
-    "recovery": 1
+    "recovery": 1.2
   },
   "sheathe": {
     "slot": "back",

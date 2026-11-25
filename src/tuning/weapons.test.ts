@@ -40,7 +40,7 @@ describe('Weapon roster', () => {
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.45 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
     expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 0.77 } });
     expect(tuning.weapons.Quarterstaff).toMatchObject({ grip: 'twoHanded', length: 1.5, head: 1.5, damage: 35, look: 'staff', cuts: false, heavyBlow: { speed: 0.39 } });
-    expect(tuning.weapons.Quarterstaff!.tempo).toEqual(tuning.weapons.Halberd!.tempo);
+    expect(tuning.weapons.Quarterstaff!.tempo).toEqual(UNIT_TEMPO);
     expect(tuning.weapons.Dagger).toMatchObject({ grip: 'oneHanded', length: 0.45, head: 0.45, damage: 30, look: 'dagger', tempo: { windUp: 0.75, release: 0.75, recovery: 0.75 }, blockImpact: { dealt: 0.7, taken: 1.3, breakAt: 2.1 }, sheathe: { slot: 'hip' } });
     expect(tuning.weapons.Dagger!.heavyBlow).toEqual(NO_HEAVY_BLOW);
     // Only the Dagger has a Block Break.

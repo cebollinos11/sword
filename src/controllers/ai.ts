@@ -296,6 +296,8 @@ interface AttackPlan {
   readonly direction: Direction;
   /** It may hold the Wind-up while it closes in (swinging into the Attack) until this Tick. */
   readonly holdUntil: number;
+  /** A jumping Attack timed to its fall: it holds the Wind-up until this Tick, in reach or not (absent: none). */
+  readonly releaseAt?: number;
   /** Whether it has rolled to Feint away from a Block raised against this Attack. */
   readonly reFeintRolled: boolean;
   /** Whether it has rolled to Chain, and the Direction it Chains into (null: no Chain). */
@@ -2293,13 +2295,19 @@ class RuleAi implements AiController {
         return Math.hypot(target.position.x + target.velocity.x * lead - p.x, target.position.z + target.velocity.z * lead - p.z);
       };
       // It Releases as it comes within its reach (as `pressOn` does), or once it can hold the Wind-up no longer...
-      let released = windUp;
-      while (released < SWING_IN_HOLD && off(released) > reach - 0.05) released++;
+      let natural = windUp;
+      while (natural < SWING_IN_HOLD && off(natural) > reach - 0.05) natural++;
       // ...and its blade comes down in the second half of the Release: it must be within reach all through it, counting the height between them.
-      let meets = true;
-      for (let k = released + Math.ceil(release / 2); k <= released + release && meets; k++) meets = Math.hypot(off(k), target.y - at(k).y) <= reach;
-      if (!meets || !jumpIsSafe(arena, tn, plan)) continue;
-      return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction, swingIn: true, holdJump: hold, timed: true });
+      const meets = (released: number) => {
+        for (let k = released + Math.ceil(release / 2); k <= released + release; k++) if (Math.hypot(off(k), target.y - at(k).y) > reach) return false;
+        return true;
+      };
+      // Coming down too soon (a quick Wind-up, still high above the target): it holds the Wind-up on, as long as it could anyway, to time the fall.
+      let released = natural;
+      while (!meets(released) && released < SWING_IN_HOLD) released++;
+      if (!meets(released) || !jumpIsSafe(arena, tn, plan)) continue;
+      const releaseAt = released > natural ? state.tick + released : undefined;
+      return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction, swingIn: true, holdJump: hold, timed: true, releaseAt });
     }
     return null;
   }
@@ -2547,7 +2555,7 @@ class RuleAi implements AiController {
    * Wind-up while it closes in. At `feintRate` it plans to Feint this Attack into another Direction, unless it is
    * `timed` (its Release must come when it was pressed for) or the target cannot Block anyway (`defenceless`).
    */
-  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean; double?: boolean } = {}): Intent {
+  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean; double?: boolean; releaseAt?: number } = {}): Intent {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist, this.narrowLine(self));
     if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
@@ -2563,6 +2571,7 @@ class RuleAi implements AiController {
       ? {
           direction,
           holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1,
+          ...(opts.releaseAt !== undefined ? { releaseAt: opts.releaseAt } : {}),
           reFeintRolled: false,
           chainRolled: false,
           chain: null,
@@ -2611,6 +2620,7 @@ class RuleAi implements AiController {
       }
       const spun = plan?.spin !== undefined ? this.spinOn(state, self, a, plan, target, dist, toward, base, team) : null;
       if (spun) return spun;
+      if (plan?.releaseAt !== undefined && tick < plan.releaseAt) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
       if (plan && tick < plan.holdUntil && dist > myReach - 0.05) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
       // About to Release at a target seen backing out of reach: hold on while it may close in, else Feint into a Block.
       if (plan?.whiff && !self.air && this.backingOut(self, target, dist, toward, a.direction, myReach)) {

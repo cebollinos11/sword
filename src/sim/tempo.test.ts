@@ -19,9 +19,14 @@ const SLOW: WeaponTempo = { windUp: 2, release: 1.5, recovery: 3 };
 const slow = withTempo(SLOW);
 
 describe('The unit Tempo', () => {
-  it('is every Weapon in the roster today but the Flail and the Dagger (0.75 throughout), so Attacks play as authored', () => {
-    for (const w of Object.values(tuning.weapons).filter((w) => w.name !== 'Flail' && w.name !== 'Dagger')) expect(w.tempo).toEqual(UNIT_TEMPO);
+  it('is the Longsword\'s (the reference Weapon), the Quarterstaff\'s and the defaults, so their Attacks play as authored', () => {
+    for (const w of ['Longsword', 'Quarterstaff']) expect(tuning.weapons[w]!.tempo, w).toEqual(UNIT_TEMPO);
     expect(tuning.weapons.Dagger!.tempo).toEqual({ windUp: 0.75, release: 0.75, recovery: 0.75 });
+    // The rest shift only Wind-up and Recovery, so Release (and with it Blade Speed) plays as authored. A Wind-up multiplier is a
+    // whole number of Ticks over the 21-Tick authored Wind-up, so the held pose and the end of Release fall on a Tick.
+    expect(tuning.weapons['Arming Sword']!.tempo).toEqual({ windUp: 19 / 21, release: 1, recovery: 0.9 });
+    expect(tuning.weapons.Halberd!.tempo).toEqual({ windUp: 23 / 21, release: 1, recovery: 1.1 });
+    expect(tuning.weapons['Sledge Hammer']!.tempo).toEqual({ windUp: 25 / 21, release: 1, recovery: 1.2 });
   });
 
   it('leaves every time unchanged, bit for bit', () => {
@@ -33,7 +38,7 @@ describe('The unit Tempo', () => {
   });
 
   it('gives every Attack the Tick counts of its authored markers', () => {
-    for (const weapon of Object.keys(tuning.weapons).filter((w) => w !== 'Flail' && w !== 'Dagger')) {
+    for (const weapon of Object.keys(tuning.weapons).filter((w) => hashValue(tuning.weapons[w]!.tempo) === hashValue(UNIT_TEMPO))) {
       for (const d of DIRECTIONS) {
         const m = tuning.motions[d]!;
         expect(attackTimings(tuning, weapon, d)).toEqual({
@@ -68,7 +73,7 @@ describe('A Tempo', () => {
   it('shows the authored pose at each marker, however the Pose Keys fall', () => {
     for (const marker of [windUpEnd, releaseEnd, overhead.duration]) {
       const atTempo = motionPose(slow, 'Overhead', playedSeconds(overhead, SLOW, marker) * TICK_RATE, ORIGIN, HAMMER).blade;
-      const authored = motionPose(tuning, 'Overhead', marker * TICK_RATE, ORIGIN, HAMMER).blade;
+      const authored = motionPose(withTempo(UNIT_TEMPO), 'Overhead', marker * TICK_RATE, ORIGIN, HAMMER).blade;
       for (const k of ['x', 'y', 'z'] as const) {
         expect(atTempo.hilt[k]).toBeCloseTo(authored.hilt[k], 9);
         expect(atTempo.tip[k]).toBeCloseTo(authored.tip[k], 9);

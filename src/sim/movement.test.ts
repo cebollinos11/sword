@@ -71,11 +71,11 @@ describe('Staggered Fighters', () => {
 describe('Moving into a swing', () => {
   it('stepping into an Overhead deals more damage than the same swing standing still', () => {
     // Standing: Fighter 1 is 1.3 m away. Stepping: it is 1.6 m away and Fighter 0
-    // walks forward from Tick 30, mid-Release. Both hit the torso on the same Tick
+    // walks forward from Tick 28, mid-Release. Both hit the torso on the same Tick
     // of the same swing, so the only difference is the Fighter's own movement.
     const still = hitsOf(runDuel(tuning, { distance: 1.3, a: attack('Overhead') }));
     const stepping = hitsOf(
-      runDuel(tuning, { distance: 1.6, a: [...attack('Overhead'), ...wait(29), ...walk(30, { x: 0, z: 1 })] }),
+      runDuel(tuning, { distance: 1.6, a: [...attack('Overhead'), ...wait(27), ...walk(30, { x: 0, z: 1 })] }),
     );
     expect(still).toHaveLength(1);
     expect(stepping).toHaveLength(1);
