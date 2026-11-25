@@ -319,7 +319,15 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
         const x = p.x + (q.x - p.x) * t + nx * BANK_PROBE;
         const z = p.z + (q.z - p.z) * t + nz * BANK_PROBE;
         const y = p.y + (q.y - p.y) * t;
-        const beyond = surfacesAt(draft.arena, x, z).filter((j) => j !== i).map((j) => surfaceHeight(draft.arena, j, x, z));
+        // Not a roof or a Deck over it (a Hall's ceiling over its lava pit, a gallery): a slab stands no side down to this floor.
+        const beyond = surfacesAt(draft.arena, x, z)
+          .filter((j) => {
+            if (j === i || map.walk[j]!.roof) return false;
+            const o = brushes.get(draft.surfaceBrush[j]!);
+            const h = surfaceHeight(draft.arena, j, x, z);
+            return !(o && isSlab(o, h) && h > y + LEVEL_EPS);
+          })
+          .map((j) => surfaceHeight(draft.arena, j, x, z));
         const below = beyond.filter((h) => h < y - LEVEL_EPS);
         // Nothing beyond (the field's edge), or floor beyond at this height or higher (whose own side, or a Wall, stands there): no bank.
         const down = beyond.length === 0 || beyond.some((h) => h >= y - LEVEL_EPS) ? null : Math.max(...below);
