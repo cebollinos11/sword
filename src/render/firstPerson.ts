@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { FighterState, Vec3 } from '../sim';
+import type { CameraTarget } from './thirdPersonCamera';
 
 /** The key that toggles the first-person view (keyboard only: touch play has no button for it). */
 export const FIRST_PERSON_KEY = 'KeyP';
@@ -9,6 +10,13 @@ const STORAGE_KEY = 'sword.firstPerson';
 export const FIRST_PERSON_BLEND_SECONDS = 0.3;
 /** The eye sits this far (m) ahead of the head's centre, along the look, at the standard Size. */
 const EYE_AHEAD = 0.07;
+/**
+ * Seconds for the eye to settle on where the head is over the feet: steadies the bob of each step and the jolt of a swing, while
+ * crouching or leaning still moves the view, eased. Where the feet go (walking, jumping) the eye follows at once.
+ */
+export const HEAD_STEADY_SECONDS = 0.25;
+/** The first-person camera's zoom: under 1 widens the view (about 72° high where the third-person camera is 60°). */
+export const FIRST_PERSON_ZOOM = 0.8;
 
 /**
  * Whether Fighter `f` is doing something that would throw a camera in its head about (a Whirlwind, a Knockdown, the stagger of a
@@ -50,6 +58,10 @@ export class FirstPersonView {
   enabled: boolean;
   /** 0: third person, 1: first person, between: on the way. */
   private t = 0;
+  /** The steadied head, as an offset from the feet (null: none yet, so it starts where the head is). */
+  private offset: { x: number; y: number; z: number } | null = null;
+  /** Seconds since the last `update`, for steadying the head. */
+  private since = 0;
 
   constructor(private readonly storage: Pick<Storage, 'getItem' | 'setItem'> | null = safeStorage()) {
     this.enabled = read(storage) === '1';
@@ -79,23 +91,41 @@ export class FirstPersonView {
     const goal = this.enabled && !blocked ? 1 : 0;
     const step = seconds / FIRST_PERSON_BLEND_SECONDS;
     this.t = goal > this.t ? Math.min(goal, this.t + step) : Math.max(goal, this.t - step);
+    this.since = seconds;
   }
 
   /** Straight to third person, with no swing (a new Match, a cut to another camera). */
   reset(): void {
     this.t = 0;
+    this.offset = null;
   }
 
   /**
    * With the third-person camera already placed on `camera`: move it the blend's share of the way to the first-person camera at
-   * `head` (none: it stays where it is).
+   * `head` (its centre as drawn), steadied over `feet` (`HEAD_STEADY_SECONDS`), and widen the view the same share toward
+   * `FIRST_PERSON_ZOOM`. No `head`: it stays as it is, at the third-person zoom.
    */
-  apply(camera: THREE.PerspectiveCamera, head: Vec3 | null, yaw: number, pitch: number, height = 1): void {
-    const b = this.blend;
-    if (b <= 0 || !head) return;
+  apply(camera: THREE.PerspectiveCamera, head: Vec3 | null, feet: CameraTarget, yaw: number, pitch: number, height = 1): void {
+    const b = head ? this.blend : 0;
+    const zoom = 1 + (FIRST_PERSON_ZOOM - 1) * b;
+    if (camera.zoom !== zoom) {
+      camera.zoom = zoom;
+      camera.updateProjectionMatrix();
+    }
+    if (b <= 0 || !head) {
+      this.offset = null;
+      return;
+    }
+    const fy = feet.y ?? 0;
+    const k = this.offset ? 1 - Math.exp(-this.since / HEAD_STEADY_SECONDS) : 1;
+    const o = (this.offset ??= { x: 0, y: 0, z: 0 });
+    o.x += (head.x - feet.x - o.x) * k;
+    o.y += (head.y - fy - o.y) * k;
+    o.z += (head.z - feet.z - o.z) * k;
+    this.since = 0;
     thirdPosition.copy(camera.position);
     thirdQuaternion.copy(camera.quaternion);
-    placeFirstPersonCamera(camera, head, yaw, pitch, height);
+    placeFirstPersonCamera(camera, { x: feet.x + o.x, y: fy + o.y, z: feet.z + o.z }, yaw, pitch, height);
     if (b >= 1) return;
     camera.position.lerpVectors(thirdPosition, camera.position, b);
     camera.quaternion.slerpQuaternions(thirdQuaternion, camera.quaternion, b);

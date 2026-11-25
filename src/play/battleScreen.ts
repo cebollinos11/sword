@@ -312,7 +312,7 @@ export class BattleScreen {
     if (fp) {
       const own = status === 'Fighting' && !this.flight;
       fp.update(seconds, !own || firstPersonBlocked(f));
-      if (own) fp.apply(camera, this.renderer.headOf(before, duel, me, alpha), this.local.yaw, this.local.pitch, f.size?.height ?? 1);
+      fp.apply(camera, own ? this.renderer.headOf(before, duel, me, alpha) : null, at, this.local.yaw, this.local.pitch, f.size?.height ?? 1);
       this.renderer.setFirstPerson(own && fp.hidesBody ? me : -1);
     }
     if (status !== 'Out') [this.focus.x, this.focus.z] = [f.position.x, f.position.z];

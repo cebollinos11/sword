@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import type { FighterState } from '../sim';
-import { FIRST_PERSON_BLEND_SECONDS, firstPersonBlocked, FirstPersonView, placeFirstPersonCamera } from './firstPerson';
+import { FIRST_PERSON_BLEND_SECONDS, FIRST_PERSON_ZOOM, firstPersonBlocked, FirstPersonView, placeFirstPersonCamera } from './firstPerson';
 
 const fighter = (action: unknown, extra: Partial<FighterState> = {}) => ({ action, ...extra }) as unknown as FighterState;
 
@@ -55,14 +55,54 @@ describe('FirstPersonView', () => {
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(5, 5, 5);
     const view = new FirstPersonView(memory());
-    view.apply(camera, { x: 0, y: 1.7, z: 0 }, 0, 0);
+    view.apply(camera, { x: 0, y: 1.7, z: 0 }, { x: 0, z: 0 }, 0, 0);
     expect(camera.position.toArray()).toEqual([5, 5, 5]);
     view.toggle();
     view.update(1, false);
-    view.apply(camera, { x: 0, y: 1.7, z: 0 }, 0, 0);
+    view.apply(camera, { x: 0, y: 1.7, z: 0 }, { x: 0, z: 0 }, 0, 0);
     expect(camera.position.x).toBeCloseTo(0);
     expect(camera.position.y).toBeCloseTo(1.7);
     expect(camera.position.z).toBeGreaterThan(0);
+  });
+});
+
+describe('FirstPersonView: steadying the head', () => {
+  const inFirstPerson = () => {
+    const view = new FirstPersonView(memory());
+    view.toggle();
+    view.update(1, false);
+    return view;
+  };
+
+  it('widens the view in first person and gives it back in third', () => {
+    const camera = new THREE.PerspectiveCamera(60);
+    const view = inFirstPerson();
+    view.apply(camera, { x: 0, y: 1.7, z: 0 }, { x: 0, z: 0 }, 0, 0);
+    expect(camera.zoom).toBe(FIRST_PERSON_ZOOM);
+    view.update(1, true);
+    view.apply(camera, { x: 0, y: 1.7, z: 0 }, { x: 0, z: 0 }, 0, 0);
+    expect(camera.zoom).toBe(1);
+  });
+
+  it('damps the bob of a step, but follows the feet at once', () => {
+    const camera = new THREE.PerspectiveCamera();
+    const view = inFirstPerson();
+    view.apply(camera, { x: 0, y: 1.7, z: 0 }, { x: 0, y: 0, z: 0 }, Math.PI / 2, 0);
+    // One frame on: the head bobs 5 cm down while the Fighter has walked 10 cm.
+    view.update(1 / 60, false);
+    view.apply(camera, { x: 0, y: 1.65, z: 0.1 }, { x: 0, y: 0, z: 0.1 }, Math.PI / 2, 0);
+    expect(camera.position.z).toBeCloseTo(0.1);
+    expect(camera.position.y).toBeGreaterThan(1.69);
+  });
+
+  it('settles where a held pose puts the head (a crouch)', () => {
+    const camera = new THREE.PerspectiveCamera();
+    const view = inFirstPerson();
+    for (let i = 0; i < 120; i++) {
+      view.update(1 / 60, false);
+      view.apply(camera, { x: 0, y: 1.2, z: 0 }, { x: 0, z: 0 }, Math.PI / 2, 0);
+    }
+    expect(camera.position.y).toBeCloseTo(1.2);
   });
 });
 

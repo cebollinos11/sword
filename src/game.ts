@@ -1190,6 +1190,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         }
         const { camera } = tuning;
         firstPerson.reset();
+        firstPerson.apply(renderer.camera, null, shot.centre, 0, 0);
         renderer.setFirstPerson(-1);
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
         if (drawFloorCrowd(curr, shot.to, shot.alpha, 0)) renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
@@ -1205,10 +1206,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else if (spectating && fallen) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
         else if (spectating) placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha, 0), yaw, renderer.collider);
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+        const feet = lerpPosition(before, curr.duel, me, alpha);
         // First person steps back out while the Fighter Whirlwinds, is knocked down, falls or is not its own (a traitor's Soldier, a watcher).
         const own = !spectating && followed < 0;
         firstPerson.update(frozen ? 0 : elapsed, !own || firstPersonBlocked(curr.duel.fighters[me]));
-        if (own) firstPerson.apply(renderer.camera, renderer.headOf(before, curr.duel, me, alpha), yaw, local.pitch, curr.duel.fighters[me]?.size?.height ?? 1);
+        firstPerson.apply(renderer.camera, own ? renderer.headOf(before, curr.duel, me, alpha) : null, feet, yaw, local.pitch, curr.duel.fighters[me]?.size?.height ?? 1);
         renderer.setFirstPerson(own && firstPerson.hidesBody ? me : -1);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
@@ -1247,6 +1249,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       renderer.setPlayer(me, menu.body);
       renderer.setFirstPerson(-1);
       firstPerson.reset();
+      firstPerson.apply(renderer.camera, null, { x: 0, z: 0 }, 0, 0);
       renderer.setChosenBodies(chosen);
       renderer.render(duel, duel, 1);
     }
