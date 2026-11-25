@@ -1,0 +1,16 @@
+{
+  "name": "chasm",
+  "half": [12, 14],
+  "doorways": {"e":1,"s":0,"w":1},
+  "centre": [0,-9],
+  "kinds": ["Fight","Empty","Stairs"],
+  "brushes": [
+    {"kind":"platform","id":"west-cliff","rect":{"x0":-12,"z0":-4,"x1":-2,"z1":14},"top":2,"material":"basalt"},
+    {"kind":"platform","id":"east-cliff","rect":{"x0":2,"z0":-4,"x1":12,"z1":14},"top":2,"material":"basalt"},
+    {"kind":"hole","id":"rift","rect":{"x0":-2,"z0":-2,"x1":2,"z1":14},"y":0},
+    {"kind":"hazard","id":"rift-lava","rect":{"x0":-2,"z0":-2,"x1":2,"z1":14},"y":-4,"hazard":"lava"},
+    {"kind":"platform","id":"bridge","rect":{"x0":-2,"z0":8,"x1":2,"z1":10},"top":2,"material":"wood"},
+    {"kind":"ramp","id":"west-climb","rect":{"x0":-10,"z0":-8,"x1":-6,"z1":-4},"lo":0,"hi":2,"up":"n","material":"basalt"},
+    {"kind":"ramp","id":"east-climb","rect":{"x0":6,"z0":-8,"x1":10,"z1":-4},"lo":0,"hi":2,"up":"n","material":"basalt"}
+  ]
+}

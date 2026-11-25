@@ -1,0 +1,17 @@
+{
+  "name": "bastion",
+  "half": [12, 12],
+  "doorways": {"n":2,"e":0,"s":0,"w":0},
+  "centre": [0,-4],
+  "kinds": ["Fight","Empty","Stairs"],
+  "brushes": [
+    {"kind":"platform","id":"terrace","rect":{"x0":-12,"z0":4,"x1":12,"z1":12},"top":2,"material":"brick"},
+    {"kind":"platform","id":"keep","rect":{"x0":-6,"z0":8,"x1":6,"z1":12},"top":4,"material":"brick"},
+    {"kind":"ramp","id":"terrace-climb","rect":{"x0":-8,"z0":0,"x1":-4,"z1":4},"lo":0,"hi":2,"up":"n","rails":["w"],"material":"brick"},
+    {"kind":"ramp","id":"keep-climb","rect":{"x0":6,"z0":8,"x1":10,"z1":12},"lo":2,"hi":4,"up":"w","rails":["s"],"material":"brick"},
+    {"kind":"rail","id":"keep-rail-w","a":{"x":-6,"z":8},"b":{"x":-2,"z":8},"y":4,"height":1},
+    {"kind":"rail","id":"keep-rail-e","a":{"x":2,"z":8},"b":{"x":6,"z":8},"y":4,"height":1},
+    {"kind":"block","id":"tower-sw","rect":{"x0":-10,"z0":-10,"x1":-8,"z1":-8},"top":10,"material":"brick"},
+    {"kind":"block","id":"tower-se","rect":{"x0":8,"z0":-10,"x1":10,"z1":-8},"top":10,"material":"brick"}
+  ]
+}

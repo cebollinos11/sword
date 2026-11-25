@@ -5020,12 +5020,12 @@ describe("lava", { timeout: 60 * 60_000 }, () => {
 
 /** The set-piece soak's Floors (see the case below). */
 const SET_PIECE_FLOORS: readonly { run: string; floor: number; kind: SetPieceKind }[] = [
-  { run: "gen:greybox:5", floor: 4, kind: "uphill" }, // hall8 (Empty)
+  { run: "gen:greybox:2", floor: 7, kind: "uphill" }, // hall18 (Stairs)
   { run: "gen:greybox:11", floor: 8, kind: "uphill" }, // hall11 (Empty)
+  { run: "gen:greybox:1", floor: 4, kind: "cross" }, // hall2 (Fight)
   { run: "gen:greybox:3", floor: 4, kind: "cross" }, // hall4 (Fight)
-  { run: "gen:greybox:4", floor: 2, kind: "cross" }, // hall2 (Fight)
   { run: "gen:greybox:2", floor: 1, kind: "spiral" }, // hall5 (Fight)
-  { run: "gen:greybox:3", floor: 8, kind: "spiral" }, // hall11 (Fight)
+  { run: "gen:greybox:3", floor: 8, kind: "spiral" }, // hall8 (Fight)
 ];
 
 describe("set pieces", { timeout: 60 * 60_000 }, () => {

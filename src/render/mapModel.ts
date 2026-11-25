@@ -185,7 +185,7 @@ function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, 
  * that lava's height, so no gap shows under it. Render only: the Simulation's Wall is as the compiler stood it. Null when no piece reaches lava
  * (every Wall of a map with none), so such a Wall is drawn whole, as it was.
  */
-function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number, thick: number): { a: Vec2; b: Vec2; bottom: number }[] | null {
+function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number, thick: number): { a: Vec2; b: Vec2; bottom: number; top?: number }[] | null {
   const { map, arena } = draft;
   const len = Math.hypot(b.x - a.x, b.z - a.z);
   if (len < LEVEL_EPS) return null;
@@ -214,12 +214,18 @@ function overLava(draft: DraftMap, a: Vec2, b: Vec2, bottom: number, top: number
     if (down < bottom) any = true;
   }
   if (!any) return null;
-  const out: { a: Vec2; b: Vec2; bottom: number }[] = [];
+  const out: { a: Vec2; b: Vec2; bottom: number; top?: number }[] = [];
   const at = (t: number): Vec2 => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+  // A run drawn lower than its neighbour also reaches `thick` into it, under the neighbour's foot only, so no slit shows down the corner where
+  // the run's end meets a pit's bank (the bank stands on the piece boundary, edge on to the gap a butt joint leaves).
+  const over = thick / len;
   for (let n = 0; n < pieces; ) {
     let m = n + 1;
     while (m < pieces && downs[m] === downs[n]) m++;
-    out.push({ a: at(n / pieces), b: at(m / pieces), bottom: downs[n]! });
+    const down = downs[n]!;
+    out.push({ a: at(n / pieces), b: at(m / pieces), bottom: down });
+    if (n > 0 && downs[n - 1]! > down) out.push({ a: at(Math.max(0, n / pieces - over)), b: at(n / pieces), bottom: down, top: downs[n - 1]! });
+    if (m < pieces && downs[m]! > down) out.push({ a: at(m / pieces), b: at(Math.min(1, m / pieces + over)), bottom: down, top: downs[m]! });
     n = m;
   }
   return out;
@@ -349,9 +355,9 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const hasLava = map.walk.some((w) => w.lava);
   const wall = (look: MaterialLook, a: Vec2, b: Vec2, bottom: number, top: number, thick: number) => {
     // A Wall standing over lava is drawn down to it, in pieces (`overLava`).
-    for (const p of (hasLava ? overLava(draft, a, b, bottom, top, thick) : null) ?? [{ a, b, bottom }]) {
-      buckets.slab(look, p.a, p.b, p.bottom, top, thick);
-      shaded.push({ a: p.a, b: p.b, bottom: p.bottom, top, thick });
+    for (const p of (hasLava ? overLava(draft, a, b, bottom, top, thick) : null) ?? [{ a, b, bottom, top }]) {
+      buckets.slab(look, p.a, p.b, p.bottom, p.top ?? top, thick);
+      shaded.push({ a: p.a, b: p.b, bottom: p.bottom, top: p.top ?? top, thick });
     }
   };
   map.walls.forEach((w, i) => {
