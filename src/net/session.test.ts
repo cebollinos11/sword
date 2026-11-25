@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultWeaponName, loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
 import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
-import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, type SessionEvent } from './session';
+import { CHECKSUM_INTERVAL, createRollbackSession, BATTLE_INPUT_DELAY, BATTLE_MAX_INPUT_DELAY, DUEL_MAX_INPUT_DELAY, ROLLBACK_WINDOW, targetInputDelay, type SessionEvent } from './session';
 import { PROTOCOL_VERSION } from './messages';
 
 const repoTuning = loadTuningData();
@@ -241,6 +241,122 @@ describe('Rollback session: Input Delay', () => {
     const plain = connect({ latencyMs: 20 });
     playUntilConfirmed(plain, 2 * TICKS);
     expect(plain.host.stats.rollbacks + plain.guest.stats.rollbacks).toBeGreaterThan(100);
+  });
+});
+
+describe('Rollback session: adaptive Input Delay', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('asks for no delay on a LAN, a Tick or two on a near link, and more as the round trip and its jitter grow', () => {
+    expect(targetInputDelay(2, 0.5)).toBe(0);
+    expect(targetInputDelay(25, 3)).toBe(1);
+    expect(targetInputDelay(80, 10)).toBe(3);
+    expect(targetInputDelay(200, 30)).toBeGreaterThan(DUEL_MAX_INPUT_DELAY);
+  });
+
+  /** The host's busy Intents, with a Jump pressed (on one Tick only) every 37th. */
+  const hostIntent = (made: number): Intent => ({ ...HOST_INTENTS(made), ...(made % 37 === 0 ? { jump: true } : {}) });
+
+  /**
+   * An adaptive Duel on a link that turns bad (latencyMs one way) for `badTicks`, then good again. performance.now follows the
+   * virtual clock, so the pings measure the link. The guest records the Intent each Tick finally played for the host's Fighter.
+   */
+  function adaptiveDuel(bad: { latencyMs: number; jitterMs: number }, badTicks: number, goodTicks: number, delay = { min: 0, max: DUEL_MAX_INPUT_DELAY }) {
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const pair = createMemoryTransportPair({ ...bad, seed: 4 });
+    const played = new Map<number, Intent>();
+    const step: typeof stepMatch = (state, intents, t) => {
+      played.set(state.tick + 1, intents[0]!);
+      return stepMatch(state, intents, t);
+    };
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, inputDelay: delay.min, maxInputDelay: delay.max });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, inputDelay: delay.min, maxInputDelay: delay.max, step });
+    const guestEvents: SessionEvent[] = [];
+    guest.onEvent((e) => guestEvents.push(e));
+    let made = 0;
+    let resimulated = 0;
+    let jumps = 0;
+    let jumpsBy = 0;
+    const delays: { host: number; guest: number }[] = [];
+    const run = (frames: number) => {
+      for (let i = 0; i < frames; i++) {
+        clock += TICK_MS;
+        pair.advance(TICK_MS);
+        const intent = hostIntent(made + 1);
+        const h = host.tick(intent);
+        if (h.advanced) {
+          made++;
+          if (intent.jump) jumps++;
+        }
+        resimulated += h.rolledBack + guest.tick(GUEST_INTENTS(guest.currentTick + 1)).rolledBack;
+        delays.push({ host: host.inputDelay, guest: guest.inputDelay });
+      }
+    };
+    run(badTicks);
+    const badDelay = { host: host.inputDelay, guest: guest.inputDelay };
+    pair.retune({ latencyMs: 1, jitterMs: 0 });
+    run(goodTicks);
+    // Settle: everything the host made reaches the guest and is confirmed there.
+    jumpsBy = jumps;
+    const last = made + host.inputDelay;
+    for (let i = 0; i < 600 && guest.confirmedTick < last; i++) run(1);
+    return { host, guest, guestEvents, played, badDelay, delays, resimulated, jumps: jumpsBy, confirmedTo: Math.min(guest.confirmedTick, last) };
+  }
+
+  it('grows the delay on a bad link, a Tick at a time, and gives it back once the link is good again', () => {
+    const r = adaptiveDuel({ latencyMs: 45, jitterMs: 25 }, TICK_RATE * 12, TICK_RATE * 20);
+    expect(r.badDelay.host).toBeGreaterThanOrEqual(2);
+    expect(r.badDelay.guest).toBeGreaterThanOrEqual(2);
+    expect(Math.max(r.badDelay.host, r.badDelay.guest)).toBeLessThanOrEqual(DUEL_MAX_INPUT_DELAY);
+    // (The memory transport hands a message over on the next frame, so even a 1 ms link measures a round trip of two Ticks: a Tick of delay.)
+    expect(r.host.inputDelay).toBeLessThanOrEqual(1);
+    expect(r.guest.inputDelay).toBeLessThanOrEqual(1);
+    for (let i = 1; i < r.delays.length; i++) {
+      expect(Math.abs(r.delays[i]!.host - r.delays[i - 1]!.host)).toBeLessThanOrEqual(1);
+      expect(Math.abs(r.delays[i]!.guest - r.delays[i - 1]!.guest)).toBeLessThanOrEqual(1);
+    }
+    // The peers still agree on every confirmed Tick, while the delay changed under them.
+    expect(r.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
+    for (let t = CHECKSUM_INTERVAL; t <= r.confirmedTo; t += CHECKSUM_INTERVAL) {
+      expect(r.guest.checksumAt(t), `@${t}`).toBe(r.host.checksumAt(t));
+    }
+  });
+
+  it('never loses or repeats a press while the delay grows and shrinks', () => {
+    const r = adaptiveDuel({ latencyMs: 45, jitterMs: 25 }, TICK_RATE * 12, TICK_RATE * 12);
+    const played = [...r.played].filter(([t]) => t <= r.confirmedTo);
+    expect(r.jumps).toBeGreaterThan(10);
+    expect(played.filter(([, i]) => i.jump).length).toBe(r.jumps);
+  });
+
+  it('in a Battle or a Run, adapts above its fixed delay and never comes down below it', () => {
+    const range = { min: BATTLE_INPUT_DELAY, max: BATTLE_MAX_INPUT_DELAY };
+    const r = adaptiveDuel({ latencyMs: 70, jitterMs: 30 }, TICK_RATE * 12, TICK_RATE * 20, range);
+    expect(r.badDelay.host).toBeGreaterThan(BATTLE_INPUT_DELAY);
+    expect(r.badDelay.guest).toBeGreaterThan(BATTLE_INPUT_DELAY);
+    for (const d of r.delays) {
+      expect(Math.min(d.host, d.guest)).toBeGreaterThanOrEqual(BATTLE_INPUT_DELAY);
+      expect(Math.max(d.host, d.guest)).toBeLessThanOrEqual(BATTLE_MAX_INPUT_DELAY);
+    }
+    expect(r.host.inputDelay).toBe(BATTLE_INPUT_DELAY);
+    expect(r.guest.inputDelay).toBe(BATTLE_INPUT_DELAY);
+    expect(r.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
+    expect([...r.played].filter(([t, i]) => t <= r.confirmedTo && i.jump).length).toBe(r.jumps);
+  });
+
+  it.each([
+    ['a middling link', { latencyMs: 30, jitterMs: 15 }],
+    ['a bad one', { latencyMs: 45, jitterMs: 25 }],
+  ])('re-simulates far fewer Ticks than a Duel with no delay on %s', (_name, net) => {
+    const adaptive = adaptiveDuel(net, TICK_RATE * 20, 0);
+    const plain = connect({ ...net, seed: 4 });
+    let resimulated = 0;
+    for (let i = 0; i < TICK_RATE * 20; i++) {
+      const { h, g } = frame(plain, hostIntent, GUEST_INTENTS);
+      resimulated += h.rolledBack + g.rolledBack;
+    }
+    expect(adaptive.resimulated).toBeLessThan(resimulated / 3);
   });
 });
 

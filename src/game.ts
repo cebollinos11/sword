@@ -40,6 +40,8 @@ import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
   BATTLE_INPUT_DELAY,
+  BATTLE_MAX_INPUT_DELAY,
+  DUEL_MAX_INPUT_DELAY,
   BrokerUrlError,
   createRollbackSession,
   hostRoom,
@@ -461,17 +463,19 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     // A Run's Floor with its Warbands costs a Battle's Tick, and so does every Tick a Rollback re-simulates (docs/plans/delver.md, Stage 3:
     // a Rollback's p99 was 11.6 ms with Warbands): it takes a Battle's Input Delay. Each peer's own (peers need not agree), from the Lobby's Format.
     const inputDelay = s.settings.format === 'Gauntlet' ? BATTLE_INPUT_DELAY : 0;
+    // Either adapts to the link above that (ADR 0030): a bad one gets a few Ticks more, so the peers stop rolling back on every Intent.
+    const maxInputDelay = s.settings.format === 'Gauntlet' ? BATTLE_MAX_INPUT_DELAY : DUEL_MAX_INPUT_DELAY;
     let session;
     if (l.isHost) {
       // A guest who left between the start and now gets an AI in their place from the first Tick.
       const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
       // Duels restart on their own; a Run has no Rematch (the host starts the next one from the in-game menu).
       const rematch = match.format === 'Gauntlet' ? {} : { rematchTicks: secondsToTicks(REMATCH_SECONDS) };
-      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup, inputDelay, lag });
+      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup, inputDelay, maxInputDelay, lag });
     } else {
       const transport = l.matchTransport(s.generation, 0);
       if (!transport) return;
-      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, inputDelay, lag });
+      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, inputDelay, maxInputDelay, lag });
     }
     // Dev mode only: this peer's Fighter on the Delver pilot too (`?dev=1&autopilot=1`), for the two-browser check of a Run.
     const autopilot = match.format === 'Gauntlet' && devAutopilot();
@@ -560,15 +564,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (l.isHost) {
         const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
         // A Battle's Tick costs many times a Duel's, and so does every Tick a Rollback re-simulates: the Input Delay lets the other Players'
-        // Intents arrive before the Tick they are for (ADR 0025).
-        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup, inputDelay: BATTLE_INPUT_DELAY, lag });
+        // Intents arrive before the Tick they are for (ADR 0025), and it adapts to the link above that (ADR 0030).
+        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup, inputDelay: BATTLE_INPUT_DELAY, maxInputDelay: BATTLE_MAX_INPUT_DELAY, lag });
       } else {
         const transport = l.matchTransport(s.generation, 0);
         if (!transport) {
           bar.dispose();
           return;
         }
-        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]!, inputDelay: BATTLE_INPUT_DELAY, lag });
+        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]!, inputDelay: BATTLE_INPUT_DELAY, maxInputDelay: BATTLE_MAX_INPUT_DELAY, lag });
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
       const battlePilot = pilot ? createBattlePilot(battleTuning, pilot) : null;

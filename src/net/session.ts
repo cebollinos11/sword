@@ -8,7 +8,9 @@
  *   host's do; Rollback absorbs that like any other latency.
  * - Local Intents apply immediately, or `inputDelay` Ticks later (ADR 0025: an online
  *   Battle's, so the others' arrive before the Tick they are for and nothing is
- *   re-simulated). Every other Player's Intents are predicted
+ *   re-simulated); with `maxInputDelay`, the delay follows the round trip (ADR 0030:
+ *   online, from none up to DUEL_MAX_INPUT_DELAY in a Duel, from BATTLE_INPUT_DELAY up to
+ *   BATTLE_MAX_INPUT_DELAY in a Battle or a Run). Every other Player's Intents are predicted
  *   (repeat their last known one) and corrected by Rollback: when a real Intent
  *   differs from the prediction, the session restores the snapshot before that
  *   Tick and re-simulates forward.
@@ -56,7 +58,7 @@
  * `tick(localIntent)` once per Tick.
  */
 import { arenaTuning, floorOf, warbandPools, warbandsFit } from '../sim/delver';
-import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type Battlefield, type CrowdState } from '../sim';
+import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, TICK_RATE, type Battlefield, type CrowdState } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, startingTickets, tuningDataHash, weaponMotion, type BattleTuning, type TuningData } from '../tuning';
 import {
@@ -76,6 +78,8 @@ import {
 } from '../controllers';
 import { isPoolAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
+
+const TICK_MS = 1000 / TICK_RATE;
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
 export const ROLLBACK_WINDOW = 15;
@@ -118,6 +122,47 @@ export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchForm
 export const BATTLE_INPUT_DELAY = 3;
 /** The most Ticks of Input Delay a session takes: more would be felt as lag whatever the latency. */
 export const MAX_INPUT_DELAY = 8;
+/**
+ * The most Ticks an online Duel's Input Delay adapts up to (ADR 0030): 67 ms, about what a fighting game's online play adds at most.
+ * Latency beyond it is left to Rollback.
+ */
+export const DUEL_MAX_INPUT_DELAY = 4;
+/**
+ * The most Ticks an online Battle's or Run's Input Delay adapts up to, from BATTLE_INPUT_DELAY (ADR 0030): 100 ms. Their Ticks are dear, and a
+ * Rollback deep enough re-simulates more than a frame holds (ADR 0025), so a bad link is worth more delay there than in a Duel.
+ */
+export const BATTLE_MAX_INPUT_DELAY = 6;
+/** Adaptive Input Delay: round trips (pongs, about one a second) the target must stay below the delay before it is lowered a Tick. */
+const DELAY_LOWER_AFTER = 3;
+/** Adaptive Input Delay: a Tick of delay is only added past this fraction of a Tick of one-way latency (plus jitter), so a LAN plays with none. */
+const DELAY_DEAD_ZONE = 0.25;
+/** Fields of an Intent that are presses (true only on the Tick a button goes down) or one-off orders: never duplicated, never dropped. */
+const PRESS_FIELDS = ['jump', 'kick', 'throw', 'sheathe', 'equip', 'drop', 'use', 'troop'] as const;
+/** Fields of an Intent that are held buttons: an Intent may be dropped only while they stay as they were. */
+const HELD_FIELDS = ['attack', 'block', 'jumpHeld', 'crouch', 'whirlwind', 'throwHeld'] as const;
+
+/**
+ * The Input Delay (Ticks) that a round trip of `rttMs` with `jitterMs` of jitter calls for: enough for an Intent to arrive before the
+ * Tick it plays on (ADR 0030), less a dead zone so a LAN plays with none.
+ */
+export function targetInputDelay(rttMs: number, jitterMs: number): number {
+  return Math.max(0, Math.ceil((rttMs / 2 + jitterMs) / TICK_MS - DELAY_DEAD_ZONE));
+}
+
+/** `intent` held on with its presses let go: what fills the Tick an Input Delay grows by. */
+function heldOn(intent: Intent): Intent {
+  const held: Record<string, unknown> = { ...intent };
+  for (const f of PRESS_FIELDS) delete held[f];
+  return { ...held, kick: false, throw: false, sheathe: false } as unknown as Intent;
+}
+
+/** Can `intent` be left out (the Tick an Input Delay shrinks by) without losing a press or a change of button after `prev`? */
+function droppable(intent: Intent, prev: Intent | undefined): boolean {
+  if (!prev) return false;
+  const i = intent as unknown as Record<string, unknown>;
+  const p = prev as unknown as Record<string, unknown>;
+  return PRESS_FIELDS.every((f) => !i[f] && i[f] !== 0) && HELD_FIELDS.every((f) => !!i[f] === !!p[f]);
+}
 /** Time sync: the lead (in Ticks) is averaged over this many Intents messages. */
 const LEAD_SAMPLES = 32;
 /** Time sync: wait a Tick when the averaged lead over a peer is at least this many Ticks... */
@@ -189,8 +234,15 @@ export interface RollbackSessionOptions {
    * Input Delay: this peer's Intent, given on the call that simulates Tick t, is played on Tick t + `inputDelay` (by every peer: it is
    * sent at once, so it has that many Ticks to arrive before anyone needs it, and what arrives in time is never rolled back). The first
    * `inputDelay` Ticks play idle. Each peer's own business: peers need not agree on it. Default 0; at most MAX_INPUT_DELAY.
+   * With `maxInputDelay` above it, it is where the delay starts and the least it adapts down to.
    */
   readonly inputDelay?: number;
+  /**
+   * Adaptive Input Delay (ADR 0030): above `inputDelay`, the delay follows the measured round trip and its jitter (`targetInputDelay`),
+   * between the two, a Tick at a time: up at once, down only once the link has stayed better for a few seconds. Default `inputDelay`
+   * (fixed). At most MAX_INPUT_DELAY.
+   */
+  readonly maxInputDelay?: number;
 }
 
 /** A smoothed round trip (ms) split into its parts: `network` (the wire) and `cpu` (waiting on both peers' busy main threads). */
@@ -198,6 +250,8 @@ export interface Ping {
   readonly total: number;
   readonly network: number;
   readonly cpu: number;
+  /** This peer's Input Delay (Ticks) right now: it adapts to the round trip in an online Duel (ADR 0030). */
+  readonly inputDelay: number;
 }
 
 export interface RollbackSession {
@@ -220,6 +274,8 @@ export interface RollbackSession {
   readonly stats: SessionStats;
   /** Round-trip time (smoothed), split into network and CPU: a guest's to the host; the host's to its slowest guest. Null until the first answer. Cosmetic: never feeds the Simulation. */
   readonly ping: Ping | null;
+  /** This peer's Input Delay (Ticks) right now (`RollbackSessionOptions.inputDelay`, adapting up to `maxInputDelay`). */
+  readonly inputDelay: number;
   /** Advance one Tick with this peer's local Intent (ignored while stalled or not Running). */
   tick(localIntent: Intent): TickResult;
   /** The state hash this peer recorded for a confirmed checksum Tick (a multiple of CHECKSUM_INTERVAL), if any. */
@@ -284,6 +340,8 @@ interface Link {
   /** Time sync: recent estimates of how many Ticks this peer runs ahead of that one. */
   readonly leads: number[];
   ping: number | null;
+  /** The smoothed difference between each round trip and `ping` before it: the link's jitter (ms). */
+  jitter: number;
   /** The smoothed part of `ping` spent waiting on the two main threads. */
   cpu: number;
   /** The peer's Intents have arrived: it is Running, so hello need not be resent. */
@@ -338,8 +396,14 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly connectTimeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
   private readonly lag: () => number;
-  /** Ticks between this peer making an Intent and the Tick that plays it (`RollbackSessionOptions.inputDelay`). */
-  private readonly inputDelay: number;
+  /** Ticks between this peer making an Intent and the Tick that plays it (`RollbackSessionOptions.inputDelay`); adapts up to `maxInputDelay`. */
+  inputDelay: number;
+  private readonly minInputDelay: number;
+  private readonly maxInputDelay: number;
+  /** The Input Delay the round trip calls for (ADR 0030); the delay steps toward it a Tick at a time, as Intents allow. */
+  private targetDelay: number;
+  /** Round trips in a row that called for less delay than this peer plays with. */
+  private lowerVotes = 0;
   private readonly listeners: ((e: SessionEvent) => void)[] = [];
   private inbox: { link: Link; message: NetMessage }[] = [];
   /** Links that closed since the last Tick. */
@@ -378,6 +442,9 @@ class Session implements RollbackSession, PeerIntentSource {
     this.stepFn = o.step ?? stepMatch;
     this.lag = o.lag ?? (() => 0);
     this.inputDelay = Math.min(MAX_INPUT_DELAY, Math.max(0, Math.floor(o.inputDelay ?? 0)));
+    this.minInputDelay = this.inputDelay;
+    this.maxInputDelay = Math.min(MAX_INPUT_DELAY, Math.max(this.inputDelay, Math.floor(o.maxInputDelay ?? this.inputDelay)));
+    this.targetDelay = this.inputDelay;
     this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     if (o.role === 'host') {
@@ -414,6 +481,7 @@ class Session implements RollbackSession, PeerIntentSource {
       silentTicks: 0,
       leads: [],
       ping: null,
+      jitter: 0,
       cpu: 0,
       heardIntents: false,
       weapon: null,
@@ -432,7 +500,9 @@ class Session implements RollbackSession, PeerIntentSource {
         // The ping waited on the peer's main thread, the pong on this one's: the rest of the round trip was the network.
         const cpu = Math.min(rtt, this.lag() + (message.lag ?? 0));
         link.cpu = link.ping === null ? cpu : link.cpu * 0.7 + cpu * 0.3;
+        link.jitter = link.ping === null ? 0 : link.jitter * 0.7 + Math.abs(rtt - link.ping) * 0.3;
         link.ping = link.ping === null ? rtt : link.ping * 0.7 + rtt * 0.3;
+        this.retargetDelay();
       } else this.inbox.push({ link, message });
     });
     transport.onClose(() => {
@@ -456,7 +526,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!worst) return null;
     const total = worst.ping!;
     const cpu = Math.min(total, worst.cpu);
-    return { total, network: total - cpu, cpu };
+    return { total, network: total - cpu, cpu, inputDelay: this.inputDelay };
   }
 
   onEvent(listener: (event: SessionEvent) => void): void {
@@ -512,7 +582,7 @@ class Session implements RollbackSession, PeerIntentSource {
     } else if (waited) {
       this.stats.waits++;
     } else {
-      this.intents[this.localPlayer]!.set(next + this.inputDelay, wireIntent(localIntent));
+      this.storeLocal(next, localIntent);
       this.simulateNext();
     }
     this.recordConfirmed();
@@ -614,6 +684,41 @@ class Session implements RollbackSession, PeerIntentSource {
     this.status = 'Running';
     for (const l of this.links) l.silentTicks = 0;
     this.emit({ type: 'Connected' });
+  }
+
+  // --- Adaptive Input Delay (ADR 0030) ---
+
+  /** A round trip was measured: set the delay it calls for, from the worst live link. Up at once; down only after DELAY_LOWER_AFTER in a row. */
+  private retargetDelay(): void {
+    if (this.maxInputDelay === this.minInputDelay) return;
+    let want = this.minInputDelay;
+    for (const l of this.live()) if (l.ping !== null) want = Math.max(want, targetInputDelay(l.ping, l.jitter));
+    want = Math.min(this.maxInputDelay, want);
+    if (want >= this.inputDelay) {
+      this.lowerVotes = 0;
+      this.targetDelay = want;
+    } else if (++this.lowerVotes >= DELAY_LOWER_AFTER) {
+      this.lowerVotes = 0;
+      this.targetDelay = want;
+    }
+  }
+
+  /**
+   * Store this peer's Intent for the call that simulates Tick `next`, stepping the delay a Tick toward its target. Growing, the Tick
+   * skipped over is filled with the last Intent held on (presses let go); shrinking, this Intent is left out (the last one stored already
+   * plays on its Tick), so only while that loses no press or button change. Peers hold the stream by Tick, so neither touches the protocol.
+   */
+  private storeLocal(next: number, intent: Intent): void {
+    const mine = this.intents[this.localPlayer]!;
+    const last = mine.get(next - 1 + this.inputDelay);
+    if (this.targetDelay > this.inputDelay) {
+      mine.set(next + this.inputDelay, heldOn(last ?? IDLE_INTENT));
+      this.inputDelay++;
+    } else if (this.targetDelay < this.inputDelay && droppable(intent, last)) {
+      this.inputDelay--;
+      return;
+    }
+    mine.set(next + this.inputDelay, wireIntent(intent));
   }
 
   // --- Time sync ---

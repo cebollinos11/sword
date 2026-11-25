@@ -17,6 +17,8 @@ export interface MemoryTransportPair {
   readonly b: Transport;
   /** Move the virtual clock forward and deliver every message that is due, in arrival order. */
   advance(ms: number): void;
+  /** Change the latency and jitter of messages sent from now on (those in flight keep theirs), as when a link gets better or worse. */
+  retune(options: Pick<MemoryTransportOptions, 'latencyMs' | 'jitterMs'>): void;
 }
 
 interface InFlight {
@@ -48,8 +50,8 @@ function generator(seed: number): () => number {
  * jitter and packet loss. Messages are copied through JSON (as on the wire).
  */
 export function createMemoryTransportPair(options: MemoryTransportOptions = {}): MemoryTransportPair {
-  const latency = options.latencyMs ?? 0;
-  const jitter = options.jitterMs ?? 0;
+  let latency = options.latencyMs ?? 0;
+  let jitter = options.jitterMs ?? 0;
   const loss = options.loss ?? 0;
   const random = generator(options.seed ?? 1);
   let now = 0;
@@ -99,6 +101,10 @@ export function createMemoryTransportPair(options: MemoryTransportOptions = {}):
         queue = queue.filter((m) => m !== next);
         next.to.handler?.(JSON.parse(next.data));
       }
+    },
+    retune(o) {
+      latency = o.latencyMs ?? latency;
+      jitter = o.jitterMs ?? jitter;
     },
   };
 }

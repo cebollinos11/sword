@@ -97,7 +97,7 @@ Rewinding the simulation to an earlier Tick when a remote peer's real Intent dif
 One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on every peer: ADR 0005), exchanges Intents (a guest with the host only; the host relays each guest's to the others: ADR 0010), predicts and corrects the other Players' Fighters' Intents by Rollback, and compares state checksums with the host's. Not the Room (which only gets the peers connected).
 
 **Input Delay**:
-The Ticks between a Player making an Intent and the Tick that plays it, in a Rollback session: 3 (50 ms) in an online Battle, none in a Duel or a Run (ADR 0025). The Intent is sent at once, so it has those Ticks to reach the other peers before they need it, and one that arrives in time is never rolled back; a Battle's Tick (the Crowd and a whole Fighter Pool) is too dear to re-simulate several times a frame. The camera still follows the mouse at once. Each peer's own: peers need not agree on it.
+The Ticks between a Player making an Intent and the Tick that plays it, in a Rollback session: online it adapts to the link a Tick at a time (ADR 0030): in a Duel from none on a LAN up to `DUEL_MAX_INPUT_DELAY` (4, 67 ms), in a Battle or a Run from `BATTLE_INPUT_DELAY` (3, 50 ms; ADR 0025) up to `BATTLE_MAX_INPUT_DELAY` (6, 100 ms). The HUD's corner counter shows it. The Intent is sent at once, so it has those Ticks to reach the other peers before they need it, and one that arrives in time is never rolled back; a Battle's Tick (the Crowd and a whole Fighter Pool) is too dear to re-simulate several times a frame. The camera still follows the mouse at once. Each peer's own: peers need not agree on it.
 _Avoid_: Input lag, frame delay, buffer
 
 **AI Takeover**:

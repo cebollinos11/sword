@@ -86,10 +86,10 @@ export function runTime(seconds: number): string {
  * The HP a bar shows: rounded up, so a Fighter still standing never reads 0. Rounded to a millionth first, so a max HP
  * scaled by depth (100 × 1.1 = 110.00000000000001) reads 110, not 111.
  */
-/** The HUD's corner counter: frames per second, and online the ping with its network and CPU parts (ms). */
+/** The HUD's corner counter: frames per second, and online the ping with its network and CPU parts (ms) and the Input Delay (Ticks). */
 export function statsText(fps: number, ping: Ping | null | undefined): string {
   if (ping == null) return `${fps} fps`;
-  return `${fps} fps · ${Math.round(ping.total)} ms (net ${Math.round(ping.network)} · cpu ${Math.round(ping.cpu)})`;
+  return `${fps} fps · ${Math.round(ping.total)} ms (net ${Math.round(ping.network)} · cpu ${Math.round(ping.cpu)}) · delay ${ping.inputDelay}`;
 }
 
 export function hpText(hp: number): string {

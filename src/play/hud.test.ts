@@ -70,9 +70,9 @@ describe('the HP shown on a bar', () => {
 });
 
 describe('the fps and ping counter', () => {
-  it('shows the fps alone offline, and online the ping split into network and CPU', () => {
+  it('shows the fps alone offline, and online the ping split into network and CPU, and the Input Delay', () => {
     expect(statsText(60, null)).toBe('60 fps');
-    expect(statsText(58, { total: 84.4, network: 30.2, cpu: 54.2 })).toBe('58 fps · 84 ms (net 30 · cpu 54)');
+    expect(statsText(58, { total: 84.4, network: 30.2, cpu: 54.2, inputDelay: 2 })).toBe('58 fps · 84 ms (net 30 · cpu 54) · delay 2');
   });
 });
 
