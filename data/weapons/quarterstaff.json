@@ -2,7 +2,7 @@
   "name": "Quarterstaff",
   "grip": "twoHanded",
   "length": 1.5,
-  "damage": 35,
+  "damage": 30,
   "speed": 36,
   "gripLength": 0.8,
   "offHandGrip": {
