@@ -170,6 +170,34 @@ describe('the model of a Map Editor map', () => {
     expect(flat(modelOf(dressedSampleSource()))).toEqual(flat(modelOf(dressedSampleSource())));
   });
 
+  it('draws a Ramp whose foot stands over a lower floor solid down to it: no gap under a level 1 to 2 Ramp in a room floored at 0', () => {
+    const mid: Brush = { kind: 'platform', id: 'mid', rect: { x0: -4, z0: -10, x1: 4, z1: -4 }, top: 2, material: 'stone' };
+    const high: Brush = { kind: 'platform', id: 'high', rect: { x0: -4, z0: 4, x1: 4, z1: 10 }, top: 4, material: 'stone' };
+    const ramp = (lo: number): Brush => ({ kind: 'ramp', id: 'stair', rect: { x0: -2, z0: -4, x1: 2, z1: 4 }, lo, hi: 4, up: 'n', rails: [], material: 'marble' });
+    const wedge = (s: MapSource) => box(mesh(modelOf(s), 'Map_Marble')!);
+    // Its foot on the 2 m Platform, the ground 0 m under it: its sides, head and foot reach a metre under the ground, not a metre under its foot.
+    const raised = wedge(withBrushes([GROUND, mid, high, ramp(2)], [0, 2, 4]));
+    expect(raised.min.y).toBeCloseTo(-1, 5);
+    expect(raised.max.y).toBeCloseTo(4, 5);
+    // A Ramp from the ground is drawn as before: a metre under its foot.
+    expect(wedge(withBrushes([GROUND, high, ramp(0)], [0, 4])).min.y).toBeCloseTo(-1, 5);
+  });
+
+  it('closes a lava pit’s banks down to the lava under a room’s roof: its ceiling over the pit is no floor beside the bank', () => {
+    const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
+    const room: Brush = { kind: 'enclosure', id: 'room', rect: { x0: -10, z0: -10, x1: 10, z1: 10 }, y: 0, doors: {}, top: 6, material: 'marble' };
+    const hole: Brush = { kind: 'hole', id: 'pool', rect: { x0: -2, z0: -2, x1: 2, z1: 2 }, y: 0 };
+    const lava: Brush = { kind: 'hazard', id: 'lava', rect: { x0: -2, z0: -2, x1: 2, z1: 2 }, y: -4, hazard: 'lava' };
+    const p = mesh(modelOf(withBrushes([abyss, room, hole, lava], [-8, -4, 0, 6])), 'Map_Marble')!.geometry.getAttribute('position');
+    // Every side of the pit (each of its four edges, 2 m from the centre) has marble from the floor down to the lava.
+    const at = (side: (x: number, z: number) => boolean) =>
+      Array.from({ length: p.count }, (_, i) => ({ x: p.getX(i), y: p.getY(i), z: p.getZ(i) })).filter((v) => side(v.x, v.z) && Math.abs(v.x) <= 2 && Math.abs(v.z) <= 2);
+    for (const side of [(x: number) => x === -2, (x: number) => x === 2, (_: number, z: number) => z === -2, (_: number, z: number) => z === 2]) {
+      const ys = at(side).map((v) => v.y);
+      expect([Math.min(...ys), Math.max(...ys)]).toEqual([-4, 0]);
+    }
+  });
+
   it('draws an Enclosure’s Walls outside its rect, their inner faces on the lines bodies and the camera stop at; a shared Wall between two rooms', () => {
     const room = (id: string, x0: number, x1: number, doors: EnclosureBrush['doors'] = {}): EnclosureBrush => ({ kind: 'enclosure', id, rect: { x0, z0: -5, x1, z1: 5 }, y: 0, doors });
     const stone = (s: MapSource) => {
