@@ -12,6 +12,8 @@ import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEd
 import type { Brush, EnclosureBrush, MapSource } from '../mapEditor/source';
 import { floorArenaName, floorOf } from '../sim/delver';
 import { noSetPieces } from '../sim/delver/flat.testdata';
+import { delverFloor } from '../sim/delver/generate';
+import { onlySetPiece } from '../sim/delver/plan';
 import { mapModel } from './mapModel';
 import { SEAM_SHADE } from './seamShade';
 
@@ -304,5 +306,43 @@ describe('a Wall over lava (Delver, Stage 7d)', () => {
     }
     // A pit is ringed by floor, its Walls stand on floor: only a river's and a trough's reach the lava.
     expect(reaches).toBe(kind !== 'pit');
+  });
+});
+
+describe('a pit’s banks under a roof (Delver, Stage 7g)', () => {
+  // A drawn room's lava pool (crucible's, in a corner of its Hall) in a roofed Hall: across each of the pool's edges that is not the Hall's Wall,
+  // its floor's side runs down to the lava. The Hall's roof, a walk surface over the pool, once counted as floor beyond the edge at its height,
+  // so no bank was drawn and the open side showed under the floor.
+  it('closes every open side of the pool down to the lava', () => {
+    const tuning = onlySetPiece(loadTuningData(), 'room', 'crucible');
+    const floor = delverFloor(tuning, 1, 1);
+    const hall = floor.plan.halls.find((h) => h.feature?.kind === 'room' && h.lava)!;
+    expect(hall).toBeDefined();
+    const root = mapModel(floor.source, compileDraft(floor.source, floor.battle));
+    const lavaY = hall.lava!.y;
+    const at: THREE.Vector3[] = [];
+    for (const m of meshes(root)) {
+      if (m.name === 'Map_SeamShade' || m.name === 'Map_Lava') continue;
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getY(i) - lavaY) < 1e-4) at.push(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)));
+    }
+    const { x0: hx0, z0: hz0, x1: hx1, z1: hz1 } = hall.rect;
+    let open = 0;
+    for (const r of hall.lava!.rects) {
+      const edges = [
+        { x: r.x0, z: (r.z0 + r.z1) / 2, wall: r.x0 <= hx0 },
+        { x: r.x1, z: (r.z0 + r.z1) / 2, wall: r.x1 >= hx1 },
+        { x: (r.x0 + r.x1) / 2, z: r.z0, wall: r.z0 <= hz0 },
+        { x: (r.x0 + r.x1) / 2, z: r.z1, wall: r.z1 >= hz1 },
+      ];
+      for (const e of edges) {
+        if (e.wall) continue;
+        open++;
+        // A face's corner at the lava's height on the edge's line, within the edge's span.
+        const onLine = (v: THREE.Vector3) => (e.x === r.x0 || e.x === r.x1 ? Math.abs(v.x - e.x) < 1e-4 && v.z >= r.z0 - 1e-4 && v.z <= r.z1 + 1e-4 : Math.abs(v.z - e.z) < 1e-4 && v.x >= r.x0 - 1e-4 && v.x <= r.x1 + 1e-4);
+        expect(at.some(onLine), `the pool's side at (${e.x}, ${e.z}) reaches the lava`).toBe(true);
+      }
+    }
+    expect(open).toBeGreaterThan(0);
   });
 });
