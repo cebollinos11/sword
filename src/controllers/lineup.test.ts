@@ -69,22 +69,22 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
     const state = createMatch(tuning, options).duel;
     const ais = lineupAis(tuning, vsTroop(), 'Duels', { seed });
     expect(ais[0]).toBeNull();
-    const same: Controller[] = [scriptedController([]), createAiController(tuning, 'Beginner', 'Aggressive')];
+    const same: Controller[] = [scriptedController([]), createAiController(tuning, 'Beginner', 'Reckless', { quirks: ['Slow'] })];
     const ran = runControllers(tuning, state, [scriptedController([]), ais[1]!], 400).final;
     expect(hashValue(ran)).toBe(hashValue(runControllers(tuning, state, same, 400).final));
     expect(ran.tick).toBe(400);
   });
 
-  it("plays a Style's minimum (`{ mul, min }`) on a Troop whose Variant has that Style (Lorekeeper, Counter)", () => {
-    // Counter's chamberRate given a minimum: the Troop's AI (built by lineupAis from its Variant) is that Counter's, and plays differently.
-    const withMin = { ...tuning, ai: { ...tuning.ai, styles: { ...tuning.ai.styles, Counter: { ...tuning.ai.styles.Counter, chamberRate: { mul: 2, min: 0.5 } } } } };
+  it("plays a Style's minimum (`{ mul, min }`) on a Troop whose Variant has that Style (Lorekeeper, Chambermaster since Stage 6)", () => {
+    // Chambermaster's chamberRate given a higher minimum: the Troop's AI (built by lineupAis from its Variant) is that Chambermaster's, and plays differently.
+    const withMin = { ...tuning, ai: { ...tuning.ai, styles: { ...tuning.ai.styles, Chambermaster: { ...tuning.ai.styles.Chambermaster, chamberRate: { mul: 3, min: 0.5 } } } } };
     const lorekeeper = { prefab: 'Lorekeeper', variant: 'Lorekeeper (Skilled)' };
     const attacks = Array.from({ length: 40 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();
     const play = (t: typeof tuning, ai?: Controller) => {
       const state = createMatch(t, lineupMatch(t, vsTroop(lorekeeper), ['Longsword'], { bestOf: 1, seed: 7 })).duel;
       return hashValue(runControllers(t, state, [scriptedController(attacks), ai ?? lineupAis(t, vsTroop(lorekeeper), 'Duels', { seed: 7 })[1]!], 1200).final);
     };
-    expect(play(withMin)).toBe(play(withMin, createAiController(withMin, 'Skilled', { ...tuning.ai.styles.Counter, chamberRate: { mul: 2, min: 0.5 } })));
+    expect(play(withMin)).toBe(play(withMin, createAiController(withMin, 'Skilled', { ...tuning.ai.styles.Chambermaster, chamberRate: { mul: 3, min: 0.5 } })));
     expect(play(withMin)).not.toBe(play(tuning));
   });
 
@@ -100,8 +100,8 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
     const attacks = Array.from({ length: 30 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();
     const play = (t: TuningData, ai: Controller) => hashValue(runControllers(t, createMatch(t, options).duel, [scriptedController(attacks), ai], 900).final);
     const troopAi = lineupAis(quirky, vsTroop(), 'Duels', { seed: 5 })[1]!;
-    expect(play(quirky, troopAi)).toBe(play(quirky, createAiController(quirky, 'Beginner', 'Aggressive', { quirks: ['Dumb', 'Heavy'] })));
-    expect(play(quirky, lineupAis(quirky, vsTroop(), 'Duels', { seed: 5 })[1]!)).not.toBe(play(quirky, createAiController(quirky, 'Beginner', 'Aggressive')));
+    expect(play(quirky, troopAi)).toBe(play(quirky, createAiController(quirky, 'Beginner', 'Reckless', { quirks: ['Dumb', 'Heavy'] })));
+    expect(play(quirky, lineupAis(quirky, vsTroop(), 'Duels', { seed: 5 })[1]!)).not.toBe(play(quirky, createAiController(quirky, 'Beginner', 'Reckless')));
   });
 
   it("a plain AI slot plays its Pilot's Quirks; checkLineup refuses an unknown one (naming the known ones), an empty list and a repeat", () => {

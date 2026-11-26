@@ -192,16 +192,18 @@ describe('the Lobby view: an AI Seat fighting as a Delver Troop (docs/plans/enem
   });
 
   it("reads the Troop out in place of the Seat's own settings: Body, Weapon, HP and tier, difficulty and Style, Relics", () => {
-    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive · no Relics');
-    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)', tier: 3 })).toBe('uruk · Sledge Hammer · 120 HP (Floor tier 3) · Beginner Aggressive · no Relics');
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Reckless + Slow · no Relics');
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)', tier: 3 })).toBe('uruk · Sledge Hammer · 120 HP (Floor tier 3) · Beginner Reckless + Slow · no Relics');
     expect(troopLine(tuning, { prefab: 'Revenant', variant: 'Wraith Lord' })).toBe('wraith · Longsword · 300 HP (Boss) · Expert Aggressive · Heavy Gauntlet');
     expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Goblin' })).toBe('Unknown Troop Uruk · Goblin');
     expect(troopName(tuning, { prefab: 'Uruk', variant: 'Warden' })).toBe('Uruk · Warden (Boss)');
+    // The Warden keeps its own Style and drops the Uruk's Slow (the roster pass, Stage 6).
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Warden' })).toBe('uruk · Sledge Hammer · 250 HP (Boss) · Skilled Aggressive · no Relics');
   });
 
   it("lists a Troop's Quirks after its Style (Stage 4)", () => {
     const quirky = { ...tuning, delver: { ...tuning.delver, troops: tuning.delver.troops.map((p) => (p.name !== 'Uruk' ? p : { ...p, variants: p.variants.map((v) => ({ ...v, quirks: ['Dumb', 'Hopper'] })) })) } };
-    expect(troopLine(quirky, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive + Dumb + Hopper · no Relics');
+    expect(troopLine(quirky, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Reckless + Dumb + Hopper · no Relics');
   });
 });
 

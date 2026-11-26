@@ -95,7 +95,21 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Uruk', 'uruk', 'Sledge Hammer'],
     ]);
     // A Variant left unnamed is named for its Prefab and skill, and takes its Prefab's Style and Mods, else the generic soldier's.
-    expect(troops[1]!.variants[0]).toEqual({ name: 'Bruiser (Beginner)', hp: 60, difficulty: 'Beginner', style: 'Aggressive', relics: [], mods: { damage: 0.6 }, damage: tuning.battle.crowd.damage, hitChance: tuning.battle.crowd.hitChance, engageReach: tuning.battle.crowd.engageReach });
+    expect(troops[1]!.variants[0]).toEqual({ name: 'Bruiser (Beginner)', hp: 60, difficulty: 'Beginner', style: 'Reckless', quirks: ['Dumb'], relics: [], mods: { damage: 0.6 }, damage: tuning.battle.crowd.damage, hitChance: tuning.battle.crowd.hitChance, engageReach: tuning.battle.crowd.engageReach });
+    // The roster pass (docs/plans/enemy-behaviours.md, Stage 6): each Prefab's plain Variants' Style and Quirks; the Bosses keep their own Style and no Quirks.
+    expect(troops.map((p) => [p.name, p.variants.filter((v) => !v.boss).map((v) => [v.style, ...(v.quirks ?? [])].join(' + '))])).toEqual([
+      ['Sellsword', ['Balanced', 'Balanced', 'Balanced']],
+      ['Bruiser', ['Reckless + Dumb', 'Reckless', 'Reckless']],
+      ['Cutthroat', ['Skirmisher', 'Skirmisher', 'Skirmisher']],
+      ['Acolyte', ['Defensive', 'Defensive', 'Defensive']],
+      ['Fencer', ['Counter', 'Counter', 'Counter']],
+      ['Halberdier', ['Balanced', 'Balanced', 'Balanced']],
+      ['Flagellant', ['Aggressive', 'Aggressive', 'Aggressive']],
+      ['Lorekeeper', ['Chambermaster', 'Chambermaster', 'Chambermaster']],
+      ['Squire', ['Defensive', 'Defensive + Hopper', 'Defensive + Hopper']],
+      ['Revenant', ['Pack Hunter', 'Pack Hunter', 'Pack Hunter']],
+      ['Uruk', ['Reckless + Slow', 'Reckless + Slow', 'Reckless + Slow']],
+    ]);
     expect(troops[0]!.variants[0]!.mods).toBe(tuning.battle.soldier.mods);
     expect(troops[5]!.variants[2]!.engageReach).toBe(2.2);
     expect(troops[2]!.variants[2]!.relics).toEqual(['Honed Daggers']);
@@ -387,8 +401,8 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     const [beginner, skilled, expert] = parsed.troops[1]!.variants;
     expect([beginner!.quirks, skilled!.quirks, expert!.quirks]).toEqual([['Dumb'], ['Hopper', 'Dumb'], ['Dumb']]);
     expect(parse(withPrefab(1, { quirks: ['Dumb'] }, 0, { quirks: [] })).troops[1]!.variants[0]).not.toHaveProperty('quirks');
-    // No Quirks anywhere: no key, so the bundled Variants (and the Tuning Data hash) are as before.
-    expect(parse(raw()).troops.flatMap((p) => p.variants).some((v) => 'quirks' in v)).toBe(false);
+    // A Variant without Quirks has no key: in the bundled data only the roster pass's (Stage 6) have one, and the Warden's [] drops the Uruk's Slow.
+    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)']);
   });
 
   it('takes its own parsed form back in', () => {

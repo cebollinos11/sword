@@ -104,13 +104,15 @@ describe('Slow on a Duel Seat: a plain AI Seat and a Duel Troop both walk and wi
   });
 
   it('a Duel Troop with Slow (its Variant\'s Quirks) carries it in its Troop Mods, with its own (damage 0.6), and walks and winds up slowly', () => {
-    const quirky: TuningData = { ...repo, delver: { ...repo.delver, troops: repo.delver.troops.map((p) => (p.name !== 'Uruk' ? p : { ...p, variants: p.variants.map((v) => ({ ...v, quirks: ['Slow'] })) })) } };
+    // The bundled Uruk is Slow (the roster pass, Stage 6); the same Uruk with no Quirks is the baseline.
+    const quirky: TuningData = repo;
+    const quiet: TuningData = { ...repo, delver: { ...repo.delver, troops: repo.delver.troops.map((p) => (p.name !== 'Uruk' ? p : { ...p, quirks: [], variants: p.variants.map(({ quirks: _q, ...v }) => v) })) } };
     const uruk = { prefab: 'Uruk', variant: 'Uruk (Beginner)' };
     const troopSeat: Lineup = [
       { team: 0, pilot: { kind: 'Player', player: 0 } },
       { team: 1, pilot: { kind: 'AI', difficulty: 'Expert' }, troop: uruk },
     ];
-    const plain = play(repo, troopSeat);
+    const plain = play(quiet, troopSeat);
     const slow = play(quirky, troopSeat);
     expect(resolveTroop(quirky, uruk).mods).toMatchObject({ damage: 0.6, walkSpeed: 0.7, windUp: 1.35 });
     expect(slow.mods).toMatchObject({ damage: 0.6, walkSpeed: 0.7, windUp: 1.35 });
