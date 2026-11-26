@@ -1,6 +1,6 @@
 # Enemy Behaviours: More Styles, and Quirks
 
-> Status: planned (2026-11-26). Scope agreed with the user the same day: five new Styles (Showoff, Chambermaster, Skirmisher, Pack Hunter, Reckless), three Quirks (Dumb, Slow, Hopper; Hopper moved from the Styles on 2026-11-26), and any Delver Troop playable as a Duel opponent in dev mode. Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: done (2026-11-26). All seven Stages (0–6) are built; what is left to check by hand is listed under "Not checked by hand, across the Stages", after Stage 6. Scope agreed with the user the same day: five new Styles (Showoff, Chambermaster, Skirmisher, Pack Hunter, Reckless), three Quirks (Dumb, Slow, Hopper; Hopper moved from the Styles on 2026-11-26), and any Delver Troop playable as a Duel opponent in dev mode. Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 A Delver enemy is a Prefab (its Body, Weapon, Style and Mods) with one Variant per skill (`data/delver.json`, `delver.troops`). Its Variant sets its HP, its AI difficulty (Beginner, Skilled or Expert) and optionally its Relics or another Style. A Warband names only skills and counts, and each Floor fills them from its own Prefabs.
@@ -633,6 +633,8 @@ Built 2026-11-26.
   - whether an Expert + Slow reads as "a heavy duelist", as the plan hopes.
 
 ### Stage 6: The roster pass
+> Done (2026-11-26).
+
 Give the new behaviours to the Delver's Prefabs in `data/delver.json`, then test in the Map Editor and with the AI check (CLAUDE.md). Suggested assignments, to be confirmed with the user:
 
 | Prefab | Style now | Suggested |
@@ -646,6 +648,111 @@ Give the new behaviours to the Delver's Prefabs in `data/delver.json`, then test
 | Squire | Defensive | Defensive + Hopper Quirk (at Skilled and Expert) |
 
 **Readability.** Tint shows a Soldier's tier, and nothing yet shows its Style or Quirks. A visible tell (a name shown on promotion, such as "Slow Uruk", or an accessory) is a follow-up, not part of this plan.
+
+### Result
+Built 2026-11-26. Data and tests only: no code, no wire change (`PROTOCOL_VERSION` stays 41).
+
+**Where it lives.**
+- `data/delver.json`: the confirmed Styles and Quirks (the table under Measured).
+  - A Prefab-level `style` covers every Variant. The Uruk's `quirks: ["Slow"]` is on the Prefab.
+  - The Bruiser's Beginner and the Squire's Skilled and Expert name their own `quirks`.
+  - The Warden names `quirks: []`, so it drops the Uruk's Slow. The Wraith Lord and the Warden still name `style: "Aggressive"`.
+- `docs/plans/delver-troops.md`: the roster table names the new Styles and Quirks. CONTEXT.md names no Prefab's Style or Quirks, so it is unchanged.
+- Tests:
+  - `src/sim/floorRoster.test.ts` (new, fast, about 5 s), on real Floors (`flatFloors`):
+    - A promoted Soldier of every Variant of each changed Prefab, found on the first Floor that fields it, has its Troop's Style and Quirks.
+    - It wears its Mods (`troopMods`, stored). A Slow Uruk's are `damage` 0.6, `walkSpeed` 0.7 and `windUp` 1.35; nobody else has a pace Mod.
+    - Its Pool AI's memory names (difficulty, Style, Quirks): the key the Pool AI builds its Controller by.
+    - The Bosses keep their own Style and have no Quirks.
+    - A Crowd with a Slow Uruk steps to the same hash as the same Crowd with Slow taken off every Troop.
+  - `src/controllers/aiRoster.slow.test.ts` (new, about 95 s, so slow): the signature-move counts below, as Duel Troops through `lineupMatch` → `createMatch` (Stage 0's `?dev=1` Troop select, headless).
+  - Updated where they named the bundled Styles or Quirks:
+    - `delver.test.ts`: the parsed Bruiser (Beginner); a new table of every Prefab's Styles and Quirks; which Variants carry Quirks.
+    - `troops.test.ts`: the Uruk (Beginner) is Reckless + Slow, with its pace Mods; which Floor Troops carry Quirks.
+    - `lineup.test.ts`: the Uruk's Controller is Reckless + Slow. The Style-minimum test moves to Chambermaster, the Lorekeeper's Style now.
+    - `lobbyView.test.ts`: "Beginner Reckless + Slow", and the Warden's line.
+    - `aiSlow.test.ts`: the Duel Troop's baseline is the Uruk with its Slow taken off, since the bundled one is Slow now.
+
+**Differs from the plan.**
+- **Flagellant keeps Aggressive** (the user's call). So no Prefab plays Showoff, and no Whirlwind count was taken.
+- **The Bosses keep their own Style and no Quirks** (the user's call). The Warden is a Skilled Aggressive Uruk, not Slow. The Wraith Lord and the Duelist are as before.
+- **No golden or pinned hash changed.**
+  - The Delver goldens (`golden.test.ts`) pin each Floor's map and plan, which never read a Troop's Style or Quirks. The Crowd layout doesn't read them either.
+  - The Run tests (`delverRun.test.ts`) compare two plays of the same Run and a Rollback against its own replay, never a pinned hash, so they pass with the new Controllers.
+  - No Floor-level AI memory snapshot is pinned.
+  - The Duel AI goldens (Easy, Normal, Hard) and `aiMemorySweep.test.ts` pass unchanged, as they must: they use no Delver Troop.
+  - So nothing was re-pinned, and there is no list of updated goldens.
+- **The Pack Hunter count is 2 v 2, not 2 v 1.** With one enemy every AI fights it, so ganging can't show. Two Revenants against two Balanced AIs show it.
+- **The Squire's jumps are counted 1 v 2.** As in Stage 4, a hop needs a pincer or a blocked walk, so a 1 v 1 has almost none.
+- **The Cutthroat's daggers are counted by how soon they fly.** It has 3 a Duel, so the old Tricky one also throws nearly all of them in a minute. The count that changes is how many fly in the first 10 s.
+
+**Measured.**
+
+The confirmed assignments (the user, 2026-11-26):
+
+| Prefab | Style before | Style now | Quirks now |
+|---|---|---|---|
+| Lorekeeper | Counter | Chambermaster | none |
+| Cutthroat | Tricky | Skirmisher | none |
+| Flagellant | Aggressive | Aggressive (kept) | none |
+| Bruiser | Aggressive | Reckless | Beginner: Dumb |
+| Uruk | Aggressive | Reckless | Slow, every tier |
+| Revenant | Aggressive | Pack Hunter | none |
+| Squire | Defensive | Defensive | Skilled and Expert: Hopper |
+| Bosses (Warden, Wraith Lord, Duelist) | own | own (Aggressive, Aggressive, Counter) | none |
+
+Signature moves (`aiRoster.slow.test.ts`). Each Troop, at its Variant's tier, fights a plain Balanced AI of that tier with an Arming Sword, on the Editor's flat Arena. 8 seeds × 60 s, nobody dying. Each cell is old Style → new.
+
+| | Beginner | Skilled | Expert |
+|---|---|---|---|
+| Lorekeeper: Chambers planned / foe Attacks seen | 0/175 → 0/180 | 16/276 → 14/268 | 11/292 → 6/301 |
+| Lorekeeper: Chambers landed | 0 → 1 | 11 → 13 | 6 → 3 |
+| Cutthroat: daggers in the first 10 s (of all thrown) | 3 (16) → 21 (24) | 6 (24) → 20 (24) | 7 (23) → 21 (24) |
+| Bruiser: Chains / Recoveries | 4/94 → 14/109 | 24/63 → 25/58 | 35/93 → 36/82 |
+| Bruiser: its Blocks | 37 → 0 (Dumb) | 108 → 118 | 130 → 140 |
+| Uruk: Chains / Recoveries (Reckless without Slow) | 1/87 → 5/46 (1/80) | 32/68 → 18/36 (25/63) | 28/39 → 17/29 (23/36) |
+| Uruk: Wind-up, event to Release (Ticks) | 26 → 35 | 26 → 35 | 26 → 35 |
+| Revenant, 2 v 2: share of Ticks both on one foe | 0.39 → 0.70 | 0.31 → 0.75 | 0.15 → 0.80 |
+| Squire, 1 v 2: leaps + hops | 1+8 → 1+8 (no Quirk) | 4+12 → 8+27 | 1+17 → 4+39 |
+
+What the counts say:
+- **Clear changes:**
+  - The Cutthroat throws early at every tier.
+  - Revenants gang up at every tier.
+  - A Squire Hopper jumps about twice as often; its Beginner, with no Quirk, plays the same Duels Tick for Tick.
+  - A Beginner Bruiser never Blocks.
+  - A Slow Uruk's Wind-up is 9 Ticks longer: 25 → 34, plus the one Tick between the events.
+- **Lorekeeper: little changes.** Counter already doubles `chamberRate`, and Chambermaster triples it (Skilled 0.16 → 0.24, Expert 0.5 → 0.75). But only about 1 enemy Attack in 20 can be Chambered at all (the timing check in `planDefence`), so the counts barely move, and they're small enough to be noise (Expert 6 → 3). Counter → Chambermaster reads as the same fighter. The test asserts only that it plans Chambers at Skilled and Expert and none at Beginner.
+- **Reckless against Aggressive: little changes.**
+  - Both lean hard on offence: `chainRate` ×1.8 against ×1.6, `pressure` ×2 against ×1.8.
+  - Both Sledge Hammer Troops stayed within 2 m of their foe on 93–96% of Ticks either way.
+  - So the Bruiser's Chains move only at Beginner, where Dumb also frees it to swing.
+  - A Slow Uruk Chains less than an Aggressive one: its swings are fewer and later, and Reckless alone doesn't raise the share either (third column).
+  - The test asserts the Bruiser Beginner's rise and the Uruk's Wind-up, not a rise in Chains.
+- **The AI check.** `npm run ai-walk -- --seeds 1-50 --floors 1,5,9`, in four shards (1–13, 14–26, 27–39, 40–50) run at once, and again with `--difficulty Beginner`: 150 Floors, 0 with problems and 2,551 legs arrived, both times: the Stage 4 baseline. At Beginner, each shard's report is line for line the same as the commit before the roster pass (only a dev-server port warning moves between shards). That is trivially so. The AI check walks one AI (an ally or the pilot) at the difficulty, Quirks and walk mode it is given, with no Crowd and no Soldier (`navWalk.ts`), so it never reads `delver.troops`. A Troop's new Style or Quirks reaches only its promoted Fighter, in a fight.
+
+**Not checked by hand.** Fight each changed Troop in a Duel with `?dev=1` (the Troop select), and meet them on a Floor in the Map Editor. Things to watch:
+- whether the Lorekeeper reads as anything but the Counter it was, and whether Chambermaster wants a larger `chamberRate` minimum, or the Lorekeeper wants another Style;
+- whether a Reckless Bruiser or Uruk reads as different from an Aggressive one (the counts say barely);
+- whether a Slow Uruk reads as slow and punishable, and whether a Skirmisher Cutthroat's early daggers are fair at Beginner.
+
+### Not checked by hand, across the Stages
+Everything the Stages left to check by hand, in one place. Each needs `?dev=1`.
+- **Stage 1.** A Troop Seat whose Variant plays a Style with a minimum, in the Lobby (only `lineup.test.ts` covers it).
+- **Stage 2.** Chambermaster and Reckless on a plain AI Seat at each tier: do they feel as intended, and should `CHAMBER_SLOP` rise (4 Ticks barely shows at Skilled)?
+- **Stage 3.** Showoff, Skirmisher and Pack Hunter on plain AI Seats at each tier, Pack Hunter with AI allies (a Gauntlet or a Battle). Watch:
+  - whether a Pack Hunter that ignores aggro is punished too easily from behind;
+  - whether a Beginner Showoff spins too often.
+- **Stage 4.** Dumb and Hopper on a plain AI Seat at each tier (the Quirks select), and on a Troop (now the Bruiser Beginner and the Squire Skilled and Expert). Watch:
+  - whether a Dumb Expert still feels like an Expert, or just a punching bag;
+  - whether a Beginner Hopper's leaps are enough to read as a Hopper;
+  - whether an Expert Hopper needs more than its chance raised.
+- **Stage 5.** Slow on a plain AI Seat at each tier, and on a Troop (now every Uruk). Watch:
+  - whether 0.7× reads as slow without looking broken;
+  - whether a 7 to 9 Tick longer Wind-up can be punished on reaction;
+  - whether an Expert + Slow reads as a heavy duelist.
+- **Stage 6.** The changed Troops, as listed in its Result.
+- **Readability** stays a follow-up: nothing yet shows a Soldier's Style or Quirks.
 
 ## Testing notes
 - **Duels.** The AI tests (`src/controllers/ai.test.ts`, `aiWhirlwind.test.ts`) drive Duels on the Editor's flat Arena. The Style counts in Stages 2 and 3 belong there, seeded, as counts over a few thousand Ticks, not exact sequences.
