@@ -1,6 +1,6 @@
 # Enemy Behaviours: More Styles, and Quirks
 
-> Status: planned (2026-11-26). Scope agreed with the user the same day: six new Styles (Showoff, Chambermaster, Hopper, Skirmisher, Pack Hunter, Reckless), two Quirks (Dumb, Slow), and any Delver Troop playable as a Duel opponent in dev mode. Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: planned (2026-11-26). Scope agreed with the user the same day: five new Styles (Showoff, Chambermaster, Skirmisher, Pack Hunter, Reckless), three Quirks (Dumb, Slow, Hopper; Hopper moved from the Styles on 2026-11-26), and any Delver Troop playable as a Duel opponent in dev mode. Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 A Delver enemy is a Prefab (its Body, Weapon, Style and Mods) with one Variant per skill (`data/delver.json`, `delver.troops`). Its Variant sets its HP, its AI difficulty (Beginner, Skilled or Expert) and optionally its Relics or another Style. A Warband names only skills and counts, and each Floor fills them from its own Prefabs.
@@ -21,8 +21,8 @@ The enemies don't feel different enough. There are three reasons:
   - **Quirk** is a hard rule on top of both.
 
   A Troop names one tier and one Style, and zero or more Quirks.
-- **Six new Styles:** Showoff, Chambermaster, Hopper, Skirmisher, Pack Hunter and Reckless.
-- **Two Quirks:** Dumb and Slow.
+- **Five new Styles:** Showoff, Chambermaster, Skirmisher, Pack Hunter and Reckless.
+- **Three Quirks:** Dumb, Slow and Hopper. Hopper was a Style until 2026-11-26 (the user's call, after Stage 1): it needs a minimum on `jumpNav`, which a Style may not touch, and as a Quirk it goes with any Style (a Defensive Hopper, an Aggressive one).
 - **Out of scope:** Sneaky, Coward, Berserker, Grudge, Warband `role`s and every other idea from the brainstorm. They can be planned later on this groundwork.
 - **The five old Styles stay as they are,** and so does every Troop that uses them. A Balanced Beginner with no Quirks plays bit for bit as today.
 - **Every Troop can be fought in Duels.** With `?dev=1`, a Duel AI Seat can be set to any Delver Prefab and Variant, Boss Variants included. It then fights as that enemy would on a Floor: its Body, Weapon, HP, tier, Style, Quirks, Mods and Relics. This is how the new behaviours get tested by hand, and it's built first (Stage 0) so every later Stage can use it.
@@ -48,13 +48,17 @@ The enemies don't feel different enough. There are three reasons:
 },
 "quirks": {
   "Dumb": { "ai": { "defendRate": 0 } },
-  "Slow": { "body": { "walkSpeed": 0.7, "windUp": 1.35 } }
+  "Slow": { "body": { "walkSpeed": 0.7, "windUp": 1.35 } },
+  "Hopper": { "ai": { "jumpAttackRate": { "mul": 4, "min": 0.002 }, "jumpNav": { "min": 10 } } }
 }
 ```
 
 - **A Style entry** is a multiplier (a number, as today) or `{ "mul", "min" }`. The result is `clamp(max(min, value × mul), 0, 1)`, so a Style's signature move is in use at every tier.
-- **A Quirk** has an `ai` part and a `body` part. Both are optional, and both use absolute values, not multipliers.
-  - **The `ai` part** sets AI settings after the Style is applied. A Quirk always wins.
+- **A Quirk** has an `ai` part and a `body` part. Both are optional.
+  - **The `ai` part** changes AI settings after the Style is applied, so a Quirk always wins. An entry is either:
+    - a number, which **sets** the setting (Dumb's `defendRate` 0); or
+    - `{ "mul", "min" }`, which **adjusts** it as a Style entry does (`clamp(max(min, value × mul), 0, 1)`; `mul` defaults to 1). On `jumpNav`, which is Ticks, not a chance, only `{ "min" }` is allowed: at least that many Ticks, never lower than the tier's own (an Expert Hopper keeps its 30).
+  - **The `body` part** uses absolute values (Mods), not multipliers.
   - **The `body` part** is Mods, folded in with the Fighter's Relics (`foldMods`), so it reaches the Simulation the same way a Relic does.
 
 Size still follows HP and tint still follows skill (`delver.skillTints`).
@@ -66,7 +70,6 @@ The numbers below are starting values, to be tuned in the Editor's Tuning panel.
 |---|---|---|
 | **Showoff** | Whirlwinds often, even at a lone enemy, and adds flourishes (Feints). It cares less about safety. | `whirlwindRate` ×3, min 0.03; **new** `whirlwindAlone` min 0.5; `feintRate` ×1.5; `caution` ×0.6 |
 | **Chambermaster** | Waits for your swing and Chambers it. Starts fewer Attacks itself. | `chamberRate` ×3, min 0.06; `aggression` ×0.6; `preempt` ×1.3; `punish` ×1.3 |
-| **Hopper** | Leaps in with jumping Attacks, hops round you, jumps away when pressed and meets your Landings. | `jumpAttackRate` ×4, min 0.002; `jumpStep` ×3, min 0.3; `jumpEscapeRate` ×2, min 0.1; `landingPunish` ×1.5, min 0.2; `jumpNav` min 10 |
 | **Skirmisher** | Keeps out of reach and throws daggers, whether you stand or walk off. It closes in when it runs out of daggers. | `throwRate` ×4, min 0.04; **new** `throwStanding` min 0.6; **new** `kite` min 0.7; `caution` ×1.5; `pressure` ×0.4 |
 | **Pack Hunter** | Joins the enemy its allies already fight, flanks it and takes turns. It rarely fights alone if it can help it. | `teamwork` ×2, min 0.8; **new** `gangUp` min 0.8 |
 | **Reckless** | Swings at once and keeps swinging. It chains, ignores whiffs and doesn't back off. | `aggression` ×1.6; `pressure` ×2; `chainRate` ×1.8; `caution` ×0; `whiffCheck` ×0.2; `holdBreak` ×0.5 |
@@ -85,8 +88,11 @@ Reckless needs no new code. `caution` 0 already stops the backing off after a sw
 |---|---|---|
 | **Dumb** | Doesn't defend. It never Blocks, Ducks, Chambers, Outpaces or steps back against a blade Attack. | **new** AI setting `defendRate` (default 1), rolled once per enemy Attack in `planDefence`: on a miss it plans nothing and carries on with its own plan. Daggers, Kicks and Whirlwinds go through `defendRate` too. |
 | **Slow** | Walks slower, and its Wind-ups take longer. | Two **new** Mods: `walkSpeed` (a walk multiplier, default 1) and `windUp` (an Attack Wind-up Tempo multiplier, default 1). |
+| **Hopper** | Leaps in with jumping Attacks, hops round you, jumps away when pressed, meets your Landings, and follows you up jumps. | `ai` only: `jumpAttackRate` ×4, min 0.002; `jumpStep` ×3, min 0.3; `jumpEscapeRate` ×2, min 0.1; `landingPunish` ×1.5, min 0.2; `jumpNav` min 10 |
 
 **Dumb** has only an `ai` part, at `defendRate` 0. It isn't a mistake: a miss doesn't use the mistake rate or `humanMistakes`, and the mistake roll still runs as before when it does defend. A future "Clumsy" Quirk could set `defendRate` to 0.5 with no new code.
+
+**Hopper** has only an `ai` part, with the numbers it had as a Style. It is a Quirk because of `jumpNav`: a Beginner's is 0 (taps only), so a Beginner Hopper couldn't follow you up a jump, and a Style may not touch `jumpNav` ("how well", Stage 1's Design). A Quirk may, and its `{ "min": 10 }` only raises it: a Beginner Hopper follows jump Links held up to 10 Ticks, and Skilled (20) and Expert (30) are unchanged. Its jump escapes (`jumpEscapeRate`) use the same limit, so a Beginner Hopper also escapes over those. Every jump is still checked with `jumpIsSafe`.
 
 **Slow** has only a `body` part, so it's a change to the Simulation, not to the AI:
 - **Walk.** `walkSpeed` multiplies the ground walk (`step.ts`, the `speed` product), as `slowFactor` does for a dagger's slow.
@@ -276,7 +282,7 @@ Built 2026-11-26, as the Design above, with these additions and differences.
 #### Design
 Settled 2026-11-26, before any code. The open choice first:
 - **A `min` applies only to the settings a Style may name today, `AI_STYLE_KEYS`, and every one of those is a 0..1 chance.** `feintRate` and each of `AI_DIFFICULTY_EXTRAS` is parsed with `fraction` on a difficulty, so a `min` is always a chance in 0..1, and the result is clamped to 0..1 as today. There is no meaning to give a `min` on a setting that isn't a chance, because none is a Style key.
-- **`jumpNav` stays out of Styles.** It is the longest jump Link hold (Ticks) the AI will follow, -1 for none: how far it can go, so it is "how well", and `AI_STYLE_KEYS` leaves it out on purpose (with Reaction Time and the mistake rate). A multiplier on it would mean nothing (-1 × 3), and the Delver's Floors and `delverPilot`'s walk mode rely on it as the tier sets it. So the plan's Hopper `jumpNav` min 10 is dropped: a Beginner Hopper hops (`jumpStep`), leaps in (`jumpAttackRate`), meets Landings and takes tap escapes (`jumpEscapeRate`, within its `jumpNav` 0), but follows no held jump Link. A later "jump Links" knob would be a Quirk's `ai` part (Stage 4: absolute values), not a Style.
+- **`jumpNav` stays out of Styles.** It is the longest jump Link hold (Ticks) the AI will follow, -1 for none: how far it can go, so it is "how well", and `AI_STYLE_KEYS` leaves it out on purpose (with Reaction Time and the mistake rate). A multiplier on it would mean nothing (-1 × 3), and the Delver's Floors and `delverPilot`'s walk mode rely on it as the tier sets it. So a Style can't give the Hopper its `jumpNav` min 10. (Afterwards, the user made Hopper a Quirk, Stage 4, which may.)
 
 **The type.** An entry keeps the form it was written in; a plain number is not normalised:
 
@@ -326,7 +332,7 @@ Built 2026-11-26, as the Design above.
 - Tests: `tuning.test.ts` (parser and `styleParts`/`styleEntry`), `ai.test.ts` (every bundled Style × difficulty against the old formula with `Object.is` per key; what a `min` does), `tuningSections.test.ts` (the panel's draft round trip), `lineup.test.ts` (a Troop Seat whose Variant plays Counter gets the Counter with a minimum).
 
 **Differs from the plan.**
-- **No `jumpNav` minimum** (see the Design): a Style still names only chances. Stage 2's Hopper is `jumpAttackRate`, `jumpStep`, `jumpEscapeRate` and `landingPunish` only.
+- **No `jumpNav` minimum** (see the Design): a Style still names only chances. So Hopper moved to the Quirks (Stage 4), settled with the user the same day.
 - **`{ min }` alone is allowed** (`mul` 1), and `{ mul }` alone is refused.
 
 **Checked by hand** (`?dev=1`, the Editor's Duel sandbox, AI vs AI, yellow Beginner Counter against blue Expert Aggressive, best of 5):
@@ -339,10 +345,10 @@ Built 2026-11-26, as the Design above.
 - Write the Styles' entries as `{ "mul": 3, "min": 0.06 }`; a minimum alone is `{ "min": 0.5 }`. The bit-for-bit test in `ai.test.ts` names the five old Styles, so adding Styles needs no change to it.
 
 ### Stage 2: The data-only Styles, and the Chamber timing error
-- **Styles.** Add Chambermaster, Hopper and Reckless to `data/ai.json` with the starting values above.
+- **Styles.** Add Chambermaster and Reckless to `data/ai.json` with the starting values above. (Hopper is a Quirk now: Stage 4.)
 - **Chamber timing error.** Add it (`CHAMBER_SLOP`, starting at 4 Ticks), rolled only when a Chamber is planned. An AI that never Chambers draws no extra random numbers.
 - **Done:**
-  - Duels of each new Style against a Balanced AI of the same tier, on the Editor's flat Arena, count the signature move. Chambers, jumping Attacks, hops and Chains each come out at least 2× Balanced, at every tier, except Chambers at Beginner (none, by Reaction Time; settled with the user).
+  - Duels of each new Style against a Balanced AI of the same tier, on the Editor's flat Arena, count the signature move. Chambers and Chains each come out at least 2× Balanced, at every tier, except Chambers at Beginner (none, by Reaction Time; settled with the user).
   - A Skilled Chambermaster lands fewer of its Chambers than an Expert one, which lands most of them. (A Beginner makes none.)
   - The AI memory sweep and the golden tests pass unchanged for the old Styles.
 
@@ -355,8 +361,11 @@ Built 2026-11-26, as the Design above.
   - A Skirmisher with daggers throws at a target standing still and keeps out of reach. With none left it closes in.
   - Three Pack Hunters against two enemies put at least two on one target most of the time, where Balanced Expert spreads out.
 
-### Stage 4: Quirks, and Dumb
-- **Data.** Add `ai.quirks` (name → `{ ai?, body? }`). The `ai` part may set any `AiDifficulty` extra and `defendRate`. The `body` part may set any Mods key.
+### Stage 4: Quirks, Dumb and Hopper
+- **Data.** Add `ai.quirks` (name → `{ ai?, body? }`). The `body` part may set any Mods key. The `ai` part may name any `AiDifficulty` extra, `defendRate` and `jumpNav`, never Reaction Time or the mistake rate:
+  - a number sets it (a chance 0..1; `jumpNav` a whole number of Ticks, -1 or more);
+  - `{ mul?, min }` adjusts a chance as a Style entry does, reusing Stage 1's `parseStyleEntry`, `styleParts` and the `skillOf` formula;
+  - on `jumpNav`, only `{ min }` (a whole number of Ticks, 0 or more): the result is `max(min, jumpNav)`.
 - **Troops.**
   - `delver.troops`: a Prefab and a Variant may name `quirks`, a list of `ai.quirks` names. A Variant's list replaces its Prefab's, and defaults to it.
   - `parseDelver` takes the Quirk names in `DelverNames` and refuses unknown ones.
@@ -366,8 +375,12 @@ Built 2026-11-26, as the Design above.
   - The Pool AI keys its Controllers by (difficulty, Style, Quirks), not (difficulty, Style).
 - **Mods.** A Quirk's `body` part folds into the promoted Fighter's Mods with its Relics, at the same seam: promotion, in `src/sim/bubble.ts` (`foldMods` over the Troop's `mods` and Relics).
 - **Dumb.** Add `defendRate` (default 1) and gate `planDefence` and the Kick, dagger and Whirlwind answers on it.
+- **Hopper.** Add it to `ai.quirks` with the starting values above. No new AI code: it only changes existing settings.
+- **Walk-only AIs.** `delverPilot` and `traitorPilot` force `jumpNav` -1 for their walk mode. That must still win over a Hopper's minimum: apply the Quirks before those overrides, not after.
 - **Done:**
   - A Dumb Expert takes every blade Hit from a scripted attacker, and still attacks as an Expert.
+  - Duels of a Hopper against the same AI without it, on the Editor's flat Arena, at every tier: jumping Attacks and hops come out at least 2× as often. A Beginner Hopper's `jumpNav` is 10 and an Expert's stays 30.
+  - The Map Editor's AI check (`aiwalk=1`) on a few Floors, with a Beginner Hopper, shows no new stuck or fallen legs.
   - A Troop with no Quirks hashes and plays exactly as before.
   - A Quirk the parser doesn't know is refused, with the list of known ones.
   - A Duel Troop Seat (Stage 0) plays its Variant's Quirks. In dev mode, a plain AI Seat's Quirks select adds them.
@@ -394,7 +407,7 @@ Give the new behaviours to the Delver's Prefabs in `data/delver.json`, then test
 | Bruiser | Aggressive | Reckless; Beginner + Dumb |
 | Uruk | Aggressive | Reckless + Slow |
 | Revenant | Aggressive | Pack Hunter |
-| Squire | Defensive | Hopper (at Skilled and Expert) |
+| Squire | Defensive | Defensive + Hopper Quirk (at Skilled and Expert) |
 
 **Readability.** Tint shows a Soldier's tier, and nothing yet shows its Style or Quirks. A visible tell (a name shown on promotion, such as "Slow Uruk", or an accessory) is a follow-up, not part of this plan.
 
