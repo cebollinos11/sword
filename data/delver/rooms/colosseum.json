@@ -4,6 +4,7 @@
   "doorways": {"n":1,"e":1,"s":1,"w":1},
   "centre": [0,0],
   "kinds": ["Fight","Empty","Stairs"],
+  "duel": true,
   "brushes": [
     {"kind":"platform","id":"ring-n","rect":{"x0":-12,"z0":8,"x1":12,"z1":12},"top":2,"material":"stone"},
     {"kind":"platform","id":"ring-s","rect":{"x0":-12,"z0":-12,"x1":12,"z1":-8},"top":2,"material":"stone"},

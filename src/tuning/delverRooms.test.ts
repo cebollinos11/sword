@@ -19,6 +19,17 @@ describe('parseRoom (docs/plans/delver.md, Stage 7g)', () => {
     expect(parse(serializeRoom(FIXTURE_ROOM))).toEqual(FIXTURE_ROOM);
   });
 
+  it('reads and writes the duel flag, true or left out', () => {
+    expect(FIXTURE_ROOM.duel).toBeUndefined();
+    expect('duel' in serializeRoom(FIXTURE_ROOM)).toBe(false);
+    const duel = parse({ ...base, duel: true });
+    expect(duel.duel).toBe(true);
+    expect(serializeRoom(duel).duel).toBe(true);
+    expect(parse(serializeRoom(duel))).toEqual(duel);
+    expect(() => parse({ ...base, duel: false })).toThrow(/duel.*true, or left out/);
+    expect(() => parse({ ...base, duel: 'yes' })).toThrow(/duel/);
+  });
+
   it.each([
     ['a bad name', { ...base, name: 'a b' }, /name/],
     ['a half outside halfSize', { ...base, half: [15, 9] }, /half\[0\].*halfSize/],

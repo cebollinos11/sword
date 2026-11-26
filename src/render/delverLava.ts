@@ -7,7 +7,7 @@
  * Never in the compiled map, the Tuning Data hash or the Simulation.
  */
 import * as THREE from 'three';
-import type { FloorPlan } from '../sim/delver/plan';
+import type { DelverLava } from '../sim/delver/plan';
 
 /** A lava light's point (m): over the middle of a lava Hall's largest lava rect. */
 export interface LavaPoint {
@@ -27,7 +27,7 @@ const LIGHT_OVER = 1;
  * The lava light points of Floor `plan`: one for each lava Hall, 1 m over the centre of its largest lava rect (the first on a tie), at the
  * lava's height + 1. Pure: the same plan gives the same points; none for a Floor with no lava.
  */
-export function lavaPointsOf(plan: FloorPlan): LavaPoint[] {
+export function lavaPointsOf(plan: { readonly halls: readonly { readonly lava?: Pick<DelverLava, 'rects' | 'y'> }[] }): LavaPoint[] {
   const out: LavaPoint[] = [];
   for (const h of plan.halls) {
     if (!h.lava || h.lava.rects.length === 0) continue;

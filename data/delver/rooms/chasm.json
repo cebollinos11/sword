@@ -4,6 +4,7 @@
   "doorways": {"e":1,"s":0,"w":1},
   "centre": [0,-9],
   "kinds": ["Fight","Empty","Stairs"],
+  "duel": true,
   "brushes": [
     {"kind":"platform","id":"west-cliff","rect":{"x0":-12,"z0":-4,"x1":-2,"z1":14},"top":2,"material":"basalt"},
     {"kind":"platform","id":"east-cliff","rect":{"x0":2,"z0":-4,"x1":12,"z1":14},"top":2,"material":"basalt"},

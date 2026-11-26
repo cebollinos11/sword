@@ -4,6 +4,7 @@
   "doorways": {"n":0,"e":0,"s":0,"w":0},
   "centre": [0,0],
   "kinds": ["Fight","Empty","Stairs"],
+  "duel": true,
   "brushes": [
     {"kind":"block","id":"col-n","rect":{"x0":-2,"z0":4,"x1":2,"z1":6},"top":6,"material":"marble"},
     {"kind":"block","id":"col-s","rect":{"x0":-2,"z0":-6,"x1":2,"z1":-4},"top":6,"material":"marble"},

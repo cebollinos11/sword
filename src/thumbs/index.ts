@@ -12,13 +12,13 @@
  * pictures under it (e.g. `#/thumbs/arenas/random`).
  */
 import * as THREE from 'three';
-import { createMatch, withGeneratedArena, type Layout, type SimState } from '../sim';
+import { createMatch, duelRooms, roomArenaName, roomArenaOf, withGeneratedArena, type Layout, type SimState } from '../sim';
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { Stage } from '../render/stage';
 import { bakeSkies } from '../render/sky';
 import { drawnPose, FighterView, teamColour } from '../render/fighterView';
 import { BODY_MODELS, preloadBody, type BodyModelName } from '../render/bodyModel';
-import { weaponThumb } from '../play/dom';
+import { arenaThumbName, weaponThumb } from '../play/dom';
 import { battleMaps } from '../play/lobbyView';
 import { battleNameFor, OPEN_FIELD } from '../sim';
 
@@ -39,7 +39,7 @@ const NEUTRAL = 0x8a8f99;
  * the line between them, up, and back along it, each in metres per metre between them (with a floor).
  */
 const ARENA_SHOT = { side: 0.95, minSide: 4.5, up: 0.35, minUp: 2.2, along: -0.35 };
-/** Arenas walled in beside the Fighters' line: shot from behind the first Fighter instead, high, looking down the line. */
+/** Arenas walled in beside the Fighters' line: shot from behind the first Fighter instead, high, looking down the line (a Duel room whose side shot would stand outside its walls too). */
 const FROM_BEHIND: ReadonlySet<string> = new Set(['library']);
 /** The seed of the open field the Battle maps' first card shows. */
 const OPEN_FIELD_SEED = 1;
@@ -72,6 +72,11 @@ export async function startThumbs(container: HTMLElement, tuning: TuningData): P
   const only = location.hash.replace(/^#\/thumbs\/?/, '');
   const wanted = (path: string) => path.startsWith(only);
   for (const arena of Object.keys(tuning.arenas)) if (wanted(`arenas/${arena}`)) await save(`arenas/${arena}.webp`, await arenaShot(container, tuning, arena));
+  // The drawn rooms offered as Duel maps, `room:<room>` saved as `room-<room>`.
+  for (const room of duelRooms(tuning)) {
+    const arena = roomArenaName(room.name);
+    if (wanted(`arenas/${arenaThumbName(arena)}`)) await save(`arenas/${arenaThumbName(arena)}.webp`, await arenaShot(container, tuning, arena));
+  }
   if (wanted('arenas/random')) {
     const random = withGeneratedArena(tuning, RANDOM_SHOT);
     await save('arenas/random.webp', await arenaShot(container, random.tuning, RANDOM_SHOT, random.layout));
@@ -135,12 +140,15 @@ async function arenaShot(container: HTMLElement, tuning: TuningData, arena: stri
   const apart = Math.hypot(b.position.x - a.position.x, b.position.z - a.position.z);
   const s = ARENA_SHOT;
   const cam = stage.camera;
-  if (FROM_BEHIND.has(arena)) {
-    cam.position.set(a.position.x, a.y + 3.2, a.position.z).addScaledVector(line, -3.5).addScaledVector(side, 1.2);
-  } else {
-    cam.position.copy(mid).addScaledVector(side, Math.max(s.minSide, apart * s.side)).addScaledVector(line, apart * s.along);
-    cam.position.y += Math.max(s.minUp, apart * s.up);
-  }
+  const aside = mid.clone().addScaledVector(side, Math.max(s.minSide, apart * s.side)).addScaledVector(line, apart * s.along);
+  aside.y += Math.max(s.minUp, apart * s.up);
+  // A Duel room is shot from the side when that stands inside its walls (a metre in), else from behind.
+  const room = roomArenaOf(tuning, arena)?.source.brushes.find((b) => b.kind === 'enclosure')?.rect;
+  const walledIn = room ? !(aside.x > room.x0 + 1 && aside.x < room.x1 - 1 && aside.z > room.z0 + 1 && aside.z < room.z1 - 1) : FROM_BEHIND.has(arena);
+  // A room's from-behind shot is higher and nearer: over a balcony's rail, under its ceiling.
+  const [up, back] = room ? [4.6, 2.4] : [3.2, 3.5];
+  if (walledIn) cam.position.set(a.position.x, a.y + up, a.position.z).addScaledVector(line, -back).addScaledVector(side, 1.2);
+  else cam.position.copy(aside);
   cam.lookAt(mid.x, mid.y + 0.8, mid.z);
   await frames(2);
   bakeSkies(stage.renderer);

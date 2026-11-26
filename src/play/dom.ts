@@ -32,6 +32,9 @@ export function select(label: string, options: readonly (readonly [string, strin
 export const hex = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
 
 /** A picture drawn by the thumbnail page (`#/thumbs`), under public/thumbs/. */
+/** An Arena's thumbnail file name (no `:`): a Duel room's `room:<room>` is `room-<room>`. */
+export const arenaThumbName = (arena: string): string => arena.replace(':', '-');
+
 export function thumb(folder: 'arenas' | 'battlemaps' | 'bodies' | 'weapons', name: string): string {
   return `${import.meta.env.BASE_URL}thumbs/${folder}/${name}.webp`;
 }

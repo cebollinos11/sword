@@ -13,7 +13,7 @@ import { PROP_LOOKS, type MaterialLook } from '../mapEditor/look';
 import type { Rect } from '../mapEditor/source';
 import { surfaceHeight, surfacesAt } from '../sim';
 import type { ArenaGeometry } from '../tuning';
-import type { DelverHallKind, FloorPlan } from '../sim/delver/plan';
+import type { DelverHall, DelverHallKind, FloorPlan } from '../sim/delver/plan';
 import { MeshBuckets } from './meshBuckets';
 
 /** A flame: where it burns (m) and its light's colour. */
@@ -69,12 +69,18 @@ function sides(r: Rect): { ax: number; az: number; bx: number; bz: number; nx: n
   ];
 }
 
+/** What `sconcesOf` reads of a Floor plan: its Halls' kinds, floors, pillars and ceilings, and its Passages (a Duel room's is one Hall, no Passage). */
+export interface SconcePlan {
+  readonly halls: readonly Pick<DelverHall, 'kind' | 'rects' | 'pillars' | 'top'>[];
+  readonly passages: FloorPlan['passages'];
+}
+
 /**
  * The sconces of Floor `plan` in `arena` (its compiled geometry): evenly along each wall of each Hall's floor (its outer walls and its solids'
  * faces, never a doorway, nor beside a pillar), then along the long walls of each straight piece of each Passage, on alternate sides. Each
  * stands over the highest floor under its Hall's roof (a gallery's Deck, a split's tier, a Ramp). Pure: the same plan gives the same sconces.
  */
-export function sconcesOf(plan: FloorPlan, arena: ArenaGeometry): Sconce[] {
+export function sconcesOf(plan: SconcePlan, arena: ArenaGeometry): Sconce[] {
   const pieces = plan.passages.flatMap((p) => p.pieces.map((q) => q.rect));
   const out: Sconce[] = [];
   const floorUnder = (x: number, z: number, below: number): number | null => {

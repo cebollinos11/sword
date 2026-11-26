@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
+import { arenaOf, battlefieldOf, battleMapName, isBattleName, parseRoomArena, roomArenaOf, type Battlefield, type Layout } from '../sim';
 import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
 import { sconceMeshes, sconcesOf, TorchLights, type Flame } from './delverTorches';
@@ -368,9 +368,12 @@ export class Stage {
     this.defaultFar = field ? BATTLEFIELD_FAR : FAR;
     this.camera.far = this.defaultFar;
     this.camera.updateProjectionMatrix();
+    const room = field ? null : roomModelOf(this.tuning, name);
     const setting: Setting = field
       ? battle(name, field, () => this.arena === name, floorModelOf(this.tuning, name))
-      : look
+      : room
+        ? roomSetting(room)
+        : look
         ? modelled(name, look, () => this.arena === name)
         : kit && kitLook && layout
           ? kitted(kit, layout, kitLook, geometry, () => this.geometry === geometry)
@@ -691,6 +694,76 @@ function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
   }
   floorModels.set(name, model);
   return model;
+}
+
+/** The last few Duel rooms' drawn models, by Arena name (most recently used last). */
+const KEPT_ROOM_MODELS = 3;
+const roomModels = new Map<string, THREE.Object3D>();
+
+/**
+ * The drawn model of Duel room Arena `name` (`room:<room>`, `sim/roomArena.ts`): its closed source drawn as a Delver Floor is (`mapModel`,
+ * `drawnMapModel`), with sconces along its walls (it is one Hall, its Blocks its pillars) and a glow over its largest lava pool. Null for any other name.
+ */
+function roomModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
+  if (parseRoomArena(name) === null) return null;
+  let model = roomModels.get(name);
+  if (model) {
+    roomModels.delete(name);
+  } else {
+    const built = roomArenaOf(tuning, name);
+    if (!built) return null;
+    const draft = compileDraft(built.source, tuning.battle);
+    const drawn = mapModel(built.source, draft);
+    const room = built.source.brushes.find((b) => b.kind === 'enclosure')!;
+    const pillars = built.source.brushes.flatMap((b) => (b.kind === 'block' ? [b.rect] : []));
+    const pools = built.source.brushes.flatMap((b) => (b.kind === 'hazard' && b.hazard === 'lava' ? [b] : []));
+    const sconces = sconcesOf({ halls: [{ kind: 'Fight', rects: [room.rect], pillars, top: built.room.top }], passages: [] }, built.arena);
+    drawn.add(...sconceMeshes(sconces));
+    const fires: Flame[] = [];
+    drawn.traverse((o) => {
+      if (o instanceof THREE.PointLight) fires.push({ x: o.position.x, y: o.position.y, z: o.position.z, colour: o.color.getHex() });
+    });
+    drawn.userData.flames = [...sconces, ...fires];
+    drawn.userData.lava = pools.length > 0 ? lavaPointsOf({ halls: [{ lava: { rects: pools.map((b) => b.rect), y: pools[0]!.y } }] }) : [];
+    model = drawnMapModel(drawn);
+    if (roomModels.size >= KEPT_ROOM_MODELS) {
+      const oldest = roomModels.keys().next().value!;
+      disposeModel(roomModels.get(oldest)!);
+      roomModels.delete(oldest);
+    }
+  }
+  roomModels.set(name, model);
+  return model;
+}
+
+/** A Duel room's setting: its model in the look it names (the Delver's crypt), lit by its sconces' lights that follow the camera and its lava's glow. */
+function roomSetting(model: THREE.Object3D): Setting {
+  texturedModel(model);
+  const look = battleLook(skyOf(model));
+  const setting = lookSetting(look);
+  setting.root.add(model);
+  const lit: THREE.Object3D[] = [];
+  model.traverse((o) => {
+    if (o instanceof THREE.PointLight) lit.push(o);
+  });
+  for (const o of lit) o.removeFromParent();
+  const torches = new TorchLights(model.userData.flames as readonly Flame[]);
+  setting.root.add(torches.group);
+  const lava = new LavaLights(model.userData.lava as readonly LavaPoint[]);
+  setting.root.add(lava.group);
+  const dust = setting.root.children.find((o): o is Dustfall => o instanceof Dustfall);
+  if (dust) dust.lights = torches.flameLights;
+  const clutter = model.getObjectByName(CLUTTER);
+  return {
+    ...setting,
+    animate: (seconds, camera) => {
+      torches.update(camera, seconds);
+      lava.update(camera, seconds);
+      animateLava(seconds);
+      if (clutter) clutter.visible = clutterEnabled();
+    },
+    far: () => (look.sky ? undefined : setting.fog.far + PAST_FOG),
+  };
 }
 
 const kitModels = new Map<string, Promise<THREE.Object3D>>();

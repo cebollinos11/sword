@@ -22,6 +22,8 @@ export interface RoomMeta {
   readonly doorways: Readonly<Partial<Record<Side, number>>>;
   readonly centre: readonly [number, number];
   readonly kinds: readonly RoomKind[];
+  /** Offered as a Duel map too (`DrawnRoom.duel`). */
+  readonly duel?: true;
 }
 
 /** The prefix of every Brush id the stub map writes for itself (the abyss, the room's Enclosure, the stub Passages): never a room's own. */
@@ -135,7 +137,7 @@ export function newRoomMeta(name: string, width: number, depth: number): RoomMet
 
 /** A parsed room's meta and its Brushes. */
 export function roomParts(room: DrawnRoom): { meta: RoomMeta; brushes: readonly Brush[] } {
-  return { meta: { name: room.name, half: room.half, doorways: room.doorways, centre: room.centre, kinds: room.kinds }, brushes: room.brushes };
+  return { meta: { name: room.name, half: room.half, doorways: room.doorways, centre: room.centre, kinds: room.kinds, ...(room.duel ? { duel: true as const } : {}) }, brushes: room.brushes };
 }
 
 /**
@@ -157,7 +159,7 @@ export function looseRoomParts(raw: unknown, halfSize: readonly [number, number]
   const centre: [number, number] = [Math.round(Number(cr[0]) || 0), Math.round(Number(cr[1]) || 0)];
   const kinds = Array.isArray(o.kinds) ? ROOM_KINDS.filter((k) => (o.kinds as unknown[]).includes(k)) : [...ROOM_KINDS];
   const brushes = array(o.brushes ?? [], 'room.brushes').map((b, i) => parseBrush(b, `room.brushes[${i}]`, 0.5, 1000, (v) => v, []));
-  return { meta: { name, half, doorways, centre, kinds: kinds.length ? kinds : [...ROOM_KINDS] }, brushes };
+  return { meta: { name, half, doorways, centre, kinds: kinds.length ? kinds : [...ROOM_KINDS], ...(o.duel === true ? { duel: true as const } : {}) }, brushes };
 }
 
 /**
@@ -171,7 +173,7 @@ export function roomFromSource(meta: RoomMeta, source: MapSource): Record<string
     return plain;
   });
   const all = meta.kinds.length === ROOM_KINDS.length;
-  return { name: meta.name, half: [...meta.half], doorways: { ...meta.doorways }, centre: [...meta.centre], ...(all ? {} : { kinds: [...meta.kinds] }), brushes };
+  return { name: meta.name, half: [...meta.half], doorways: { ...meta.doorways }, centre: [...meta.centre], ...(all ? {} : { kinds: [...meta.kinds] }), ...(meta.duel ? { duel: true } : {}), brushes };
 }
 
 /** The room file's text as Save writes it: two-space JSON, one Brush a line. */
@@ -196,6 +198,20 @@ export function roomStub(room: DrawnRoom, frame: number, passage: number, fieldS
   const fr = framedRoom(room, frame);
   const centre: [number, number] = [ox + fr.centre[0], oz + fr.centre[1]];
   return { source: stubSource(rect, f.doorways, centre, f.brushes, room.top, passage, fieldSize, [], shift), centre, rect, room: fr, shift };
+}
+
+/**
+ * Parsed `room` as a Duel map (`sim/roomArena.ts`): placed as the check stub places it in frame 0 (its walls on odd metres), but closed, with no doorway
+ * cut and no stub Passage, so a raised doorway is wall too. Also its centre point and its rect.
+ */
+export function roomDuelSource(room: DrawnRoom, passage: number, fieldSize: number): { source: MapSource; centre: [number, number]; rect: Rect } {
+  const [hw, hd] = room.half;
+  const ox = (hw + 1) % 2;
+  const oz = (hd + 1) % 2;
+  const rect: Rect = { x0: ox - hw, z0: oz - hd, x1: ox + hw, z1: oz + hd };
+  const f = roomFeature('r', room, 0, rect, 0);
+  const centre: [number, number] = [ox + room.centre[0], oz + room.centre[1]];
+  return { source: stubSource(rect, {}, centre, f.brushes, room.top, passage, fieldSize, []), centre, rect };
 }
 
 /** Parse the room `raw` (refusing an id the stub map keeps for itself) against the Floor's half sizes and doorway width. Throws TuningDataError. */

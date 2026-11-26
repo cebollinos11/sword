@@ -8,7 +8,7 @@
  * the Skirmish setup, the online Room Lobby and the in-game Match setup alike; who may change what follows the Lobby
  * (the host edits Seats and settings, everyone their own Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName, type MatchFormat } from '../sim';
+import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, duelRooms, parseGeneratedName, parseRoomArena, roomArenaName, type MatchFormat } from '../sim';
 import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import { PortraitView } from '../render/portrait';
@@ -33,7 +33,7 @@ import {
   type Seat,
   type SeatRef,
 } from '../lobby';
-import { button, h, hex, select, thumb, thumbImage, weaponThumb } from './dom';
+import { arenaThumbName, button, h, hex, select, thumb, thumbImage, weaponThumb } from './dom';
 
 /** How the menu presents each Arena; one missing here shows its file name on a plain card. `hidden` keeps it off the Map picker (it stays the Editor's). */
 export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string; art: string; hidden?: boolean }>> = {
@@ -70,14 +70,20 @@ export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string;
   },
 };
 
-/** The Arenas a Match can be played in: every one but those hidden from the picker. */
+/** The Arenas a Match can be played in: every one but those hidden from the picker, then each drawn room offered as a Duel map (`room:<room>`). */
 export function pickableArenas(tuning: TuningData): string[] {
-  return Object.keys(tuning.arenas).filter((a) => !ARENA_INFO[a]?.hidden);
+  return [...Object.keys(tuning.arenas).filter((a) => !ARENA_INFO[a]?.hidden), ...duelRooms(tuning).map((r) => roomArenaName(r.name))];
 }
+
+/** A Duel room's stand-in: torchlight on dark dungeon stone. */
+const ROOM_ART = 'radial-gradient(circle at 25% 30%, #ffb36644, transparent 40%), radial-gradient(circle at 75% 70%, #ff6a2a33, transparent 35%), linear-gradient(170deg, #3a3330, #1c1715 60%, #0c0a09)';
 
 export function arenaLabel(arena: string): string {
   const seed = mapSeed(arena);
-  return seed !== null ? `Random · seed ${seed}` : (ARENA_INFO[arena]?.label ?? arena);
+  if (seed !== null) return `Random · seed ${seed}`;
+  const room = parseRoomArena(arena);
+  if (room !== null) return room.charAt(0).toUpperCase() + room.slice(1);
+  return ARENA_INFO[arena]?.label ?? arena;
 }
 
 /** The Random Map card's picture (public/thumbs/arenas/random.webp) and its painted stand-in. */
@@ -421,7 +427,7 @@ interface MapArt {
   readonly art: string;
 }
 
-const arenaArt = (arena: string): MapArt => ({ picture: thumb('arenas', arena), art: ARENA_INFO[arena]?.art ?? PLAIN_ART });
+const arenaArt = (arena: string): MapArt => ({ picture: thumb('arenas', arenaThumbName(arena)), art: ARENA_INFO[arena]?.art ?? (parseRoomArena(arena) !== null ? ROOM_ART : PLAIN_ART) });
 const randomArt = (): MapArt => ({ picture: thumb('arenas', RANDOM_THUMB), art: RANDOM_ART });
 const battleArt = (choice: { id: string; art: string }): MapArt => ({ picture: thumb('battlemaps', choice.id), art: choice.art });
 
