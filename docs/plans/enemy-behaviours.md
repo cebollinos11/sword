@@ -114,6 +114,8 @@ Reckless needs no new code. `caution` 0 already stops the backing off after a sw
 ## Stages
 
 ### Stage 0: Fight a Troop in Duels (dev mode)
+> Done (2026-11-26).
+
 The test bench for the rest of the plan: fight any Delver enemy one on one, without generating a Floor or finding it in a Run.
 
 **Today**, a Duel AI Seat (`Seat` in `src/lobby/lobby.ts`, `LineupSlot` in `src/controllers/lineup.ts`) has a difficulty, a Style, a Weapon and a Size, and nothing else. A Duel Fighter has the standard HP, no Mods and no Relics, and the Seat chooses no Body.
@@ -243,8 +245,8 @@ Built 2026-11-26, as the Design above, with these additions and differences.
 **Differs from the plan.**
 - **The Variant is named by its own `name`**, not its difficulty (see the Design). The Lobby still shows "Uruk · Beginner".
 - **No Quirks in the Seat's read-only line yet.** They don't exist until Stage 4.
-- **No skill tint.** A Duel Troop wears its Team's colour, not `delver.skillTints`: tint is render-only and per Soldier, and the plan's Stage 0 list didn't ask for it.
-- **The Seat's difficulty doesn't apply while a Troop is set.** The host's "AI level" row still sets it, but it only counts again once the Troop is cleared.
+- **No skill tint.** A Duel Troop wears its Team's colour, not `delver.skillTints`. Settled with the user (2026-11-26): a Duel Troop doesn't need it.
+- **The Seat's difficulty doesn't apply while a Troop is set.** The host's "AI level" row still sets it, but it only counts again once the Troop is cleared. Settled with the user (2026-11-26): it stays so.
 
 **Checked by hand** (`?dev=1`, a Skirmish on the Library):
 - **"Uruk · Beginner".** It is drawn as the Uruk Body with the Sledge Hammer. Its row reads "uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive · no Relics".
