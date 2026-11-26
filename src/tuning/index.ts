@@ -497,8 +497,25 @@ export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'foo
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];
 export type AiStyleKey = (typeof AI_STYLE_KEYS)[number];
 
-/** A Style: a multiplier (0 or more) on each of a difficulty preset's chances it names; the result is clamped to 0..1. */
-export type AiStyle = Readonly<Partial<Record<AiStyleKey, number>>>;
+/**
+ * One Style entry, kept in the form it was written in: a multiplier (0 or more) on a preset's chance, or that multiplier
+ * with a minimum, `{ mul, min }` (`mul` 0 or more, default 1; `min` 0..1): the result is at least `min`, so a Style's
+ * signature move is in use at every tier. Every Style key is a chance, so `min` is one too.
+ */
+export type AiStyleEntry = number | { readonly mul?: number; readonly min: number };
+
+/** A Style: an entry (`AiStyleEntry`) on each of a difficulty preset's chances it names; the result is clamped to 0..1 (`skillOf`). */
+export type AiStyle = Readonly<Partial<Record<AiStyleKey, AiStyleEntry>>>;
+
+/** A Style entry's multiplier and minimum, whichever form it was written in: a plain multiplier `m` is `{ mul: m, min: 0 }`. */
+export function styleParts(entry: AiStyleEntry): { mul: number; min: number } {
+  return typeof entry === 'number' ? { mul: entry, min: 0 } : { mul: entry.mul ?? 1, min: entry.min };
+}
+
+/** The short form of a Style entry: the plain multiplier when `min` is 0, else `{ mul, min }` (the inverse of `styleParts`). */
+export function styleEntry(mul: number, min: number): AiStyleEntry {
+  return min === 0 ? mul : { mul, min };
+}
 
 import { DEFAULT_STYLE } from './style';
 export { DEFAULT_STYLE };
@@ -752,6 +769,22 @@ function parseDagger(raw: unknown): DaggerTuning {
   };
 }
 
+/**
+ * One `ai.styles` entry: a multiplier (a number 0 or more), kept a number, or `{ mul?, min }` (`mul` 0 or more, `min`
+ * 0..1), kept as written (so the Tuning Data hash of a Style written as before is as before).
+ */
+function parseStyleEntry(m: Record<string, unknown>, key: string, where: string): AiStyleEntry {
+  const v = m[key];
+  if (typeof v === 'number') return nonNegativeNumber(m, key, where);
+  const at = `${where}.${key}`;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new TuningDataError(`${at} must be a multiplier (a number) or { mul, min }, got ${JSON.stringify(v)}`);
+  const e = v as Record<string, unknown>;
+  for (const k of Object.keys(e)) if (k !== 'mul' && k !== 'min') throw new TuningDataError(`${at}.${k}: a Style entry is a multiplier or { mul, min }`);
+  if (e.min === undefined) throw new TuningDataError(`${at}: an object entry needs a min (0..1); write a plain multiplier as a number`);
+  const min = fraction(e, 'min', at);
+  return e.mul === undefined ? { min } : { mul: nonNegativeNumber(e, 'mul', at), min };
+}
+
 function parseAi(raw: unknown): AiTuning {
   const ai = record(raw, 'ai');
   const d = record(ai.difficulties, 'ai.difficulties');
@@ -782,7 +815,7 @@ function parseAi(raw: unknown): AiTuning {
       for (const k of Object.keys(m)) {
         if (!(AI_STYLE_KEYS as readonly string[]).includes(k)) throw new TuningDataError(`${where}.${k}: a Style scales only ${AI_STYLE_KEYS.join(', ')}`);
       }
-      const style: AiStyle = Object.fromEntries(AI_STYLE_KEYS.filter((k) => m[k] !== undefined).map((k) => [k, nonNegativeNumber(m, k, where)]));
+      const style: AiStyle = Object.fromEntries(AI_STYLE_KEYS.filter((k) => m[k] !== undefined).map((k) => [k, parseStyleEntry(m, k, where)]));
       return [name, style];
     }),
   );

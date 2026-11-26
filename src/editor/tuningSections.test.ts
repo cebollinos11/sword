@@ -12,7 +12,7 @@ import halberdJson from '../../data/weapons/halberd.json';
 import sledgeHammerJson from '../../data/weapons/sledge-hammer.json';
 import quarterstaffJson from '../../data/weapons/quarterstaff.json';
 import longswordJson from '../../data/weapons/longsword.json';
-import { GAIT_FIELDS, loadTuningData, parseTuningData, parseWeapon, TuningDataError } from '../tuning';
+import { GAIT_FIELDS, loadTuningData, parseTuningData, parseWeapon, styleEntry, TuningDataError } from '../tuning';
 import { EditorSession, TUNING_SECTIONS } from './session';
 
 const tuning = loadTuningData();
@@ -108,6 +108,20 @@ describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () =
       expect(file.path).toBe(`data/${section}.json`);
       expect(JSON.parse(file.text)).toEqual(repo[section]);
     }
+  });
+
+  it("round-trips a Style entry given a minimum ({ mul, min }), and a minimum set back to 0 is the plain multiplier again", () => {
+    const session = new EditorSession(tuning);
+    const counter = session.draftSection('ai').styles.Counter as Record<string, unknown>;
+    counter.chamberRate = styleEntry(2, 0.06);
+    session.commitSection('ai');
+    expect(session.tuning.ai.styles.Counter).toEqual({ ...aiJson.styles.Counter, chamberRate: { mul: 2, min: 0.06 } });
+    const ai = session.sectionFile('ai');
+    expect(JSON.parse(ai.text).styles.Counter.chamberRate).toEqual({ mul: 2, min: 0.06 });
+    expect(reloadWith(ai.fileName, ai.text).ai).toEqual(session.tuning.ai);
+    counter.chamberRate = styleEntry(2, 0);
+    session.commitSection('ai');
+    expect(session.tuning.ai.styles.Counter).toEqual(aiJson.styles.Counter);
   });
 
   it('round-trips edited Hit Zone multipliers and AI difficulty parameters', () => {

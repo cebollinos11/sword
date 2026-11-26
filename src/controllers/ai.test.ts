@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseArena, spinUpChargeTicks, type AiDifficulty, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, loadTuningData, parseArena, spinUpChargeTicks, type AiDifficulty, type TuningData } from '../tuning';
 import { attack, attackTimings, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Action, type Direction, type Intent, type SimState, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { aiDifficulty, aiStyle, createAiController, runControllers, runMatch, scriptedController } from './index';
@@ -1107,6 +1107,56 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
     expect(scaled.holdBreak).toBe(0); // off stays off: a Style never turns a new knob on
     expect([scaled.reactionTime, scaled.mistakeRate, scaled.jumpNav]).toEqual([plain.reactionTime, plain.mistakeRate, plain.jumpNav]);
     expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, 'Counter')).whiffCheck).toBeCloseTo(0.7 * 1.4);
+  });
+
+  it('every bundled Style and difficulty pair gives bit for bit the Skill of the old formula, clamp(v × m, 0, 1)', () => {
+    // Stage 1 of docs/plans/enemy-behaviours.md (Style minimums) must change no existing Style: each is plain multipliers.
+    // The five Styles that came before it; Styles added later may use { mul, min }.
+    const old5 = ['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive'];
+    let pairs = 0;
+    for (const styleName of old5) {
+      const style = aiStyle(repo, styleName);
+      for (const entry of Object.values(style)) expect(typeof entry, styleName).toBe('number');
+      for (const tier of Object.keys(repo.ai.difficulties)) {
+        const plain = skillOf(repo, aiDifficulty(repo, tier));
+        const old: Record<string, number> = { ...plain };
+        for (const k of AI_STYLE_KEYS) {
+          const m = style[k] as number | undefined;
+          if (m !== undefined) old[k] = Math.min(1, Math.max(0, plain[k] * m));
+        }
+        const now = skillOf(repo, aiDifficulty(repo, tier), style);
+        expect(Object.keys(now).sort(), `${tier} ${styleName}`).toEqual(Object.keys(old).sort());
+        for (const k of Object.keys(old)) expect(Object.is((now as unknown as Record<string, number>)[k], old[k]), `${tier} ${styleName} ${k}`).toBe(true);
+        pairs++;
+      }
+    }
+    expect(pairs).toBe(old5.length * Object.keys(repo.ai.difficulties).length);
+  });
+
+  it("a Style entry's min lifts a chance to at least that minimum at every tier, never above 1, and never touches Reaction Time, the mistake rate or jumpNav", () => {
+    const beginner = aiDifficulty(repo, 'Beginner');
+    const expert = aiDifficulty(repo, 'Expert');
+    expect(skillOf(repo, beginner).chamberRate).toBe(0);
+    // A multiplier on 0 is 0; a min lifts it.
+    expect(skillOf(repo, beginner, { chamberRate: 3 }).chamberRate).toBe(0);
+    expect(skillOf(repo, beginner, { chamberRate: { mul: 3, min: 0.06 } }).chamberRate).toBe(0.06);
+    // Above the minimum the multiplier wins: Expert 0.25 × 3 = 0.75.
+    expect(skillOf(repo, expert, { chamberRate: { mul: 3, min: 0.06 } }).chamberRate).toBeCloseTo(0.75);
+    // `{ min }` alone keeps the difficulty's value (mul 1) and lifts a setting the difficulty leaves out (Beginner's whirlwindRate).
+    expect(skillOf(repo, beginner, { whirlwindRate: { min: 0.03 } }).whirlwindRate).toBe(0.03);
+    expect(skillOf(repo, expert, { whirlwindRate: { min: 0.03 } }).whirlwindRate).toBe(expert.whirlwindRate);
+    // A mul of 0 with a min is the min: the minimum, not the multiplier, decides.
+    expect(skillOf(repo, expert, { caution: { mul: 0, min: 0.2 } }).caution).toBe(0.2);
+    // Clamped to 1, whatever the multiplier.
+    expect(skillOf(repo, expert, { punish: { mul: 1.3, min: 0.5 } }).punish).toBe(1);
+    // A min on every Style key changes nothing a Style may not touch.
+    const minimums = Object.fromEntries(AI_STYLE_KEYS.map((k) => [k, { mul: 2, min: 1 }]));
+    for (const d of [beginner, expert]) {
+      const plain = skillOf(repo, d);
+      const lifted = skillOf(repo, d, minimums);
+      for (const k of AI_STYLE_KEYS) expect(lifted[k], k).toBe(1);
+      expect([lifted.reactionTime, lifted.mistakeRate, lifted.jumpNav]).toEqual([plain.reactionTime, plain.mistakeRate, plain.jumpNav]);
+    }
   });
 
   it('every Style in Tuning Data plays differently from Balanced, and an unknown Style is refused', () => {

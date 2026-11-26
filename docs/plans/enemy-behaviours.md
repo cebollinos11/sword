@@ -261,6 +261,8 @@ Built 2026-11-26, as the Design above, with these additions and differences.
 - **What needs no change.** `DuelTroop.mods` and `config.troops` already carry the result. Nothing in the Match, the validators or the Lobby wire needs to change for `body` Quirks. A plain AI Seat's dev-mode Quirks select would be a new optional Seat and slot field, validated like `style`.
 
 ### Stage 1: Style minimums
+> Done (2026-11-26).
+
 - **Format.** `ai.styles` entries take a number or `{ mul, min }`, both non-negative; `min` is at most 1. The parser (`src/tuning/index.ts`, around `ai.styles`) and the `AiStyle` type follow. `skillOf` applies `clamp(max(min, v × mul), 0, 1)`.
 - **Default Style.** Balanced must still be present and empty.
 - **Tuning panel.** `tuningPanel.ts` edits both forms.
@@ -268,6 +270,71 @@ Built 2026-11-26, as the Design above, with these additions and differences.
   - Every existing Style and difficulty gives the same `Skill` as before (a test over all pairs).
   - A `min` lifts a 0 chance at Beginner.
   - The parser refuses a `min` above 1 or a negative value.
+
+#### Design
+Settled 2026-11-26, before any code. The open choice first:
+- **A `min` applies only to the settings a Style may name today, `AI_STYLE_KEYS`, and every one of those is a 0..1 chance.** `feintRate` and each of `AI_DIFFICULTY_EXTRAS` is parsed with `fraction` on a difficulty, so a `min` is always a chance in 0..1, and the result is clamped to 0..1 as today. There is no meaning to give a `min` on a setting that isn't a chance, because none is a Style key.
+- **`jumpNav` stays out of Styles.** It is the longest jump Link hold (Ticks) the AI will follow, -1 for none: how far it can go, so it is "how well", and `AI_STYLE_KEYS` leaves it out on purpose (with Reaction Time and the mistake rate). A multiplier on it would mean nothing (-1 × 3), and the Delver's Floors and `delverPilot`'s walk mode rely on it as the tier sets it. So the plan's Hopper `jumpNav` min 10 is dropped: a Beginner Hopper hops (`jumpStep`), leaps in (`jumpAttackRate`), meets Landings and takes tap escapes (`jumpEscapeRate`, within its `jumpNav` 0), but follows no held jump Link. A later "jump Links" knob would be a Quirk's `ai` part (Stage 4: absolute values), not a Style.
+
+**The type.** An entry keeps the form it was written in; a plain number is not normalised:
+
+```ts
+/** One Style entry: a multiplier (0 or more), or a multiplier with a minimum: the result is at least `min` (0..1). */
+export type AiStyleEntry = number | { readonly mul?: number; readonly min: number };
+export type AiStyle = Readonly<Partial<Record<AiStyleKey, AiStyleEntry>>>;
+```
+
+- **Why not normalise to `{ mul, min: 0 }`:** the Tuning Data hash is taken over the parsed data (`tuningDataHash`), so normalising would change it although `data/ai.json` doesn't change. The Tuning panel's Save would also rewrite every Style into the long form. Kept as written, every existing Style parses to exactly the object it did.
+- **`mul` may be left out** (default 1), so a Style can name a minimum alone, as Stage 3's new settings want (`whirlwindAlone` min 0.5). **`min` may not**: `{ "mul": 2 }` is written `2`, so each meaning has one spelling.
+- `styleParts(entry)` (`src/tuning/index.ts`) reads either form as `{ mul, min }` (a number `m` is `{ mul: m, min: 0 }`), and `styleEntry(mul, min)` writes the short form back: the number when `min` is 0, else `{ mul, min }`. `skillOf` and the Tuning panel use them; nothing else reads an entry.
+
+**`skillOf`.** For each Style key with an entry, `skill[k] = min(1, max(0, minOf, skill[k] × mul))`. For a plain number this is `min(1, max(0, 0, v × m))`, the same value as today's `min(1, max(0, v × m))`, bit for bit (`max` with 0 twice is `max` once). Reaction Time, the mistake rate and `jumpNav` are not Style keys, so a Style still never touches them. The `min` applies after the difficulty's defaults are filled in, so it lifts a setting the difficulty leaves out (Beginner's `whirlwindRate`) as well as one it sets to 0 (`chamberRate`).
+
+**The parser** (`parseAi`, `ai.styles.<Style>.<key>`):
+- **Accepts** a number 0 or more (as today), or an object with `min` (a number 0..1) and optionally `mul` (a number 0 or more), and no other keys.
+- **Refuses**, with these messages:
+  - a key outside `AI_STYLE_KEYS`: as today, "`ai.styles.Wary.jumpNav`: a Style scales only feintRate, aggression, ...";
+  - a negative number, or a negative `mul`: the existing `nonNegativeNumber` message, "`ai.styles.Wary.caution` must be a number >= 0, got -1" / "`ai.styles.Wary.caution.mul` must be a number >= 0, got -1";
+  - a `min` outside 0..1, or not a number: `fraction`'s messages, "`ai.styles.Wary.caution.min` must be between 0 and 1, got 1.1";
+  - an object without `min`: "`ai.styles.Wary.caution`: an object entry needs a min (0..1); write a plain multiplier as a number";
+  - an object with any other key: "`ai.styles.Wary.caution.max`: a Style entry is a multiplier or { mul, min }";
+  - anything else (a string, null, an array): "`ai.styles.Wary.caution` must be a multiplier (a number) or { mul, min }".
+- **Balanced** must still be present and empty, as today.
+- `battle.soldier.style` (the Battle-only Style) stays multipliers only: it is "as `ai.styles`" for the old form, and nothing needs a minimum there yet.
+
+**The Tuning panel.** Under "Styles", each key a Style names gets two bindings on one row's worth: "<key> ×" (0..3, as today) and "<key> min" (0..1, step 0.005). They edit a proxy `{ mul, min }` from `styleParts`; every change writes `styleEntry(mul, min)` back into the draft, so setting a `min` turns a number into `{ mul, min }`, and setting it back to 0 turns it back into the number. Save writes that form to `data/ai.json`. The panel still can't add a key a Style doesn't name, as today.
+
+**Tests.**
+- `tuning.test.ts`: the parser accepts `{ mul, min }` and `{ min }`, keeps a plain number a number, and refuses a `min` above 1 or below 0, a negative `mul`, an object without `min`, an extra key, and a non-number non-object, each by its path; `styleParts` and `styleEntry` round-trip.
+- `ai.test.ts`:
+  - **Bit for bit:** every bundled Style × every bundled difficulty, `skillOf` equals the old formula (`min(1, max(0, v × m))` over the filled-in preset), compared with `toBe` per key, and the bundled Styles contain no object entry.
+  - A `min` lifts Beginner's `chamberRate` 0 to the `min`; with a `mul` it is `max(min, v × mul)` (Expert); `{ min }` alone lifts a setting the difficulty leaves out (Beginner `whirlwindRate`); a `min` never lifts above 1; Reaction Time, the mistake rate and `jumpNav` are untouched by a Style with mins on every key.
+- `tuningSections.test.ts`: a `{ mul, min }` entry edited in the draft commits, and the saved `ai.json` reloads to the same Tuning Data.
+- `lineup.test.ts`: a Troop Seat (Stage 0) whose Variant plays a Style with a minimum gets that Style's Controller.
+- The existing hash, golden, AI memory sweep and Delver tests are left as they are and must pass unchanged.
+
+### Result
+Built 2026-11-26, as the Design above.
+
+**Where it lives.**
+- `src/tuning/index.ts`: `AiStyleEntry` (`number | { mul?, min }`), `AiStyle` over it, `styleParts` and `styleEntry`, and `parseStyleEntry` inside `parseAi`. A plain multiplier is still parsed to the same number, so the Tuning Data hash and every golden are unchanged.
+- `src/controllers/ai.ts`: `skillOf` applies `min(1, max(0, min, v × mul))`. Its doc comment states the contract and that a plain multiplier is the old formula bit for bit.
+- `src/editor/tuningPanel.ts`: each Style key now has a "×" and a "min" slider, written back with `styleEntry`.
+- `CONTEXT.md`: Style mentions the optional minimum. No new term: "minimum" is used throughout, not "floor", which is the Delver's word.
+- Tests: `tuning.test.ts` (parser and `styleParts`/`styleEntry`), `ai.test.ts` (every bundled Style × difficulty against the old formula with `Object.is` per key; what a `min` does), `tuningSections.test.ts` (the panel's draft round trip), `lineup.test.ts` (a Troop Seat whose Variant plays Counter gets the Counter with a minimum).
+
+**Differs from the plan.**
+- **No `jumpNav` minimum** (see the Design): a Style still names only chances. Stage 2's Hopper is `jumpAttackRate`, `jumpStep`, `jumpEscapeRate` and `landingPunish` only.
+- **`{ min }` alone is allowed** (`mul` 1), and `{ mul }` alone is refused.
+
+**Checked by hand** (`?dev=1`, the Editor's Duel sandbox, AI vs AI, yellow Beginner Counter against blue Expert Aggressive, best of 5):
+- The Tuning panel's Styles → Counter shows "chamber rate ×" 2.00 and "chamber rate min", set to 0.06; the status reads "AI difficulty: applied (unsaved)".
+- **A Beginner Counter still doesn't Chamber, even with min 1, and this is not Stage 1's doing.** Without a minimum, and again with min 1, it made 0 Chambers over the whole Match (a 0–3 loss). Its `chamberRate` is the minimum (the tests show it), but `planDefence` only plans a Chamber when it can still press before the Release: `pressAt = tick − reactionTicks + windUpEnd + CHAMBER_AT − 1 − seen.motionTick > tick`. A Beginner's Reaction Time is 24 Ticks and every Weapon's Wind-up is 16 to 25 Ticks, so by the time it sees a Wind-up begin, the Release has (nearly) come and the check fails before `chamberRate` is rolled. At Skilled (16 Ticks) the minimum does change play (the `lineup.test.ts` Troop test).
+- A Troop Seat (Lorekeeper, Counter) takes the Style's minimum through `lineupAis` (`lineup.test.ts`): its Controller is the one `createAiController` builds from the Counter with the minimum, and it plays differently from the bundled Counter. It wasn't checked in the Lobby by hand: the Lobby reads the bundled `data/ai.json`, not the Editor's unsaved edit, and has no event log to count Chambers in.
+
+**For Stage 2.**
+- **The Chamber timing error has to come with a "late" Chamber, or a Beginner Chambermaster never Chambers.** Today a Chamber the AI sees too late to time is not planned at all (`pressAt > state.tick`). For "a Beginner Chambermaster does try to Chamber, and often gets the timing wrong", Stage 2 must let it press anyway when the Wind-up is seen late (pressing at once, or at `pressAt` ± the slop, clamped to the next Tick), rolled only when a Chamber is planned, so an AI with `chamberRate` 0 draws nothing new. Then count Beginner attempts (its Attack pressed into a seen Wind-up), not only `Chamber` events.
+- Write the Styles' entries as `{ "mul": 3, "min": 0.06 }`; a minimum alone is `{ "min": 0.5 }`. The bit-for-bit test in `ai.test.ts` names the five old Styles, so adding Styles needs no change to it.
 
 ### Stage 2: The data-only Styles, and the Chamber timing error
 - **Styles.** Add Chambermaster, Hopper and Reckless to `data/ai.json` with the starting values above.

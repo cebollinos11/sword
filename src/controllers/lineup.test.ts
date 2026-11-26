@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, RANDOM_PICK } from '../tuning';
-import { createInitialState, createMatch, duelPlacements, hashValue, type SimState } from '../sim';
+import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, wait, type SimState } from '../sim';
 import { resolveTroop } from '../sim/delver';
 import { createAiController } from './ai';
 import { runControllers, scriptedController, type Controller } from './controller';
@@ -72,6 +72,19 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
     const ran = runControllers(tuning, state, [scriptedController([]), ais[1]!], 400).final;
     expect(hashValue(ran)).toBe(hashValue(runControllers(tuning, state, same, 400).final));
     expect(ran.tick).toBe(400);
+  });
+
+  it("plays a Style's minimum (`{ mul, min }`) on a Troop whose Variant has that Style (Lorekeeper, Counter)", () => {
+    // Counter's chamberRate given a minimum: the Troop's AI (built by lineupAis from its Variant) is that Counter's, and plays differently.
+    const withMin = { ...tuning, ai: { ...tuning.ai, styles: { ...tuning.ai.styles, Counter: { ...tuning.ai.styles.Counter, chamberRate: { mul: 2, min: 0.5 } } } } };
+    const lorekeeper = { prefab: 'Lorekeeper', variant: 'Lorekeeper (Skilled)' };
+    const attacks = Array.from({ length: 40 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();
+    const play = (t: typeof tuning, ai?: Controller) => {
+      const state = createMatch(t, lineupMatch(t, vsTroop(lorekeeper), ['Longsword'], { bestOf: 1, seed: 7 })).duel;
+      return hashValue(runControllers(t, state, [scriptedController(attacks), ai ?? lineupAis(t, vsTroop(lorekeeper), 'Duels', { seed: 7 })[1]!], 1200).final);
+    };
+    expect(play(withMin)).toBe(play(withMin, createAiController(withMin, 'Skilled', { ...tuning.ai.styles.Counter, chamberRate: { mul: 2, min: 0.5 } })));
+    expect(play(withMin)).not.toBe(play(tuning));
   });
 
   it('refuses a Troop Tuning Data lacks (naming the known ones), on a Player slot, or outside Duels', () => {

@@ -201,7 +201,7 @@ import {
   type Vec2,
 } from '../sim';
 import { arenaTuning, parseFloorArena } from '../sim/delver';
-import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, styleParts, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -683,7 +683,9 @@ export function aiStyle(tuning: TuningData, name: string): AiStyle {
 
 /**
  * A preset with its optional parts filled in (the global `ai.aggression`/`ai.kickRate`, always punishing, and nothing
- * else), and then scaled by `style`: each chance it names multiplied, clamped to 0..1. With no Style it is the preset.
+ * else), and then scaled by `style`: each chance it names multiplied, raised to the entry's `min` if below it, and clamped
+ * to 0..1 (`clamp(max(min, v × mul), 0, 1)`; a plain multiplier has `min` 0, which is today's `clamp(v × mul, 0, 1)` bit for
+ * bit). A Style never touches Reaction Time, the mistake rate or `jumpNav` (not Style keys). With no Style it is the preset.
  */
 export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}): Skill {
   const skill: { -readonly [K in keyof Skill]: Skill[K] } = {
@@ -721,8 +723,10 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
-    const m = style[k];
-    if (m !== undefined) skill[k] = Math.min(1, Math.max(0, skill[k] * m));
+    const entry = style[k];
+    if (entry === undefined) continue;
+    const { mul, min } = styleParts(entry);
+    skill[k] = Math.min(1, Math.max(0, min, skill[k] * mul));
   }
   return skill;
 }
