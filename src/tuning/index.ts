@@ -52,7 +52,7 @@ export type { ConsumableEffect, ConsumableTuning } from './consumables';
 export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';
 export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
-export { parseArena, surfacePlane } from './arena';
+export { parseArena, stairCount, stairHeight, STEP_RISE, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';

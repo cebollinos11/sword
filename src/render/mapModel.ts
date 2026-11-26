@@ -16,7 +16,7 @@ import { surfaceHeight, surfacesAt } from '../sim';
 import { brushLook, groundOf, HAZARD_LOOKS, MAP_MODEL_ROOT, MATERIAL_LOOKS, materialOf, type MaterialLook } from '../mapEditor/look';
 import { enclosureTop, type Brush, type EnclosureBrush, type MapSource, type RampBrush } from '../mapEditor/source';
 import type { Vec2 } from '../sim';
-import type { WallSegment } from '../tuning';
+import { stairCount, STEP_RISE, type WallSegment } from '../tuning';
 import { MeshBuckets } from './meshBuckets';
 import { placeProps } from './mapProps';
 import { seamShade, type ShadedWall } from './seamShade';
@@ -39,8 +39,6 @@ const BEYOND_DROP = 0.02;
 const LEVEL_EPS = 0.05;
 const BANK_PIECE = 0.5;
 const BANK_PROBE = 0.25;
-/** A Ramp is drawn as stairs, each step rising at most this far (m); its Walk Surface stays a slope. */
-const STEP_RISE = 0.25;
 
 /** A Ramp's four corners at its heights: the foot's two (at `lo`) and the head's two (at `hi`), each pair in the same order along the slope's sides. */
 function rampCorners(r: RampBrush): { foot: [THREE.Vector3, THREE.Vector3]; head: [THREE.Vector3, THREE.Vector3] } {
@@ -404,7 +402,7 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     const { foot, head } = rampCorners(b);
     const down = (p: THREE.Vector3, y: number) => new THREE.Vector3(p.x, y, p.z);
     // Drawn as stairs (the walk surface stays a slope for collision and pathing): each step's tread, its riser, and its side from the wedge's bottom.
-    const steps = Math.max(1, Math.ceil((b.hi - b.lo) / STEP_RISE - LEVEL_EPS));
+    const steps = stairCount(b.lo, b.hi, STEP_RISE);
     const at = (k: 0 | 1, t: number, y: number) => new THREE.Vector3(foot[k].x + (head[k].x - foot[k].x) * t, y, foot[k].z + (head[k].z - foot[k].z) * t);
     const yb = [0, 1].map((k) => wedgeBottom(draft, b, foot[k]!, head[k]!)) as [number, number];
     const run = new THREE.Vector3().subVectors(head[0], foot[0]).setY(0).normalize();
