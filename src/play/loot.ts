@@ -15,6 +15,8 @@ const WORDS: Readonly<Record<RelicEffect, (n: number) => string>> = {
   blockImpactTaken: (n) => `${signed(n)} block impact taken`,
   daggerDamage: (n) => `${signed(n)} dagger damage`,
   kickDamage: (n) => `${signed(n)} kick damage`,
+  walkSpeed: (n) => `${signed(n)} walk speed`,
+  windUp: (n) => `${signed(n)} wind-up time`,
   maxHp: (n) => `+${Math.round(n * 100)}% max HP`,
   daggers: (n) => `+${n} dagger${n === 1 ? '' : 's'}`,
   healOnKill: (n) => `heal ${n} HP on a kill`,

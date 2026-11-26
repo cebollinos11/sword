@@ -259,7 +259,7 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
       expect(troopMods(quirky, t)).toEqual(foldMods([{ effects: t.mods }, ...(t.relics ?? []).map((r) => relicOf(tuning, r)), { effects: heavy }]));
     }
     // A Quirk Tuning Data lacks is refused, naming the known ones.
-    expect(() => troopMods(tuning, { ...revenants[0]!, quirks: ['Heavy'] })).toThrow(/Unknown Quirk "Heavy" \(have: Dumb, Hopper\)/);
+    expect(() => troopMods(tuning, { ...revenants[0]!, quirks: ['Heavy'] })).toThrow(/Unknown Quirk "Heavy" \(have: Dumb, Hopper, Slow\)/);
   });
 
   it('refuses a Prefab, a Variant or a tier Tuning Data does not have, naming the known ones', () => {

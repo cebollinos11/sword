@@ -32,6 +32,7 @@ import {
 } from './index';
 import type { DaggerState } from './state';
 import { restore, snapshot } from './snapshot';
+import { storedMods } from './mods';
 
 const base = loadTuningData();
 const corner = (x: number, z: number) => ({ x, y: 0, z });
@@ -62,7 +63,7 @@ describe('setMods', () => {
     expect(s.maxHp).toBe(fighter.maxHp * 1.25);
     expect(s.hp).toBe(fighter.maxHp);
     expect(s.daggers).toBe(dagger.count + 2);
-    expect(s.mods).toEqual(mods({ maxHp: 0.25, daggers: 2 }));
+    expect(s.mods).toEqual(storedMods(mods({ maxHp: 0.25, daggers: 2 })));
     // Taking them off again undoes it: a lower max HP clamps HP, the daggers go back, and `mods` is absent again.
     const full = { ...s, hp: s.maxHp };
     const off = setMods(full, NO_MODS, fighter.maxHp);

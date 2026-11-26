@@ -8,7 +8,7 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
-export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
+export { fighterTuning, foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, storedMods, walkSpeedOf, windUpOf, type Mods, type PaceMod, type StoredMods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
 export { addItem, canChangeInventory, canUseConsumable, consumableOf, commonItem, dropItem, equipItem, holdInventory, inventoryMods, isConsumable, slotKind, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory, type Item } from './inventory';
@@ -158,7 +158,7 @@ export type { BladeTransform, JointName, KickLeg, Placement, SkeletonPose } from
 export { BONES, JOINT_NAMES, kickLegOf } from './skeleton';
 export { fighterPose, motionPose, playbackPose } from './pose';
 export { channelValue, ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
-export { authoredSeconds, motionTempo, playedSeconds } from './tempo';
+export { authoredSeconds, motionTempo, playedSeconds, windUpTuning } from './tempo';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';

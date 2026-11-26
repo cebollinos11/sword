@@ -51,7 +51,7 @@ import type { Battlefield, MapPoint } from './battlefield';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
 import { troopMods } from './delver/troops';
-import { isNoMods, type Mods } from './mods';
+import { isNoMods, storedMods, type StoredMods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
 
@@ -228,14 +228,14 @@ export interface BossHold {
 }
 
 
-const modsCache = new WeakMap<BattleTuning, WeakMap<TuningData['relics'], WeakMap<TuningData['ai'], readonly ({ readonly mods?: Mods })[]>>>();
+const modsCache = new WeakMap<BattleTuning, WeakMap<TuningData['relics'], WeakMap<TuningData['ai'], readonly ({ readonly mods?: StoredMods })[]>>>();
 
 /**
  * A promoted Soldier's Mods per Troop (its Troop's, with its Relics' and then its Quirks' `body` parts on top, `troopMods`), when they change
  * anything: one record per Troop of `tuning.battle`. Folded once per (Battle Tuning, Relics, AI Tuning) triple of objects and kept; derived
  * from Tuning Data, never state.
  */
-function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
+function troopModsOf(tuning: TuningData): readonly { readonly mods?: StoredMods }[] {
   let byRelics = modsCache.get(tuning.battle);
   if (!byRelics) modsCache.set(tuning.battle, (byRelics = new WeakMap()));
   let byAi = byRelics.get(tuning.relics);
@@ -246,7 +246,7 @@ function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
       tuning.ai,
       (made = tuning.battle.troops.map((t) => {
         const folded = troopMods(tuning, t);
-        return isNoMods(folded) ? {} : { mods: folded };
+        return isNoMods(folded) ? {} : { mods: storedMods(folded) };
       })),
     );
   return made;

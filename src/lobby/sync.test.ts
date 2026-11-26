@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon } from '../tuning';
-import { createMatch, hashValue, IDLE_INTENT, TICK_RATE } from '../sim';
+import { createMatch, hashValue, IDLE_INTENT, storedMods, TICK_RATE } from '../sim';
 import { lineupMatch } from '../controllers';
 import { resolveTroop } from '../sim/delver';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions, type RollbackSession } from '../net';
@@ -154,7 +154,7 @@ describe('Lobby sync', () => {
     r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] }));
     r.run(500);
     expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
-    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Slow'] }));
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Clumsy'] }));
     r.run(500);
     expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
   });
@@ -186,10 +186,10 @@ describe('Lobby sync', () => {
     const wraith = resolveTroop(tuning, { prefab: 'Revenant', variant: 'Wraith Lord' });
     // Both peers resolved the Troop from the same Lineup: the same config, and the same Duel start.
     expect(gs.state!.config).toEqual(h.state!.config);
-    expect(h.state!.config.troops).toEqual([null, null, { body: 'wraith', maxHp: wraith.maxHp, mods: wraith.mods }]);
+    expect(h.state!.config.troops).toEqual([null, null, { body: 'wraith', maxHp: wraith.maxHp, mods: storedMods(wraith.mods) }]);
     const start = (s: RollbackSession) => createMatch(tuning, lineupMatch(tuning, s.lineup!, [first, second], { bestOf: 3, arena: 'circle', seed: 5 }));
     expect(hashValue(start(gs))).toBe(hashValue(start(h)));
-    expect(gs.state!.duel.fighters[2]).toMatchObject({ weapon: 'Longsword', maxHp: wraith.maxHp, size: wraith.size, mods: wraith.mods });
+    expect(gs.state!.duel.fighters[2]).toMatchObject({ weapon: 'Longsword', maxHp: wraith.maxHp, size: wraith.size, mods: storedMods(wraith.mods) });
   });
 
   it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {

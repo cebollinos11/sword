@@ -20,6 +20,7 @@
 import {
   attackTimings,
   fighterPose,
+  fighterTuning,
   type Action,
   type BladeTransform,
   type Direction,
@@ -331,7 +332,7 @@ export function flailChainOf(from: SimState, to: SimState, i: number, alpha: num
   const p = from.fighters[i] ?? f;
   const pose = drawn ?? lerpJoints(fighterPose(p, tuning), fighterPose(f, tuning), alpha);
   const floor = p.y + (f.y - p.y) * alpha;
-  const timings = f.action.kind === 'Attack' ? attackTimings(tuning, f.weapon, f.action.direction) : undefined;
+  const timings = f.action.kind === 'Attack' ? attackTimings(fighterTuning(tuning, f), f.weapon, f.action.direction) : undefined;
   if (f.death) {
     // Its state stays as it fell: where the ball was then, on the falling Weapon, then down to hanging.
     const charge = f.action.kind === 'Attack' ? f.action.charge : undefined;

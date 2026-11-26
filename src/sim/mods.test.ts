@@ -47,6 +47,8 @@ describe('scaleEffects', () => {
     ['heavyDamage', 1.3, 1.45, 1.6],
     ['damageTaken', 0.9, 0.85, 0.8],
     ['blockImpactTaken', 0.7, 0.55, 0.4],
+    ['walkSpeed', 1.2, 1.3, 1.4],
+    ['windUp', 0.8, 0.7, 0.6],
     ['daggerDamage', 1.4, 1.6, 1.8],
     ['kickDamage', 1.5, 1.75, 2],
     ['maxHp', 0.2, 0.3, 0.4],
@@ -77,7 +79,7 @@ describe('scaleEffects', () => {
   });
 
   it('is the identity at x1, bit for bit, and a new object', () => {
-    const effects = { damage: 1.1, heavyDamage: 1.3, damageTaken: 0.9, blockImpactTaken: 0.7, daggerDamage: 1.4, kickDamage: 1.5, maxHp: 0.2, daggers: 1, healOnKill: 10, healOnClear: 0.15 };
+    const effects = { damage: 1.1, heavyDamage: 1.3, damageTaken: 0.9, blockImpactTaken: 0.7, daggerDamage: 1.4, kickDamage: 1.5, walkSpeed: 1.2, windUp: 0.8, maxHp: 0.2, daggers: 1, healOnKill: 10, healOnClear: 0.15 };
     const same = scaleEffects(effects, 1);
     expect(same).toEqual(effects);
     expect(same).not.toBe(effects);

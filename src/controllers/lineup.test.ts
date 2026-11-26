@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, RANDOM_PICK, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, wait, type SimState } from '../sim';
+import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, storedMods, wait, type SimState } from '../sim';
 import { resolveTroop } from '../sim/delver';
 import { createAiController } from './ai';
 import { runControllers, scriptedController, type Controller } from './controller';
@@ -54,7 +54,8 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
     expect(options.sizes).toEqual([undefined, t.size]);
     expect(options.troops).toEqual([null, { body: 'uruk', maxHp: t.maxHp, mods: t.mods }]);
     const match = createMatch(tuning, options);
-    expect(match.duel.fighters[1]).toMatchObject({ weapon: 'Sledge Hammer', hp: t.maxHp, maxHp: t.maxHp, size: t.size, mods: t.mods });
+    // Stored without the pace Mods at 1 (`storedMods`).
+    expect(match.duel.fighters[1]).toMatchObject({ weapon: 'Sledge Hammer', hp: t.maxHp, maxHp: t.maxHp, size: t.size, mods: storedMods(t.mods) });
     expect(match.config.troops![1]!.body).toBe('uruk');
   });
 
@@ -106,7 +107,7 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
   it("a plain AI slot plays its Pilot's Quirks; checkLineup refuses an unknown one (naming the known ones), an empty list and a repeat", () => {
     const withQuirks = (quirks: string[]): Lineup => [vsAi()[0]!, { team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', quirks } }];
     expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Hopper']), 1)).not.toThrow();
-    expect(() => checkLineup(tuning, withQuirks(['Slow']), 1)).toThrow(/Unknown AI Quirk "Slow" \(have: Dumb, Hopper\)/);
+    expect(() => checkLineup(tuning, withQuirks(['Clumsy']), 1)).toThrow(/Unknown AI Quirk "Clumsy" \(have: Dumb, Hopper, Slow\)/);
     expect(() => checkLineup(tuning, withQuirks([]), 1)).toThrow(/names none/);
     expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Dumb']), 1)).toThrow(/each Quirk once/);
     const attacks = Array.from({ length: 20 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();

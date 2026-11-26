@@ -526,6 +526,8 @@ Built 2026-11-26.
   - whether a Beginner Hopper's leaps (14 in 16 minutes of Duels, from none) are enough to read as "a Hopper", and whether an Expert Hopper needs more than its chance raised (it leaps no more often).
 
 ### Stage 5: Slow (Simulation)
+> Done (2026-11-26).
+
 - **Mods.** Add `walkSpeed` and `windUp` to the Relic vocabulary (`RELIC_EFFECTS`, `RELIC_GOOD_LOW` for `windUp`, `NO_MODS`).
 - **Walk and Tempo.** `walkSpeed` goes into the ground walk in `step.ts`. `windUp` goes into the Attack Tempo wherever a Fighter's own Motion is timed: the Simulation's Attack phases, `attackTimings` and the drawing.
 - **AI reads.** Every AI read of an enemy's Wind-up (`attackTimings` on an Observation) uses that enemy's `windUp`, so it's added to the Observation. An AI facing a Slow enemy then times its Blocks, Chambers and "who lands first" reads correctly, and Ally AIs fighting it do too.
@@ -535,6 +537,100 @@ Built 2026-11-26.
   - Every jump Link a normal Fighter makes, a Slow one makes too (the `jumpLinks` tests, run Slow).
   - An Expert AI Chambers a Slow enemy's Overhead at the right Tick.
   - Rollback, the resync validator and the hash cover the new Mods. A Fighter with `NO_MODS` hashes as before.
+
+### Result
+Built 2026-11-26.
+
+**Where it lives.**
+- `src/tuning/relics.ts`: `walkSpeed` and `windUp` join `RELIC_MULTIPLIERS` (so the Relic parser, `foldMods` and `scaleEffects` take them), and `windUp` joins `RELIC_GOOD_LOW`. `PACE_MODS` names the two. No Relic uses them. `src/play/loot.ts` has their words ("walk speed", "wind-up time").
+- `src/sim/mods.ts`:
+  - `NO_MODS` gains both at 1.
+  - **`StoredMods` and `storedMods`.** A Fighter (and a `DuelTroop`, and the wire) stores a pace Mod only while it is not 1. `setMods`, `bubble.ts`'s promotion, `troopsOf` and `initialDuel` store that form, so a Relic wearer's, a Troop's (`damage` 0.6) and a promoted Soldier's Mods record has exactly the ten keys it had. `isNoMods` reads a missing pace Mod as 1.
+  - `walkSpeedOf` and `windUpOf`, the readers.
+  - **`fighterTuning(standard, f)`**: the Tuning Data a Fighter's own Motions play by, its Size's (`sizedTuning`) with its Wind-up stretched (`windUpTuning`). The standard object itself without a `windUp` Mod. It doesn't stretch twice when a Fighter's own copy is handed back in as the standard one (`land` → `staggerFighter`).
+- `src/sim/tempo.ts` and `src/tuning/weapon.ts`:
+  - `windUpTuning(tuning, windUp)` copies every Weapon with `tempo.fighterWindUp`. That field is never in Tuning Data, only on a Fighter's copy, so the Tuning Data hash is unchanged.
+  - `windUpShift`: the extra Wind-up Ticks, `round(w × (windUp − 1))`, where `w` is the Wind-up's Ticks at the Weapon's own Tempo.
+  - `unshiftedTick`: the playhead without the Mod, used to sample the pose.
+  - Only an Attack Motion plays at a Tempo (`motionTempo`), so Feints, Chambers, Throws, Kicks and Whirlwinds are untouched.
+- Where a Fighter's own Motion is timed or posed:
+  - `attackTimings` adds the shift to all three phase ends. `motionTime` samples the Wind-up spread over its longer Ticks, then the rest `shift` Ticks late.
+  - `step.ts`: `stepFighter` and `settleBodies` (the Gait, the Landing) run on `fighterTuning`.
+  - `pose.ts`'s `solveFighter`, so the Hit Zones and the drawing use it too.
+  - `combat.ts`'s `staggerFighter` and `knockDown`, which blend from the pose it was in.
+  - `chamber.ts`'s Chamber window, which reads the attacker's own Release.
+  - `render/flailChain.ts`.
+- **Spin-up** (`attack.ts`, `attackWindUpShift`): the Wind-up Ticks the Mod adds (its first ones) build no charge.
+- **Walk** (`step.ts`, `walk`): the `speed` product × `walkSpeedOf(f)`, but not for `drawnPace`, the walk a Jump takes off with. `fly` keeps the full `fighter.walkSpeed`.
+- **The gap from Stage 4: `MatchConfig.fighterMods`** (`src/sim/match.ts`):
+  - It holds each Fighter's own Mods in a Duel, for a Fighter without a Troop. It is null for every other Fighter, and absent unless one has some.
+  - `initialDuel` lays them at every Duel's start through `setMods`, at full HP.
+  - It is refused outside Duels, on a Fighter with a Troop (its Troop's Mods carry its Quirks already), and for a bad entry.
+  - `quirkMods` (`src/sim/delver/troops.ts`) folds a plain AI's Quirks' `body` parts. `lineupMatch` fills `fighterMods` from a plain AI Pilot's Quirks in Duels.
+  - A Lineup whose Quirks have no `body` part (Dumb, Hopper) gives no `fighterMods`, so its config and hash are as before.
+- **The AI** (`src/controllers/ai.ts`):
+  - `Sighting.windUp` is there only when it isn't 1.
+  - `ownTimings(self, …)` and `seenTimings(o, …)` replace all 15 `attackTimings` reads (10 of its own Attacks, 5 of a seen one's), so Blocks, Chambers, Outpaces, hold breaks, openings and "who lands first" all read the right Wind-up.
+- **The wire** (`src/net/messages.ts`):
+  - `isMods`: a pace Mod is optional, never written as 1, and above 0.
+  - `isFighterMods` for `config.fighterMods`, and `Sighting.windUp` in the AI memory.
+  - `PROTOCOL_VERSION` 40 → 41, and its two tests.
+- `data/ai.json`: Slow, `{ "body": { "walkSpeed": 0.7, "windUp": 1.35 } }`. The Lobby's dev Quirks select lists it, with each combination.
+- `CONTEXT.md`: Quirk (Slow), Relic (the pace Mods), Tempo (the `windUp` Mod) and Fighter.
+- Tests:
+  - `src/sim/slow.test.ts` (new):
+    - the stored form;
+    - the walk ratio;
+    - every Weapon's every Attack: the Wind-up Ticks, the Release and Recovery, the blade bit for bit, and the Hit (Tick, Blade Speed, damage) and Spin-up charge;
+    - a Kick, a Throw and a Block unchanged;
+    - the 14 held-Jump spots flown Slow;
+    - rollback and the hash.
+  - `src/controllers/aiSlow.test.ts` (new):
+    - the Expert Chamber, against a Slow enemy and as a Slow AI;
+    - the Sighting in memory and the validator;
+    - a plain Seat and a Duel Troop with Slow, through `lineupMatch` and the Match.
+  - `src/controllers/aiSlowJumps.test.ts` (new, about 4 s, so fast): a Slow Hard AI follows onto each held-Jump spot.
+  - `match.test.ts`: `fighterMods`.
+  - `messages.test.ts`: the pace Mods and `fighterMods` on the wire.
+  - Updated for the stored form or the third Quirk: `mods.test.ts`, `relics.test.ts`, `tuning.test.ts`, `delver.test.ts`, `troops.test.ts`, `lineup.test.ts`, `lobbyView.test.ts`, `sync.test.ts`, `modsEffects.test.ts`, `floorBubble.test.ts` and `delverRun.test.ts`.
+
+**Differs from the plan.**
+- **`windUp` adds whole Ticks to the Wind-up rather than multiplying `tempo.windUp` inside `playedSeconds`.** Multiplied in the Tempo, each phase end is rounded to a Tick on its own. That moved the Release or the Recovery by a Tick on 6 of the 27 Attacks (the Dagger's Release 11 → 12, the Arming Sword's Thrust Recovery 30 → 29, …), which "Release and Recovery unchanged" rules out. Now the Wind-up lasts `round(w × 1.35)` Ticks, multiplying the Weapon's own `tempo.windUp` as asked. The Release and Recovery play Tick for Tick as without the Mod, later, so the blade's speed and every Hit are bit for bit the same.
+- **A Fighter stores a pace Mod only while it is not 1** (`StoredMods`). Adding two keys to every stored Mods record would have changed the hash of every Fighter with Relics, every Troop with Mods and every promoted Soldier: the Delver goldens, the Run hashes and the Troop configs. With the stored form, all of them hash as before, and so does a `NO_MODS` Fighter (no `mods` key).
+- **The plain-Seat gap is closed with `MatchConfig.fighterMods`**, a per-Fighter Mods field, not a `DuelTroop` without a Body. A Troop is HP, a Body and Mods together, and a plain Seat has only Mods. It covers Duels only: a Gauntlet's Ally AI with Slow plays Slow's (empty) `ai` part and walks at full speed, since a Run's Mods come from its Relics. Nothing asks for that yet.
+- **A Slow Flail's Spin-up.** It charges one per Wind-up Tick, so a Slow Flail let go at once built 31 charge to a normal one's 23 and swung harder. The Ticks the Mod adds now build none: both reach 23. Holding the Wind-up charges as ever.
+- **"The `jumpLinks` tests, run Slow" is trivially true as written.** Those tests are the navmesh's geometry (`jumpArc`, `findPath`), which never reads a Fighter's Mods. What was tested instead:
+  - The Simulation: a Slow Fighter jumping from each of the 14 held-Jump spots as the spot says flies Tick for Tick, bit for bit, as a normal one does, and lands on the same lid (`slow.test.ts`).
+  - The AI: a Slow Hard AI follows an idle enemy onto each of the 14 spots, as `ai.test.ts` asks of a normal one (`aiSlowJumps.test.ts`). It gets there 0.1 to 0.4 s later, the slower walk to the take-off.
+- **The AI's own walk estimates still assume the full walk speed** (how fast it closes, `breakHold`'s "walking after it"). Only its Wind-up reads were in scope. A Slow AI walks in a little later than it thinks.
+
+**Measured.**
+- **Wind-up** (every Weapon's every Attack, Slow against normal):
+
+  | Weapon | Wind-up Ticks | ×, rounded |
+  |---|---|---|
+  | Arming Sword | 19 → 26 | 1.37 |
+  | Dagger | 16 → 22 | 1.38 |
+  | Flail, Halberd | 23 → 31 | 1.35 |
+  | Longsword, Quarterstaff | 21 → 28 | 1.33 |
+  | Sledge Hammer | 25 → 34 | 1.36 |
+
+  The Release and Recovery are the same Ticks on all 27 Attacks. From the end of the Wind-up on, the blade is where the normal one's is that many Ticks later, bit for bit. Against the same target each Hit has the same Blade Speed and damage. A Kick, a Throw and a Block are unchanged state for state.
+- **Walk:** 0.7× per Tick on the ground, forward, sideways and back (to 12 places).
+- **Chamber**, Expert eyes (Reaction Time 0.16 s) with `chamberRate` 1 and no offence, against a scripted Longsword Overhead:
+  - A Slow attacker Releases 7 Ticks later (Tick 58, not 51). The Expert presses 1 Tick after its Release starts and Chambers 12 Ticks after, the same Ticks as against a normal attacker. Nothing Hits it.
+  - With `seenTimings` reading the Weapon's own Wind-up (the AI blind to the Mod), the same Expert makes no Chamber at all.
+  - A Slow Expert Chambers a normal attacker on the same Tick as a normal Expert.
+- **A plain Duel AI Seat with Slow** (`lineupMatch` → `createMatch`): `config.fighterMods` is `[null, Slow]`. Its Fighter walks 0.7× and winds a Longsword Overhead up in 28 Ticks, not 21. A Seat with Dumb + Hopper gets no `fighterMods`.
+- **A Duel Troop with Slow:** "Uruk (Beginner)" given Slow in test data has Mods `damage` 0.6, `walkSpeed` 0.7 and `windUp` 1.35. It walks 0.7× and winds up 34 Ticks, not 25. The Uruk without Slow stores just its `damage` 0.6 record.
+- **Unchanged:** every hash, the AI goldens (Easy, Normal, Hard), the AI memory sweep and the Delver goldens pass unchanged, with no edits to them. A Fighter without the pace Mods plays by the standard Tuning Data object itself (`fighterTuning(tuning, f) === tuning`), and its Sighting has no `windUp`.
+
+**Not checked by hand yet.**
+- Play Slow on a plain AI Seat at each tier (`?dev=1`, the Quirks select), and on a Troop once the roster pass (Stage 6) gives one Slow.
+- Things to watch:
+  - whether 0.7× reads as slow without looking broken;
+  - whether a 7 to 9 Tick longer Wind-up is enough to punish on reaction, at the Player's own Reaction Time;
+  - whether an Expert + Slow reads as "a heavy duelist", as the plan hopes.
 
 ### Stage 6: The roster pass
 Give the new behaviours to the Delver's Prefabs in `data/delver.json`, then test in the Map Editor and with the AI check (CLAUDE.md). Suggested assignments, to be confirmed with the user:

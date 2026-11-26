@@ -31,7 +31,8 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { runPlayers, stairsTicksNeeded } from './party';
 import type { Dropped, Item } from './inventory';
 import { placeDrop, type DroppedItem, type PickupAt } from './pickups';
-import { isNoMods, MODS_KEYS, type Mods } from './mods';
+import { isNoMods, MODS_KEYS, setMods, storedMods, type StoredMods } from './mods';
+import { PACE_MODS } from '../tuning';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -118,6 +119,13 @@ export interface MatchConfig {
    * Match's config is as it always was. Duels only. Its Weapon and Size are in `weapons` and `sizes`, as any Fighter's.
    */
   readonly troops?: readonly (DuelTroop | null)[];
+  /**
+   * Each Fighter's own Mods in a Duel, for a Fighter without a Troop (docs/plans/enemy-behaviours.md, Stage 5): a plain AI Seat's Quirks'
+   * `body` parts (`quirkMods`), such as the Slow Quirk's `walkSpeed` and `windUp`. null for a Fighter without (a Troop's Mods are its
+   * `troops` entry's, so its entry here is null). Laid on its Fighter at every Duel's start (`initialDuel`). Absent unless some Fighter has
+   * Mods, so every other Match's config is as it always was. Duels only. Each entry as a Fighter stores it (`StoredMods`).
+   */
+  readonly fighterMods?: readonly (StoredMods | null)[];
 }
 
 /**
@@ -129,8 +137,8 @@ export interface DuelTroop {
   readonly body: string;
   /** Its HP and max HP at each Duel's start (its Relics' `maxHp` share already in, as on a Floor). Positive. */
   readonly maxHp: number;
-  /** Its Mods (its Troop's and its Relics', folded); absent when they are NO_MODS. */
-  readonly mods?: Mods;
+  /** Its Mods (its Troop's, its Relics' and its Quirks', folded), as a Fighter stores them (`storedMods`); absent when they are NO_MODS. */
+  readonly mods?: StoredMods;
 }
 
 /** A traitor of a Delver Run (`MatchConfig.traitors`): its own Size (absent: the standard body), which it keeps in every Soldier it takes over. */
@@ -138,11 +146,13 @@ export interface TraitorSeat {
   readonly size?: Size;
 }
 
-export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes' | 'troops'>> {
+export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes' | 'troops' | 'fighterMods'>> {
   /** Each Fighter's Size (default: the standard body). */
   readonly sizes?: readonly (Size | undefined)[];
   /** Each Fighter's Delver Troop in a Duel (default: none); Duels only. Mods equal to NO_MODS may be given, and are dropped. */
   readonly troops?: readonly (DuelTroop | null | undefined)[];
+  /** Each Fighter's own Mods in a Duel, for a Fighter without a Troop (default: none); Duels only. NO_MODS may be given, and is dropped. */
+  readonly fighterMods?: readonly (StoredMods | null | undefined)[];
   readonly bestOf: number;
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
@@ -361,9 +371,20 @@ function startPlacements(tuning: TuningData, config: MatchConfig, arena: string)
  */
 function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, seed: number): SimState {
   const duel = createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena, config.sizes);
-  const { troops } = config;
-  if (!troops) return duel;
-  return { ...duel, fighters: duel.fighters.map((f, i) => { const t = troops[i]; return t ? { ...f, hp: t.maxHp, maxHp: t.maxHp, ...(t.mods ? { mods: { ...t.mods } } : {}) } : f; }) };
+  const { troops, fighterMods } = config;
+  if (!troops && !fighterMods) return duel;
+  return {
+    ...duel,
+    fighters: duel.fighters.map((f, i) => {
+      const t = troops?.[i];
+      if (t) return { ...f, hp: t.maxHp, maxHp: t.maxHp, ...(t.mods ? { mods: storedMods(t.mods) } : {}) };
+      const mods = fighterMods?.[i];
+      if (!mods) return f;
+      // As a Hall's start (`setMods`): max HP by any `maxHp` share, at full HP.
+      const modded = setMods(f, mods, f.maxHp ?? tuning.fighter.maxHp);
+      return { ...modded, hp: modded.maxHp! };
+    }),
+  };
 }
 
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
@@ -394,10 +415,33 @@ function troopsOf(count: number, given: readonly (DuelTroop | null | undefined)[
     if (!t) return null;
     if (typeof t.body !== 'string' || t.body.length === 0) throw new RangeError(`Fighter ${i}'s Troop needs a Body, got ${JSON.stringify(t.body)}`);
     if (!Number.isFinite(t.maxHp) || t.maxHp <= 0) throw new RangeError(`Fighter ${i}'s Troop HP must be positive, got ${t.maxHp}`);
-    if (t.mods && !MODS_KEYS.every((k) => Number.isFinite(t.mods![k]))) throw new RangeError(`Fighter ${i}'s Troop Mods must name every Mod (${MODS_KEYS.join(', ')})`);
-    return { body: t.body, maxHp: t.maxHp, ...(t.mods && !isNoMods(t.mods) ? { mods: { ...t.mods } } : {}) };
+    if (t.mods) checkMods(t.mods, `Fighter ${i}'s Troop Mods`);
+    return { body: t.body, maxHp: t.maxHp, ...(t.mods && !isNoMods(t.mods) ? { mods: storedMods(t.mods) } : {}) };
   });
   return { troops };
+}
+
+/** Throws unless `mods` name every Mod but the pace Mods (each optional, as stored) with a finite number. */
+function checkMods(mods: StoredMods, what: string): void {
+  if (!MODS_KEYS.every((k) => Number.isFinite(mods[k]) || ((PACE_MODS as readonly string[]).includes(k) && mods[k] === undefined))) throw new RangeError(`${what} must name every Mod (${MODS_KEYS.join(', ')}; ${PACE_MODS.join(' and ')} may be left out)`);
+  for (const k of PACE_MODS) if (mods[k] !== undefined && !(mods[k]! > 0)) throw new RangeError(`${what}: ${k} must be above 0, got ${mods[k]}`);
+}
+
+/**
+ * `{ fighterMods }` for the Fighters' own Mods (a missing one or NO_MODS: none), or nothing when no Fighter has any (so a Match without
+ * them has the config it always had). Throws on a bad entry, or on one given to a Fighter with a Troop (its Troop carries its Mods).
+ */
+function fighterModsOf(count: number, given: readonly (StoredMods | null | undefined)[] | undefined, troops: readonly (DuelTroop | null)[] | undefined): { fighterMods?: (StoredMods | null)[] } {
+  if (!given?.some((m) => m && !isNoMods(m))) return {};
+  if (given.length > count) throw new RangeError(`fighterMods names ${given.length} Fighters, the Match has ${count}`);
+  const fighterMods = Array.from({ length: count }, (_, i): StoredMods | null => {
+    const m = given[i];
+    if (!m || isNoMods(m)) return null;
+    checkMods(m, `Fighter ${i}'s Mods`);
+    if (troops?.[i]) throw new RangeError(`Fighter ${i} has a Troop: its Mods are its Troop's`);
+    return storedMods(m);
+  });
+  return { fighterMods };
 }
 
 /** A Match at Tick 0: Duel 1 (or a Run's first Floor) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
@@ -431,6 +475,8 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     ...troopsOf(teams.length, options.troops),
   };
   if (config.troops && gauntlet) throw new RangeError('Only Duels field a Delver Troop');
+  if (gauntlet && options.fighterMods?.some((m) => m && !isNoMods(m))) throw new RangeError("Only Duels give a Fighter its own Mods (a Run's come from its Relics)");
+  Object.assign(config, fighterModsOf(teams.length, options.fighterMods, config.troops));
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
     const own = teams.filter((t) => t === 0).length;
@@ -495,6 +541,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (options.rematchTicks != null) throw new RangeError('A Battle has no Rematch: rematchTicks must be null');
   if (options.delverStart !== undefined || options.delverGallery || options.relics?.length) throw new RangeError('Only a Run has a start Floor, the Set Piece Gallery or Relics');
   if (options.troops?.some((t) => t)) throw new RangeError('Only Duels field a Delver Troop');
+  if (options.fighterMods?.some((m) => m && !isNoMods(m))) throw new RangeError('Only Duels give a Fighter its own Mods');
   const seed = options.seed ?? 1;
   const arena = options.arena ?? battleArenaName(seed);
   if (!battlefieldOf(tuning.battle, arena)) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed> or a map of battle.maps), got "${arena}"`);

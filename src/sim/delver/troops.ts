@@ -171,6 +171,14 @@ export function troopMods(tuning: Pick<TuningData, 'relics' | 'ai'>, troop: Pick
   return foldMods([{ effects: troop.mods }, ...(troop.relics ?? []).map((name) => relicOf(tuning, name)), ...quirkBodies(tuning, troop.quirks ?? [])]);
 }
 
+/**
+ * The Mods of a plain AI's Quirks `names` (docs/plans/enemy-behaviours.md, Stage 5): their `body` parts folded (`foldMods`), as a Duel gives
+ * a plain AI Seat (`MatchConfig.fighterMods`). NO_MODS for Quirks with no `body` part. Throws on a Quirk Tuning Data lacks. Pure.
+ */
+export function quirkMods(tuning: Pick<TuningData, 'ai'>, names: readonly string[]): Mods {
+  return foldMods(quirkBodies(tuning, names));
+}
+
 /** The `body` parts of Quirks `names`, as Relic-like effects to fold (a Quirk with none adds nothing). Throws on a Quirk Tuning Data lacks. */
 function quirkBodies(tuning: Pick<TuningData, 'ai'>, names: readonly string[]): { readonly effects: RelicEffects }[] {
   return names.flatMap((name) => {

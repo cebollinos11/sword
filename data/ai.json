@@ -190,6 +190,7 @@
   },
   "quirks": {
     "Dumb": { "ai": { "defendRate": 0 } },
-    "Hopper": { "ai": { "jumpAttackRate": { "mul": 4, "min": 0.002 }, "jumpStep": { "mul": 3, "min": 0.3 }, "jumpEscapeRate": { "mul": 2, "min": 0.1 }, "landingPunish": { "mul": 1.5, "min": 0.2 }, "jumpNav": { "min": 10 } } }
+    "Hopper": { "ai": { "jumpAttackRate": { "mul": 4, "min": 0.002 }, "jumpStep": { "mul": 3, "min": 0.3 }, "jumpEscapeRate": { "mul": 2, "min": 0.1 }, "landingPunish": { "mul": 1.5, "min": 0.2 }, "jumpNav": { "min": 10 } } },
+    "Slow": { "body": { "walkSpeed": 0.7, "windUp": 1.35 } }
   }
 }

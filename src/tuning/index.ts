@@ -46,7 +46,7 @@ export { clampSize, isSize, isStandardSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, sized
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
-export { parseRelicEffects, parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
+export { PACE_MODS, parseRelicEffects, parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
 export { atLeast, carriedRarity, parseRarity, raiseRarity, RARITIES, type Rarity, type RarityTuning } from './rarity';
 export type { ConsumableEffect, ConsumableTuning } from './consumables';
 export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, storedMods, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, runControllers, scriptedController, type Controller, type Lineup } from '../controllers';
 import { resolveTroop } from '../sim/delver';
 import { isPoolAiMemory, isQuirkList, MAX_QUIRKS, parseNetMessage, PROTOCOL_VERSION } from './messages';
@@ -694,7 +694,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
 
   it('accepts a Fighter with Mods, and one without', () => {
     const state = matchState();
-    const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: { ...NO_MODS, damage: 1.1, daggers: 1 } } : f)) } };
+    const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: storedMods({ ...NO_MODS, damage: 1.1, daggers: 1 }) } : f)) } };
     expect(parseNetMessage(resync(armed))).not.toBeNull();
     expect(parseNetMessage(resync(state))).not.toBeNull();
   });
@@ -715,8 +715,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
       expect(parseNetMessage(resync(stock(bad), ai)), JSON.stringify(bad)).toBeNull();
   });
 
-  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 39', () => {
-    expect(PROTOCOL_VERSION).toBe(40);
+  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 41', () => {
+    expect(PROTOCOL_VERSION).toBe(41);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -911,11 +911,39 @@ describe('Peer message validation: a Delver Troop in a Duel (docs/plans/enemy-be
       const plain = JSON.parse(JSON.stringify(m)) as MatchState;
       return { ...plain, config: { ...plain.config, troops } };
     };
-    const good = state([null, { body: 'uruk', maxHp: troop.maxHp, mods: troop.mods }]);
+    const good = state([null, { body: 'uruk', maxHp: troop.maxHp, mods: storedMods(troop.mods) }]);
     expect(parseNetMessage(resync(good))).toEqual(resync(good));
     for (const bad of [[null], [null, null], [null, { body: 'uruk', maxHp: 0 }], [null, { body: '', maxHp: 80 }], [null, { body: 'uruk', maxHp: 80, mods: { damage: 1 } }], [null, { body: 'uruk', maxHp: 80, hp: 3 }]])
       expect(parseNetMessage(resync(state(bad))), JSON.stringify(bad)).toBeNull();
     // Only a Duel fields one.
     expect(parseNetMessage(resync({ ...good, config: { ...good.config, format: 'Gauntlet' } }))).toBeNull();
+  });
+});
+
+describe('Peer message validation: the pace Mods and a Duel Fighter\'s own Mods (docs/plans/enemy-behaviours.md, Stage 5)', () => {
+  const slow = storedMods({ ...NO_MODS, walkSpeed: 0.7, windUp: 1.35 });
+  const slowMatch = () => JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3, fighterMods: [null, slow] }))) as MatchState;
+  const withFighterMods = (m: MatchState, mods: unknown) => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 1 ? { ...f, mods } : f)) } });
+
+  it("a resync carries a Slow Fighter's Mods (each pace Mod only when not 1) and config.fighterMods, and refuses a malformed one", () => {
+    const good = slowMatch();
+    expect(good.config.fighterMods).toEqual([null, slow]);
+    expect(parseNetMessage(resync(good))).toEqual(resync(good));
+    // A pace Mod may be left out (1); written as 1, at 0 or below, or not a number, it is refused. An unknown key is refused.
+    const { walkSpeed: _w, ...noWalk } = slow;
+    expect(parseNetMessage(resync(withFighterMods(good, noWalk)))).not.toBeNull();
+    for (const bad of [{ ...slow, walkSpeed: 1 }, { ...slow, windUp: 0 }, { ...slow, windUp: -1 }, { ...slow, walkSpeed: '0.7' }, { ...slow, haste: 2 }, { ...NO_MODS }])
+      expect(parseNetMessage(resync(withFighterMods(good, bad))), JSON.stringify(bad)).toBeNull();
+    for (const bad of [[slow], [null, null], [null, { ...slow, windUp: 1 }], [null, { damage: 1 }], 'slow'])
+      expect(parseNetMessage(resync({ ...good, config: { ...good.config, fighterMods: bad } })), JSON.stringify(bad)).toBeNull();
+    // Only a Duel, and never on a Fighter with a Troop (its Troop carries its Mods).
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, format: 'Gauntlet' } }))).toBeNull();
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, troops: [null, { body: 'uruk', maxHp: 80 }] } }))).toBeNull();
+  });
+
+  it('a resync of a Match without Mods anywhere has no fighterMods key, as before', () => {
+    const plain = JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 }))) as MatchState;
+    expect('fighterMods' in plain.config).toBe(false);
+    expect(parseNetMessage(resync(plain))).toEqual(resync(plain));
   });
 });

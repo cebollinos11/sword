@@ -4,7 +4,7 @@ import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { Inventory } from './inventory';
 import type { Pickup } from './pickups';
-import type { Mods } from './mods';
+import type { StoredMods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
 import type { CrowdState } from './crowd';
@@ -243,7 +243,7 @@ export interface FighterState {
    * Its equipped Relics folded into one record (`foldMods`): every Hit, Throwing Dagger, Kick, Block Impact, heal and its max HP read the
    * Fighter's own. Absent while they are `NO_MODS` (see `modsOf`), set only by `setMods`, at a Hall's start or on an equip.
    */
-  readonly mods?: Mods;
+  readonly mods?: StoredMods;
   /**
    * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
    * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Floor starts and

@@ -212,7 +212,11 @@ describe('the Lobby view: a plain AI Seat\'s Quirks, in dev mode (docs/plans/ene
       ['', 'No Quirks', []],
       ['Dumb', 'Dumb', ['Dumb']],
       ['Hopper', 'Hopper', ['Hopper']],
+      ['Slow', 'Slow', ['Slow']],
       ['Dumb+Hopper', 'Dumb + Hopper', ['Dumb', 'Hopper']],
+      ['Dumb+Slow', 'Dumb + Slow', ['Dumb', 'Slow']],
+      ['Hopper+Slow', 'Hopper + Slow', ['Hopper', 'Slow']],
+      ['Dumb+Hopper+Slow', 'Dumb + Hopper + Slow', ['Dumb', 'Hopper', 'Slow']],
     ]);
   });
 });

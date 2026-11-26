@@ -169,6 +169,9 @@ import {
   battlefieldOf,
   arenaOf,
   attackTimings,
+  windUpOf,
+  windUpTuning,
+  type AttackTimings,
   blockedAt,
   createRng,
   bubblePlayer,
@@ -226,6 +229,8 @@ interface Sighting {
   readonly weapon: string;
   /** Its Size, when it is not the standard body. */
   readonly size?: Size;
+  /** How much longer its Attack Wind-ups last (its `windUp` Mod, the Slow Quirk's), when it is not 1: anyone can see it wind up slowly. */
+  readonly windUp?: number;
   readonly team: number;
   /** Out of the Duel (`inDuel`): fallen, or a Benched slot. */
   readonly fallen: boolean;
@@ -850,6 +855,7 @@ function sightings(prev: Observation | undefined, state: SimState): Observation 
       hp: o.hp,
       weapon: o.weapon,
       ...(o.size && { size: o.size }),
+      ...(windUpOf(o) !== 1 && { windUp: windUpOf(o) }),
       team: o.team,
       fallen: !inDuel(o),
       facing: o.facing,
@@ -1904,8 +1910,18 @@ class RuleAi implements AiController {
    * reach), Releases before the opening ends (`openingLeft`). The ends are counted as it saw the opening, Reaction Time
    * ago: the opponent needs as long to see its Wind-up coming as it took to see the opening.
    */
+  /** The phases of its own Attack in `direction`: its Weapon's, its Wind-up stretched by its `windUp` Mod (the Slow Quirk's). */
+  private ownTimings(self: FighterState, direction: Direction): AttackTimings {
+    return attackTimings(windUpTuning(this.tuning, windUpOf(self)), self.weapon, direction);
+  }
+
+  /** The phases of a seen Fighter's Attack in `direction`: its Weapon's, its Wind-up stretched by its `windUp` (a Slow enemy's or ally's). */
+  private seenTimings(o: Sighting, direction: Direction): AttackTimings {
+    return attackTimings(windUpTuning(this.tuning, o.windUp ?? 1), o.weapon, direction);
+  }
+
   private landsInTime(self: FighterState, target: Sighting, dist: number, direction: Direction): boolean {
-    const { windUpEnd } = attackTimings(this.tuning, self.weapon, direction);
+    const { windUpEnd } = this.ownTimings(self, direction);
     const walk = Math.ceil(Math.max(0, dist - this.reach(self)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
     return Math.max(windUpEnd, walk) <= this.openingLeft(target);
   }
@@ -1913,7 +1929,7 @@ class RuleAi implements AiController {
   /** Ticks `o`, as seen, has left of its opening before it can act again, as its playhead shows (a Knockdown: long enough). */
   private openingLeft(o: Sighting): number {
     const a = o.action;
-    if (a.kind === 'Attack') return attackTimings(this.tuning, o.weapon, a.direction).end - (a.chain?.tick ?? o.motionTick);
+    if (a.kind === 'Attack') return this.seenTimings(o, a.direction).end - (a.chain?.tick ?? o.motionTick);
     if (a.kind === 'Kick') return kickTimings(this.tuning, o.weapon).end - o.motionTick + (a.landed ? 0 : (a.whiff ?? this.tuning.kick.whiffRecovery));
     if (a.kind === 'Stagger') {
       const motion = weaponMotion(this.tuning, o.weapon, staggerMotionName(this.tuning, o.weapon, a.cause, a.from));
@@ -2136,7 +2152,7 @@ class RuleAi implements AiController {
     const lands = arc.lands;
     if (!lands || Math.abs(lands.y - self.y) >= LEVEL) return null;
     const landTick = seenTick + arc.ticks;
-    const windUp = attackTimings(this.tuning, self.weapon, 'Overhead').windUpEnd;
+    const windUp = this.ownTimings(self, 'Overhead').windUpEnd;
     const pressAt = landTick - windUp - 1;
     if (state.tick > landTick) return null;
     const face = Math.atan2(lands.x - self.position.x, lands.z - self.position.z);
@@ -2298,7 +2314,7 @@ class RuleAi implements AiController {
       // Ticks from now before it can arm: its Attack must Release (about half through) before that. `timed`: no Feint to spoil it.
       const left = whirlwindTimings(this.tuning).armTicks - spin.ticks - this.reactionTicks;
       const direction = this.chooseDirection(self, o, dist, this.narrowLine(self));
-      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
+      const { windUpEnd, releaseEnd } = this.ownTimings(self, direction);
       const walk = Math.ceil(Math.max(0, dist - myReach) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
       if (Math.max(windUpEnd, walk) + Math.ceil((releaseEnd - windUpEnd) / 2) < left && !this.turnOf(state.tick, self, team, toward, myReach).line) {
         return this.startAttack(state.tick, self, o, dist, dist > myReach ? { ...base, move: toward } : base, { swingIn: dist > myReach, direction, timed: true });
@@ -2312,7 +2328,7 @@ class RuleAi implements AiController {
     const closing = Math.max(0.3, Math.sin(heading) * -toward.x + Math.cos(heading) * -toward.z);
     const reachIn = dist <= R ? 0 : (dist - R) / (this.tuning.whirlwind.driveSpeed * TICK_SECONDS * closing);
     if (this.attacksOf(self).includes('Thrust') && dist <= myReach + THRUST_REACH && dist > R && !this.turnOf(state.tick, self, team, toward, myReach + THRUST_REACH).line) {
-      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Thrust');
+      const { windUpEnd, releaseEnd } = this.ownTimings(self, 'Thrust');
       if (windUpEnd + Math.ceil((releaseEnd - windUpEnd) / 2) + this.reactionTicks < reachIn) return this.startAttack(state.tick, self, o, dist, base, { direction: 'Thrust', timed: true });
     }
     if (self.daggers > 0 && dist > R + 1 && dist <= this.tuning.ai.throwRange && this.clearLine(state, self, o) && throwTimings(this.tuning, self.weapon).windUpEnd + this.reactionTicks < reachIn) {
@@ -2439,7 +2455,7 @@ class RuleAi implements AiController {
     const { tuning: tn, arena } = this.world(state);
     const reach = this.reach(self);
     const direction = this.leapDirection(self, target);
-    const { windUpEnd: windUp, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
+    const { windUpEnd: windUp, releaseEnd } = this.ownTimings(self, direction);
     const release = releaseEnd - windUp;
     for (const hold of this.leapHolds()) {
       const plan = { at: self.position, y: self.y, heading: toward, holdTicks: hold };
@@ -2865,7 +2881,7 @@ class RuleAi implements AiController {
   private spinRoom(self: FighterState, a: Extract<Action, { kind: 'Attack' }>, left: number, target: Sighting, team: TeamView | null): boolean {
     const t = target.action;
     if (t.kind === 'Stagger') {
-      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, a.direction);
+      const { windUpEnd, releaseEnd } = this.ownTimings(self, a.direction);
       return this.openingLeft(target) > left + Math.ceil((releaseEnd - windUpEnd) / 2);
     }
     return (t.kind === 'Knockdown' && t.phase !== 'Rising') || defenceless(target) || team?.exposed === true;
@@ -2884,9 +2900,9 @@ class RuleAi implements AiController {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     if (atk.phase !== 'Wind-up') return null;
     const left = plan.spin - (own.charge ?? 0);
-    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirs = this.seenTimings(seen, atk.direction);
     const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
-    const mine = attackTimings(this.tuning, self.weapon, own.direction);
+    const mine = this.ownTimings(self, own.direction);
     // Each blow lands about half its Release after it lets go: its own after the spin it has left, theirs after their Release.
     const myContact = Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2);
     const theirContact = Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2);
@@ -2922,7 +2938,7 @@ class RuleAi implements AiController {
     };
     const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
     const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
-    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirs = this.seenTimings(seen, atk.direction);
     const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
     const own = self.action;
     if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self) + (own.direction === 'Thrust' ? THRUST_REACH : 0)) {
@@ -2930,7 +2946,7 @@ class RuleAi implements AiController {
       const walk = Math.max(0, flat - this.ballBand(seen, atk.direction).hi) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
       const lands = theirRelease + Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2) + walk;
       // Its own blow lands its Wind-up's rest and about half its Release from now.
-      const mine = attackTimings(this.tuning, self.weapon, own.direction);
+      const mine = this.ownTimings(self, own.direction);
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2) < lands) return read('Outpace');
     }
     const canChamber = attackDirection(weaponByName(this.tuning, self.weapon), meets) === meets;
@@ -2967,7 +2983,7 @@ class RuleAi implements AiController {
    * `pressOn` does from beyond a metre), will be beyond `myReach` by the middle of the Release.
    */
   private backingOut(self: FighterState, target: Sighting, dist: number, toward: Vec2, direction: Direction, myReach: number): boolean {
-    const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
+    const { windUpEnd, releaseEnd } = this.ownTimings(self, direction);
     if (self.motion.tick < windUpEnd - 1) return false;
     const step = this.tuning.fighter.walkSpeed * TICK_SECONDS;
     const away = target.velocity.x * toward.x + target.velocity.z * toward.z;
@@ -3076,7 +3092,7 @@ class RuleAi implements AiController {
     let plan = this.defencePlan!;
     const theirReach = this.reach(seen) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
     if (atk.phase === 'Release') return plan.holdBreak?.go && flat > theirReach + 0.1 ? base : null;
-    const { windUpEnd } = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const { windUpEnd } = this.seenTimings(seen, atk.direction);
     const held = state.tick - this.reactionTicks - plan.attackStart - windUpEnd;
     if (atk.phase !== 'Wind-up' || held < HOLD_BREAK_TICKS) return null;
     if (!plan.holdBreak) plan = this.defencePlan = { ...plan, holdBreak: { go: this.chance(this.skill.holdBreak), at: state.tick } };
@@ -3120,11 +3136,11 @@ class RuleAi implements AiController {
       return plan('Block', this.pick(BESIDE[meets]));
     }
     const own = self.action;
-    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirs = this.seenTimings(seen, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
     if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self)) {
-      const mine = attackTimings(this.tuning, self.weapon, own.direction);
+      const mine = this.ownTimings(self, own.direction);
       const lead = theirRelease - Math.max(0, mine.windUpEnd - self.motion.tick);
       // Clearly ahead (`pressAhead`): it swings on rather than give up the hit it would land first.
       if (lead >= PRESS_AHEAD_LEAD && this.chance(this.skill.pressAhead)) return plan('Outpace');

@@ -6,8 +6,8 @@
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
  */
-import { checkRunTeams, checkTeams, MAX_TEAM_SIZE, runPick, type MatchFormat, type MatchOptions } from '../sim';
-import { resolveTroop, type ResolvedTroop, type TroopRef } from '../sim/delver';
+import { checkRunTeams, checkTeams, isNoMods, MAX_TEAM_SIZE, runPick, type MatchFormat, type MatchOptions } from '../sim';
+import { quirkMods, resolveTroop, type ResolvedTroop, type TroopRef } from '../sim/delver';
 import { clampSize, DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type Size, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import { createAllyAi } from './allyAi';
@@ -137,6 +137,12 @@ function checkBattleTeams(lineup: Lineup): void {
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const troops = lineup.map((s) => slotTroop(tuning, s));
+  // A plain AI slot's Quirks' `body` parts (the Slow Quirk's walk and Wind-up), in Duels: a Troop's are in its own Mods already.
+  const duels = (options.format ?? 'Duels') === 'Duels';
+  const fighterMods = lineup.map((s, i) => {
+    const mods = duels && !troops[i] && s.pilot.kind === 'AI' && s.pilot.quirks ? quirkMods(tuning, s.pilot.quirks) : null;
+    return mods && !isNoMods(mods) ? mods : null;
+  });
   const weapons = lineup.map((s, i) => troops[i]?.weapon ?? (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
   const gauntlet = options.format === 'Gauntlet';
   const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && (!gauntlet || s.team === 0) ? [i] : []));
@@ -150,6 +156,7 @@ export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: r
     ...(gauntlet ? { humans: players.length, players } : {}),
     ...(traitors.length > 0 ? { traitors } : {}),
     ...(troops.some((t) => t) ? { troops: troops.map((t) => t && { body: t.body, maxHp: t.maxHp, mods: t.mods }) } : {}),
+    ...(fighterMods.some((m) => m) ? { fighterMods } : {}),
   };
 }
 

@@ -5,7 +5,7 @@
 import { expect, vi } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Controller, type Lineup, type PlayerNumber } from '../controllers';
-import { createMatch, stairsCounters, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, type Intent, type Inventory, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup } from '../sim';
+import { createMatch, stairsCounters, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, type Intent, type Inventory, type MatchEvent, type MatchOptions, type MatchState, type StoredMods, type Pickup } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, takeoverAi, type RollbackSession, type SessionEvent } from './session';
@@ -42,7 +42,7 @@ export interface Snap {
   /** The Run's progress (`MatchState.delver`). */
   readonly delver?: MatchState['delver'];
   readonly events: readonly MatchEvent[];
-  readonly fighters: readonly { readonly inventory?: Inventory; readonly mods?: Mods }[];
+  readonly fighters: readonly { readonly inventory?: Inventory; readonly mods?: StoredMods }[];
   /** `stairsCounters` with the Takeovers (`delver.away`) taken into account, and without. */
   readonly counting: readonly number[];
   readonly countingEveryone: readonly number[];

@@ -24,7 +24,7 @@ import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
-import { modsOf } from './mods';
+import { fighterTuning, modsOf } from './mods';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { fighterPose, withPose } from './pose';
 import { startSlide } from './slide';
@@ -360,7 +360,7 @@ export function resolveContacts(
  * only) is the side the blow came from, from the Fighter's own view.
  */
 export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, standard: TuningData, emit: Emit, from?: Direction): FighterState {
-  const tuning = sizedTuning(standard, f.size);
+  const tuning = fighterTuning(standard, f);
   // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
   const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
   const { action, motion } = stagger(tuning, f.weapon, cause, hold, from);
@@ -374,7 +374,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
  * left is lost, and its pose is re-solved lying.
  */
 function knockDown(f: FighterState, standard: TuningData): FighterState {
-  const tuning = sizedTuning(standard, f.size);
+  const tuning = fighterTuning(standard, f);
   const { blockImpact: _impact, air, ...rest } = f;
   const { action, motion } = knockdown();
   let flight: Airborne | undefined;

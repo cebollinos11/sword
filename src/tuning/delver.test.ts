@@ -353,7 +353,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['Variant style unknown', withPrefab(0, {}, 0, { style: 'random' }), /^delver\.troops\[0\]\.variants\[0\]\.style /],
     ['Prefab Quirk unknown', withPrefab(0, { quirks: ['Sleepy'] }), /^delver\.troops\[0\]\.quirks\[0\] .*one of the Quirks \(Dumb, Hopper/],
     ['Prefab Quirks not a list', withPrefab(0, { quirks: 'Dumb' }), /^delver\.troops\[0\]\.quirks /],
-    ['Variant Quirk unknown', withPrefab(0, {}, 0, { quirks: ['Dumb', 'Slow'] }), /^delver\.troops\[0\]\.variants\[0\]\.quirks\[1\] .*one of the Quirks \(Dumb, Hopper/],
+    ['Variant Quirk unknown', withPrefab(0, {}, 0, { quirks: ['Dumb', 'Clumsy'] }), /^delver\.troops\[0\]\.variants\[0\]\.quirks\[1\] .*one of the Quirks \(Dumb, Hopper, Slow/],
     ['Variant Quirk twice', withPrefab(0, {}, 0, { quirks: ['Dumb', 'Dumb'] }), /^delver\.troops\[0\]\.variants\[0\]\.quirks\[1\] /],
     ['Variant relic unknown', withPrefab(0, {}, 0, { relics: ['Nope'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics\[0\] /],
     ['Variant with too many Relics', withPrefab(0, {}, 0, { relics: ['Whetstone', 'Whetstone', 'Whetstone'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics /],

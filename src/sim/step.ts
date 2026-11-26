@@ -17,6 +17,7 @@ import { bladeAndLeg, motionPose, withPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
 import type { Action, Airborne, Death, DeathBlow, FighterState, MotionPlayback, SimState } from './state';
+import { fighterTuning, walkSpeedOf } from './mods';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -132,6 +133,8 @@ const sheathedPace = (f: FighterState): boolean => f.sheathed && f.action.kind !
 /**
  * Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly).
  * A Sheathed Fighter walks `fighter.sheathedWalkFactor` faster, unless `drawnPace` (the walk a Jump takes off with, which is always the drawn one: ADR 0017).
+ * Its `walkSpeed` Mod (the Slow Quirk's) scales the walk on the ground but not a Jump's take-off (`drawnPace`), nor its flight (`fly`), so every jump
+ * Link and `jumpIsSafe` check, worked out at `fighter.walkSpeed`, holds for it too.
  */
 function walk(f: FighterState, intent: Intent, tuning: TuningData, drawnPace = false): FighterState['position'] {
   if (locked(f)) return f.position;
@@ -144,7 +147,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData, drawnPace = f
   }
   const backness = Math.max(0, -(mx * Math.sin(f.facing) + mz * Math.cos(f.facing)) / Math.hypot(mx, mz));
   const backward = 1 - (1 - tuning.fighter.backwardWalkFactor) * backness;
-  const speed = backward * slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (f.action.kind === 'Whirlwind' && f.action.phase === 'Wind-up' ? tuning.whirlwind.holdWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const speed = backward * slowFactor(f, tuning) * (drawnPace ? 1 : walkSpeedOf(f)) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (f.action.kind === 'Whirlwind' && f.action.phase === 'Wind-up' ? tuning.whirlwind.holdWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
@@ -333,7 +336,7 @@ function settleBodies(
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (!inDuel(f)) return f;
-    const own = sizedTuning(tuning, f.size);
+    const own = fighterTuning(tuning, f);
     const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, own);
     const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, own, arena, emit) };
@@ -389,7 +392,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, sizedTuning(tuning, f.size), emit))),
+    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, fighterTuning(tuning, f), emit))),
     tuning,
     arena,
     fighting,
