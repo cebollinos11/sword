@@ -8,6 +8,7 @@ import { FIXTURE_ROOM, FIXTURE_ROOM_RAW, withFixtureRoom } from './rooms.testdat
 import { framedRoom, frameHalf, parseRoom, ROOM_FRAMES } from '../../tuning/delverRooms';
 import { SHORTCUT_RISE } from '../nav';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
+import { wallSides } from './judge';
 import {
   BRIDGE_MIN, LAVA_BAND, LAVA_CENTRE, LAVA_DEPTH, LAVA_KEEP, LAVA_LANE, LAVA_MIN, lavaDry, oddDown, oddUp, PIT_MIN, RIVER_BANK, TROUGH_MIN, type DelverLava,
   attemptSeed, PEDESTAL_GAP, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
@@ -1374,7 +1375,7 @@ describe('splits and pits (Stage 7c)', () => {
         if (alongX) expect(low ? st.rect.x1 : st.rect.x0).toBe(low ? tr.rect.x1 : tr.rect.x0);
         else expect(low ? st.rect.z1 : st.rect.z0).toBe(low ? tr.rect.z1 : tr.rect.z0);
         expect(st.up).toBe(alongX ? (low ? 'e' : 'w') : low ? 'n' : 's');
-        expect(st.rails).toEqual(alongX ? ['n', 's'] : ['e', 'w']);
+        expect(st).not.toHaveProperty('rails');
         // It stands against a side wall: the low or the high.
         const [a0, a1, s0, s1] = alongX ? [h.rect.z0, h.rect.z1, st.rect.z0, st.rect.z1] : [h.rect.x0, h.rect.x1, st.rect.x0, st.rect.x1];
         expect(s0 === a0 || s1 === a1).toBe(true);
@@ -1424,7 +1425,7 @@ describe('splits and pits (Stage 7c)', () => {
         const edge = { w: [st.rect.x0, f.pit.x0], e: [st.rect.x1, f.pit.x1], s: [st.rect.z0, f.pit.z0], n: [st.rect.z1, f.pit.z1] }[st.up]!;
         expect(edge[0]).toBe(edge[1]);
         expect(vz ? st.up === 'w' || st.up === 'e' : st.up === 's' || st.up === 'n').toBe(true);
-        expect(st.rails).toEqual(vz ? ['n', 's'] : ['e', 'w']);
+        expect(st).not.toHaveProperty('rails');
         expect(overlaps(st.rect, centreSquare(h))).toBe(false);
         for (const ln of lanes(h)) expect(overlaps(st.rect, ln)).toBe(false);
         // Along v the step lies on a pit edge.
@@ -1617,7 +1618,7 @@ describe('daises (Stage 7c)', () => {
       }
       expect(d.y).toBe(h.y + DAIS_RISE);
       expect([st.lo, st.hi, st.up]).toEqual([h.y, h.y + DAIS_RISE, d.side]);
-      expect(st.rails).toEqual(alongX ? ['e', 'w'] : ['n', 's']);
+      expect(st).not.toHaveProperty('rails');
       expect(Object.keys(d)).toEqual(['kind', 'side', 'rect', 'y', 'steps']);
     }
   });
@@ -2112,7 +2113,7 @@ describe('set pieces (Stage 7f)', () => {
       expect([depth(f.low), depth(f.high)]).toEqual([UPHILL_FOOT, UPHILL_TOP]);
       const st = f.steps[0]!;
       expect(f.steps.length).toBe(1);
-      expect([st.lo, st.hi, st.up, st.rails]).toEqual([hallBase(h), h.y, f.up, []]);
+      expect(st).toEqual({ rect: st.rect, lo: hallBase(h), hi: h.y, up: f.up });
       expect(area(f.low) + area(st.rect) + area(f.high)).toBe(area(r));
       for (const q of [f.low, st.rect, f.high]) expect(within(q, r) && oddRect(q)).toBe(true);
       expect(along(st.rect, f.up === 'n' || f.up === 's' ? 'n' : 'e')).toEqual(along(r, f.up === 'n' || f.up === 's' ? 'n' : 'e'));
@@ -2135,13 +2136,12 @@ describe('set pieces (Stage 7f)', () => {
       expect(f.landings.map((l) => l.level)).toEqual(f.landings.map((l) => l.y / LEVEL_RISE));
       const wide = (q: Rect) => Math.min(q.x1 - q.x0, q.z1 - q.z0);
       f.steps.forEach((st, n) => {
-        // Each Ramp from the floor before it (the well, then the landing before) up to its landing, against the Hall's wall on its railed side, open on the other.
+        // Each Ramp from the floor before it (the well, then the landing before) up to its landing, one long side against the Hall's wall, the other open. No rails.
         expect([st.lo, st.hi]).toEqual([n === 0 ? h.y : f.landings[n - 1]!.y, f.landings[n]!.y]);
         expect(st.up === 'n' || st.up === 's' ? st.rect.x1 - st.rect.x0 : st.rect.z1 - st.rect.z0).toBe(LEDGE_WIDE);
         expect((st.hi - st.lo) / runOf(st)).toBeLessThanOrEqual(MAX_SLOPE);
-        expect(st.rails.length).toBe(1);
-        const d = st.rails[0]!;
-        expect(d === 'n' ? st.rect.z1 === r.z1 : d === 's' ? st.rect.z0 === r.z0 : d === 'e' ? st.rect.x1 === r.x1 : st.rect.x0 === r.x0).toBe(true);
+        expect(st).not.toHaveProperty('rails');
+        expect(wallSides(st, r).length).toBe(1);
         expect(within(st.rect, r) && oddRect(st.rect)).toBe(true);
       });
       for (const l of f.landings) expect(within(l.rect, r) && oddRect(l.rect) && wide(l.rect) === LEDGE_WIDE).toBe(true);
@@ -2229,11 +2229,11 @@ describe('set pieces (Stage 7f)', () => {
     it('an Uphill: a 1-level Ramp fits a half of 10, a 2-level one a half of 12; one under either does not', () => {
       expect(uphillGeometry(R(-9, -9, 9, 9), 0, 1, 2)).toBeNull();
       const one = uphillGeometry(R(-9, -11, 9, 9), 0, 1, 2)!;
-      expect(one.step).toEqual({ rect: R(-9, -5, 9, -1), lo: 0, hi: 2, up: 'n', rails: [] });
+      expect(one.step).toEqual({ rect: R(-9, -5, 9, -1), lo: 0, hi: 2, up: 'n' });
       expect([one.low, one.high, one.cx, one.cz]).toEqual([R(-9, -11, 9, -5), R(-9, -1, 9, 9), 0, 4]);
       expect(uphillGeometry(R(-9, -11, 13, 11), 3, 2, 4)).toBeNull();
       const two = uphillGeometry(R(-13, -9, 11, 9), 3, 2, 4)!;
-      expect(two.step).toEqual({ rect: R(-3, -9, 5, 9), lo: 0, hi: 4, up: 'w', rails: [] });
+      expect(two.step).toEqual({ rect: R(-3, -9, 5, 9), lo: 0, hi: 4, up: 'w' });
       expect([two.low, two.high, two.cx, two.cz]).toEqual([R(5, -9, 11, 9), R(-13, -9, -3, 9), -8, 0]);
       // The largest Hall (a half of 14): the high landing stays 10 deep and the Ramp takes the rest.
       expect(uphillGeometry(R(-13, -15, 13, 13), 2, 2, 4)!.step.rect).toEqual(R(-13, -5, 13, 7));
@@ -2242,7 +2242,7 @@ describe('set pieces (Stage 7f)', () => {
     it('a Spiral: its smallest Hall (halves 9 across wall 2, 10 along it) and a large one, each base and turn a turn or mirror of base s, turn 0', () => {
       expect(spiralGeometry(R(-9, -9, 9, 9), 2, 0, 0)).toBeNull();
       const s0 = spiralGeometry(R(-9, -11, 9, 9), 2, 0, 0)!;
-      expect(s0.steps.map((st) => [st.rect, st.lo, st.hi, st.up, st.rails[0]])).toEqual([
+      expect(s0.steps.map((st) => [st.rect, st.lo, st.hi, st.up, wallSides(st, R(-9, -11, 9, 9))[0]])).toEqual([
         [R(5, -7, 9, -3), 0, 2, 'n', 'e'],
         [R(5, 1, 9, 5), 2, 3, 'n', 'e'],
         [R(3, 5, 5, 9), 3, 4, 'w', 'n'],
@@ -2255,7 +2255,7 @@ describe('set pieces (Stage 7f)', () => {
       const flipZ = (q: Rect) => R(q.x0, -q.z1, q.x1, -q.z0);
       expect(n1.steps.map((st) => st.rect)).toEqual(s0.steps.map((st) => flipZ(st.rect)));
       expect(n1.steps.map((st) => st.up)).toEqual(['s', 's', 'w', 'w', 'n']);
-      expect(n1.steps.map((st) => st.rails[0])).toEqual(['e', 'e', 's', 's', 'w']);
+      expect(n1.steps.map((st) => wallSides(st, R(-9, -9, 9, 11))[0])).toEqual(['e', 'e', 's', 's', 'w']);
       expect(spiralOrder('n', 1)).toEqual(['n', 'e', 's', 'w']);
       expect(spiralOrder('s', 0)).toEqual(['s', 'e', 'n', 'w']);
       expect(spiralOrder('e', 0)).toEqual(['e', 'n', 'w', 's']);
@@ -2360,7 +2360,7 @@ describe('drawn rooms (Stage 7g)', () => {
     const want = fr.brushes[0]! as { rect: Rect; top: number };
     expect(ledge).toEqual({ kind: 'platform', id: `${h.id}-ledge`, rect: R(want.rect.x0 + cx, want.rect.z0 + cz, want.rect.x1 + cx, want.rect.z1 + cz), top: h.y + 2 });
     expect(f.brushes[4]).toMatchObject({ kind: 'block', top: h.top });
-    expect(f.steps).toEqual([{ rect: (f.brushes[1] as { rect: Rect }).rect, lo: h.y, hi: h.y + 2, up: (f.brushes[1] as { up: Side }).up, rails: (f.brushes[1] as { rails: readonly Side[] }).rails }]);
+    expect(f.steps).toEqual([{ rect: (f.brushes[1] as { rect: Rect }).rect, lo: h.y, hi: h.y + 2, up: (f.brushes[1] as { up: Side }).up }]);
     expect(f.lava).toEqual([(f.brushes[3] as { rect: Rect }).rect]);
   });
 

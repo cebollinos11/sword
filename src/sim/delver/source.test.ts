@@ -67,7 +67,7 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
             expect(q.corner).toBe(false);
             expect(e.doors).toEqual({ [q.y0 < q.y1 ? q.from : q.to]: w });
             const r = brush(f, `${id}-ramp`);
-            expect(r).toMatchObject({ kind: 'ramp', rect: q.rect, lo: Math.min(q.y0, q.y1), hi: Math.max(q.y0, q.y1), up: q.y1 > q.y0 ? q.to : q.from, rails: q.axis === 'x' ? ['n', 's'] : ['e', 'w'], material: 'stone' });
+            expect(r).toMatchObject({ kind: 'ramp', rect: q.rect, lo: Math.min(q.y0, q.y1), hi: Math.max(q.y0, q.y1), up: q.y1 > q.y0 ? q.to : q.from, rails: [], material: 'stone' });
           }
           for (const y of [e.y, Math.max(q.y0, q.y1) + PASSAGE_STOREY]) expect(levels).toContain(y);
         });
@@ -187,7 +187,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       const main = feat.tiers.find((t) => t.level === h.level)!;
       expect(brush(f, `${h.id}-tier`)).toEqual({ kind: 'platform', id: `${h.id}-tier`, rect: main.rect, top: h.y, material: MATERIAL[h.kind] });
       expect(feat.steps.length).toBe(feat.tiers.length - 1);
-      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: st.rails, material: 'stone' }));
+      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: [], material: 'stone' }));
       expect(brush(f, `${h.id}-step${feat.steps.length}`)).toBeUndefined();
       // Its Enclosure stands at its lowest tier, under the main tier's height, and the roof is the Hall's.
       const e = brush(f, h.id);
@@ -210,7 +210,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       expect(feat.rims.length).toBe(4);
       feat.rims.forEach((rect, n) => expect(brush(f, `${h.id}-rim${n}`)).toEqual({ kind: 'platform', id: `${h.id}-rim${n}`, rect, top: h.y + feat.depth, material: MATERIAL[h.kind] }));
       expect(feat.steps.length).toBe(2);
-      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: h.y, hi: h.y + feat.depth, up: st.up, rails: st.rails, material: 'stone' }));
+      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: h.y, hi: h.y + feat.depth, up: st.up, rails: [], material: 'stone' }));
       const e = brush(f, h.id);
       expect(e?.kind === 'enclosure' && e.y).toBe(h.y);
       expect(hallBase(h)).toBe(h.y);
@@ -228,7 +228,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
       expect(brush(f, `${h.id}-dais`)).toEqual({ kind: 'platform', id: `${h.id}-dais`, rect: feat.rect, top: h.y + 1, material: 'stone' });
       expect(feat.steps.length).toBe(1);
       const st = feat.steps[0]!;
-      expect(brush(f, `${h.id}-step0`)).toEqual({ kind: 'ramp', id: `${h.id}-step0`, rect: st.rect, lo: h.y, hi: h.y + 1, up: st.up, rails: st.rails, material: 'stone' });
+      expect(brush(f, `${h.id}-step0`)).toEqual({ kind: 'ramp', id: `${h.id}-step0`, rect: st.rect, lo: h.y, hi: h.y + 1, up: st.up, rails: [], material: 'stone' });
       const e = brush(f, h.id);
       expect(e?.kind === 'enclosure' && e.y).toBe(h.y);
       expect(f.source.levels).toContain(h.y + 1);
@@ -574,7 +574,7 @@ describe('a Floor\'s source with set pieces (Stage 7f)', () => {
           expect(brush(b, landingId(h, n))).toEqual({ kind: 'platform', id: landingId(h, n), rect, top: l.y, material: 'stone' });
           expect(b.source.levels).toContain(l.y);
         });
-        f.steps.forEach((st, n) => expect(brush(b, stepId(h, n))).toEqual({ kind: 'ramp', id: stepId(h, n), rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: st.rails, material: 'stone' }));
+        f.steps.forEach((st, n) => expect(brush(b, stepId(h, n))).toEqual({ kind: 'ramp', id: stepId(h, n), rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: [], material: 'stone' }));
         expect(brush(b, h.id)).toMatchObject({ kind: 'enclosure', y: h.y });
       }
   });

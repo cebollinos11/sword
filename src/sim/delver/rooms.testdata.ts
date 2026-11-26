@@ -12,7 +12,7 @@ export const FIXTURE_ROOM_RAW = {
   centre: [1, 1],
   brushes: [
     { kind: 'platform', id: 'ledge', rect: { x0: 7, z0: -9, x1: 11, z1: 9 }, top: 2 },
-    { kind: 'ramp', id: 'up', rect: { x0: 3, z0: -9, x1: 7, z1: -5 }, lo: 0, hi: 2, up: 'e', rails: ['s'] },
+    { kind: 'ramp', id: 'up', rect: { x0: 3, z0: -9, x1: 7, z1: -5 }, lo: 0, hi: 2, up: 'e', rails: [] },
     { kind: 'hole', id: 'pool', rect: { x0: -9, z0: -1, x1: -5, z1: 3 }, y: 0 },
     { kind: 'hazard', id: 'lava', rect: { x0: -9, z0: -1, x1: -5, z1: 3 }, y: -4, hazard: 'lava' },
     { kind: 'block', id: 'pillar', rect: { x0: -9, z0: 5, x1: -7, z1: 7 }, top: 8 },

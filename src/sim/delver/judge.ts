@@ -41,7 +41,7 @@
  * 11. `setPieces` (Stage 7f, plan-only, after `lava`): an Uphill or a Spiral on no great hall, and on the Entrance or the Treasure Hall only when no other leaf (or Hall off the main path)
  *     could take it; an Uphill's doors on its end walls only, its landings `UPHILL_FOOT` and `UPHILL_TOP` deep against them, its one Ramp from the low landing up to the high one no
  *     steeper than `MAX_SLOPE` and the full width, the three filling its rect, its centre in the high landing's middle; a Spiral's five Ramps and five landings chained up from the
- *     well (each Ramp `LEDGE_WIDE` wide along a wall, railed on it, no steeper than `MAX_SLOPE`; each landing a half level over the last), each door off the well on its landing's
+ *     well (each Ramp `LEDGE_WIDE` wide along a wall, open on its inner side, no steeper than `MAX_SLOPE`; each landing a half level over the last), each door off the well on its landing's
  *     span, and no marker within 2 m of the ledge; a Lava Bridge's Hall at least `CROSS_HALF` a half, its plaza holding the centre square, each arm from a wall to the plaza at least
  *     `BRIDGE_MIN` wide, and each held doorway +- 0.5 m on an arm. Every edge on an odd metre. (7d's `lava` rule still runs on a Lava Bridge: its rects, markers and Warband homes.)
  * 12. `setPieceWalk` (Stage 7f, after `lavaWalk`): the field to a set-piece Hall's centre reads 1 m inside each doorway, at each Spiral landing's and Uphill landing's centre (and, by
@@ -225,7 +225,7 @@ function judgeSetPieces(plan: FloorPlan): string[] {
         if (!eq(st.lo, from) || !eq(st.hi, f.landings[n]!.y)) out.push(`setPieces: ${id} does not run from ${m(from)} up to its landing at ${m(f.landings[n]!.y)}`);
         if (!(runOf(st) > 0) || (st.hi - st.lo) / runOf(st) > MAX_SLOPE + 1e-9) out.push(`setPieces: ${id} rises ${m(st.hi - st.lo)} m over ${m(runOf(st))} m, steeper than ${MAX_SLOPE}`);
         if (!eq(acrossOf(st), LEDGE_WIDE)) out.push(`setPieces: ${id} is ${m(acrossOf(st))} m wide, ${LEDGE_WIDE} wanted`);
-        if (st.rails.length !== 1 || !against(st.rect, r, st.rails[0]!)) out.push(`setPieces: ${id} is not along a wall of ${h.id}, open on its inner side`);
+        if (wallSides(st, r).length !== 1) out.push(`setPieces: ${id} is not along a wall of ${h.id}, open on its inner side`);
         if (!oddRect(st.rect) || !inside(st.rect, r)) out.push(`setPieces: ${id} is not inside ${h.id} on odd metres`);
       });
       f.landings.forEach((l, n) => {
@@ -380,6 +380,17 @@ function endsOf(plan: FloorPlan): { p: DelverPassage; hall: number; q: PassagePi
 }
 
 const OPPOSITE: Readonly<Record<Side, Side>> = { n: 's', s: 'n', e: 'w', w: 'e' };
+
+/**
+ * The long sides of Ramp `st` (the two along its run) that lie on an edge of Hall rect `r`: a Spiral Ramp has exactly one, the Hall's wall it runs along,
+ * and its other long side is its open inner edge. Ramps have no rails, so the Hall's wall is what holds it on that side.
+ */
+export function wallSides(st: { readonly rect: Rect; readonly up: Side }, r: Rect): Side[] {
+  const q = st.rect;
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  const long: readonly Side[] = st.up === 'n' || st.up === 's' ? ['e', 'w'] : ['n', 's'];
+  return long.filter((d) => (d === 'n' ? near(q.z1, r.z1) : d === 's' ? near(q.z0, r.z0) : d === 'e' ? near(q.x1, r.x1) : near(q.x0, r.x0)));
+}
 
 /** The height (m) of Hall `h`'s floor at its wall `side`: a gallery wall's Deck, a split's tier there (an end wall belongs to the end tier, a side wall to the main tier), a pit's rim, else the Hall's. */
 function floorAt(h: DelverHall, side: Side): number {
@@ -918,9 +929,9 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
       if (!reaches(c.x, c.z, p.y)) out.push(`setPieceWalk: ${p.name} (${m(c.x)}, ${m(c.z)}) at ${m(p.y)} does not reach ${h.id}'s centre`);
     }
     if (spiral) {
-      // Each Ramp's inner long side: the line across from its railed side. No Wall along it rises more than a step over the slope at its higher end.
+      // Each Ramp's inner long side: the line across from its side along the Hall's wall. No Wall along it rises more than a step over the slope at its higher end.
       spiral.steps.forEach((st, n) => {
-        const d = OPPOSITE[st.rails[0]!];
+        const d = OPPOSITE[wallSides(st, r)[0]!];
         const q = st.rect;
         const alongX = d === 'n' || d === 's';
         const line = d === 'n' ? q.z1 : d === 's' ? q.z0 : d === 'e' ? q.x1 : q.x0;

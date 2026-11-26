@@ -6,7 +6,7 @@
  *
  * Pure: whole and half metres only, every list in the plan's fixed order.
  */
-import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
+import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial, type MapSource, type SourceProp } from '../../mapEditor/source';
 import { hallBase, PASSAGE_STOREY, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
@@ -62,9 +62,6 @@ const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Empty: 'basalt',
 };
 
-/** The sides a sloped leg's Ramp is railed along, across its axis. */
-const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's'], z: ['e', 'w'] };
-
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
  * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims, a dais, an Uphill's high landing or a Spiral's landings (Stage 7f), then its step Ramps), then (Stage 7d) each lava Hall's lava (for each lava rect, a Hole in the Hall's floor and then a lava Hazard `LAVA_DEPTH` under it, so every lava edge is an open ledge), a Ramp along each sloped leg, then (Stage 7b) each Hall's
@@ -114,14 +111,14 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     return [
       { kind: 'deck', id: `${h.id}-deck`, rect: g.deck, y: g.y, material: 'wood' },
       ...(g.wrap?.decks ?? []).map((rect, n): Brush => ({ kind: 'deck', id: `${h.id}-deck${n + 1}`, rect, y: g.y, material: 'wood' })),
-      { kind: 'ramp', id: `${h.id}-ramp`, rect: g.ramp, lo: h.y, hi: g.y, up: g.up, rails: g.up === 'e' || g.up === 'w' ? ['n', 's'] : ['e', 'w'], material: 'stone' },
+      { kind: 'ramp', id: `${h.id}-ramp`, rect: g.ramp, lo: h.y, hi: g.y, up: g.up, rails: [], material: 'stone' },
     ];
   });
   // Each Hall's feature (Stage 7c) in index order: a split's main tier, a pit's four rims or a dais, then its steps (`<hall>-step<n>`, Ramps on the lower floor).
   const features: Brush[] = plan.halls.flatMap((h): Brush[] => {
     const f = h.feature;
     if (!f) return [];
-    const steps = f.steps.map((s, n): Brush => ({ kind: 'ramp', id: stepId(h, n), rect: s.rect, lo: s.lo, hi: s.hi, up: s.up, rails: s.rails, material: 'stone' }));
+    const steps = f.steps.map((s, n): Brush => ({ kind: 'ramp', id: stepId(h, n), rect: s.rect, lo: s.lo, hi: s.hi, up: s.up, rails: [], material: 'stone' }));
     if (f.kind === 'split') {
       const main = f.tiers.find((t) => t.level === h.level)!;
       return [{ kind: 'platform', id: `${h.id}-tier`, rect: main.rect, top: h.y, material: HALL_MATERIAL[h.kind] }, ...steps];
@@ -152,7 +149,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     ]),
   );
   const slopes: Brush[] = spans.flatMap(({ q, id, lo, hi }): Brush[] =>
-    lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
+    lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: [], material: 'stone' }],
   );
   // Each Hall in order: its solids (in its material), then its pillars (stone). Each Block's `top` is the Hall's ceiling, which the compiler's Block-in-an-Enclosure rule asks.
   const blocks: BlockBrush[] = plan.halls.flatMap((h): BlockBrush[] => [

@@ -165,7 +165,7 @@ function deal(k: number, wantNav: boolean): Dealt {
             if (jumps.some((l) => l.shortcut && l.to === deck && onFloor(l.from))) decksLinked++;
           }
           // Every jump Link is a shortcut rising at most SHORTCUT_RISE (from its surface's height at takeoff to where it lands), none takes off from a 4 m pit's floor, and each is counted by what it lands on.
-          const deepPits = plan.halls.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4).map((h) => `WALK_${h.id}_`);
+          const deepPits = plan.halls.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4).map((h) => h.id);
           const landing = { deck: 0, tier: 0, rim: 0, dais: 0, other: 0 };
           let badJumps = 0;
           let fromDeepPit = 0;
@@ -173,7 +173,9 @@ function deal(k: number, wantNav: boolean): Dealt {
             const rise = l.lands.y - surfaceHeight(built.field.arena, l.from, l.takeoff.x, l.takeoff.z);
             if (!l.shortcut || rise > SHORTCUT_RISE + 1e-9) badJumps++;
             const fromId = built.field.arena.walk[l.from]!.id;
-            if (deepPits.some((pre) => fromId.startsWith(pre))) fromDeepPit++;
+            // A pit's steps have no rails (2026-11-26): a hop from its floor onto its own step's open side is fine; nothing else leaves a 4 m pit's floor by a jump.
+            const toId = built.field.arena.walk[l.to]!.id;
+            if (deepPits.some((id) => fromId.startsWith(`WALK_${id}_`) && !new RegExp(`^WALK_${id}-step\\d+$`).test(toId))) fromDeepPit++;
             const m = /^WALK_hall\d+-(deck\d*|tier|rim\d+|dais)_/.exec(built.field.arena.walk[l.to]!.id);
             landing[m ? (m[1]!.startsWith('deck') ? 'deck' : m[1]!.startsWith('rim') ? 'rim' : (m[1] as 'tier' | 'dais')) : 'other']++;
           }
@@ -296,7 +298,7 @@ describe('the Floor generator soak', () => {
 
     const decks = nav.reduce((n, x) => n + x.decks, 0);
     lines.push(
-      `  jump Links on those ${nav.length} Floors: ${nav.reduce((n, x) => n + x.jumps, 0)} (by landing: ${(['deck', 'tier', 'rim', 'dais', 'other'] as const).map((k) => `${k} ${nav.reduce((n, x) => n + x.landing[k], 0)}`).join(', ')}; not a shortcut or rising over ${SHORTCUT_RISE} m: ${nav.reduce((n, x) => n + x.badJumps, 0)}; from a 4 m pit's floor: ${nav.reduce((n, x) => n + x.fromDeepPit, 0)}); Decks ${decks}, each with a shortcut Link onto it from its Hall's floor: ${nav.reduce((n, x) => n + x.decksLinked, 0)}`,
+      `  jump Links on those ${nav.length} Floors: ${nav.reduce((n, x) => n + x.jumps, 0)} (by landing: ${(['deck', 'tier', 'rim', 'dais', 'other'] as const).map((k) => `${k} ${nav.reduce((n, x) => n + x.landing[k], 0)}`).join(', ')}; not a shortcut or rising over ${SHORTCUT_RISE} m: ${nav.reduce((n, x) => n + x.badJumps, 0)}; from a 4 m pit's floor but onto its steps: ${nav.reduce((n, x) => n + x.fromDeepPit, 0)}); Decks ${decks}, each with a shortcut Link onto it from its Hall's floor: ${nav.reduce((n, x) => n + x.decksLinked, 0)}`,
     );
 
     // Counts over all passing Floors (the ones a Run would be dealt).
@@ -524,7 +526,7 @@ describe('the Floor generator soak', () => {
     expect(decks, 'no Deck among the navmesh Floors').toBeGreaterThan(0);
     expect(nav.reduce((n, x) => n + x.decksLinked, 0), 'a Deck without a shortcut jump Link onto it').toBe(decks);
     expect(nav.reduce((n, x) => n + x.badJumps, 0), 'a jump Link that is not a shortcut, or rises over SHORTCUT_RISE').toBe(0);
-    expect(nav.reduce((n, x) => n + x.fromDeepPit, 0), 'a jump Link from a 4 m pit\'s floor').toBe(0);
+    expect(nav.reduce((n, x) => n + x.fromDeepPit, 0), 'a jump Link from a 4 m pit\'s floor but onto its own steps').toBe(0);
     for (const k of ['tier', 'rim', 'dais'] as const) expect(nav.reduce((n, x) => n + x.landing[k], 0), `no shortcut jump Link onto a ${k}`).toBeGreaterThan(0);
 
     // Stage 7c: every kind of feature and wrap is exercised, in the share the Design asks for.
