@@ -112,6 +112,5 @@ export interface DelverPilotOptions {
  * reached within 1 m, `FIRE_REACH`), so a fire is always reached; the Stairs it walks to the zone's centre, 0.3 m.
  */
 export function createDelverPilot(tuning: TuningData, difficulty = 'Hard', options: DelverPilotOptions = {}): Controller {
-  const skill = aiDifficulty(tuning, difficulty);
-  return new DelverPilot(tuning, createAiController(tuning, options.walk ? { ...skill, jumpNav: -1 } : skill));
+  return new DelverPilot(tuning, createAiController(tuning, aiDifficulty(tuning, difficulty), undefined, { walk: options.walk === true }));
 }

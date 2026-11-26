@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_DISMEMBER, loadTuningData, motionFileName, parseMotion, parseTuningData, serializeMotion, TuningDataError } from './index';
+import { DEFAULT_DISMEMBER, loadTuningData, motionFileName, parseMotion, parseTuningData, serializeMotion, styleEntry, styleParts, TuningDataError } from './index';
 
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
@@ -238,10 +238,19 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, duckMaxPitch: 'low' } })).toThrow(/ai\.duckMaxPitch/);
   });
 
-  it('loads the AI Styles from data/ai.json: Balanced (the default, empty) first, then Aggressive, Counter, Tricky and Defensive', () => {
+  it('loads the AI Styles from data/ai.json: Balanced (the default, empty) first, then Aggressive, Counter, Tricky, Defensive, Chambermaster, Reckless, Showoff, Skirmisher and Pack Hunter', () => {
     const t = loadTuningData();
-    expect(Object.keys(t.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive']);
+    expect(Object.keys(t.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive', 'Chambermaster', 'Reckless', 'Showoff', 'Skirmisher', 'Pack Hunter']);
     expect(t.ai.styles.Balanced).toEqual({});
+  });
+
+  it('reads a Style entry in either form as { mul, min } (styleParts) and writes the short form back (styleEntry)', () => {
+    expect(styleParts(1.6)).toEqual({ mul: 1.6, min: 0 });
+    expect(styleParts({ mul: 3, min: 0.06 })).toEqual({ mul: 3, min: 0.06 });
+    expect(styleParts({ min: 0.5 })).toEqual({ mul: 1, min: 0.5 });
+    expect(styleEntry(1.6, 0)).toBe(1.6);
+    expect(styleEntry(3, 0.06)).toEqual({ mul: 3, min: 0.06 });
+    for (const e of [0, 2, { mul: 3, min: 0.06 }, { mul: 0, min: 1 }]) expect(styleEntry(styleParts(e).mul, styleParts(e).min)).toEqual(e);
   });
 
   it('rejects invalid AI Styles', () => {
@@ -254,7 +263,61 @@ describe('Tuning Data', () => {
     // A Style changes how it fights, never how well: no Reaction Time, mistake rate or jumpNav.
     for (const key of ['reactionTime', 'mistakeRate', 'jumpNav', 'nonsense']) expect(() => parseTuningData(withStyles({ Balanced: {}, Wary: { [key]: 1 } })), key).toThrow(/ai\.styles\.Wary/);
     expect(() => parseTuningData(withStyles({ Balanced: {}, random: {} }))).toThrow(/ai\.styles\.random/);
+    // An entry may be a multiplier with a minimum, { mul, min } or { min } alone; each form is kept as written.
+    const withMin = parseTuningData(withStyles({ Balanced: {}, Wary: { caution: 2, chamberRate: { mul: 3, min: 0.06 }, whirlwindRate: { min: 0.5 } } })).ai.styles.Wary;
+    expect(withMin).toEqual({ caution: 2, chamberRate: { mul: 3, min: 0.06 }, whirlwindRate: { min: 0.5 } });
+    expect(parseTuningData(withStyles({ Balanced: {}, Wary: { caution: { mul: 0, min: 1 } } })).ai.styles.Wary).toEqual({ caution: { mul: 0, min: 1 } });
+    const refused: [unknown, RegExp][] = [
+      [{ mul: 2, min: 1.1 }, /ai\.styles\.Wary\.caution\.min must be between 0 and 1/],
+      [{ mul: 2, min: -0.1 }, /ai\.styles\.Wary\.caution\.min must be between 0 and 1/],
+      [{ mul: -1, min: 0.1 }, /ai\.styles\.Wary\.caution\.mul must be a number >= 0/],
+      [{ mul: 2 }, /ai\.styles\.Wary\.caution: an object entry needs a min/],
+      [{}, /ai\.styles\.Wary\.caution: an object entry needs a min/],
+      [{ mul: 2, min: 0.1, max: 1 }, /ai\.styles\.Wary\.caution\.max: a Style entry is a multiplier or \{ mul, min \}/],
+      [{ min: '0.1' }, /ai\.styles\.Wary\.caution\.min/],
+      ['2', /ai\.styles\.Wary\.caution must be a multiplier \(a number\) or \{ mul, min \}/],
+      [null, /ai\.styles\.Wary\.caution must be a multiplier/],
+      [[2, 0.1], /ai\.styles\.Wary\.caution must be a multiplier/],
+    ];
+    for (const [entry, error] of refused) expect(() => parseTuningData(withStyles({ Balanced: {}, Wary: { caution: entry } })), JSON.stringify(entry)).toThrow(error);
+    // A minimum is still a Style entry: Balanced stays empty, and no minimum reaches a setting a Style may not name.
+    expect(() => parseTuningData(withStyles({ Balanced: { caution: { min: 0.1 } } }))).toThrow(/ai\.styles\.Balanced/);
+    expect(() => parseTuningData(withStyles({ Balanced: {}, Wary: { jumpNav: { min: 10 } } }))).toThrow(/ai\.styles\.Wary\.jumpNav: a Style scales only/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, styles: undefined } })).toThrow(/ai\.styles/);
+  });
+
+  it('loads the Quirks from data/ai.json: Dumb (defendRate 0), Hopper (its jump chances, and jumpNav at least 10) and Slow (walk 0.7, Wind-up 1.35)', () => {
+    const { quirks } = loadTuningData().ai;
+    expect(Object.keys(quirks)).toEqual(['Dumb', 'Hopper', 'Slow']);
+    expect(quirks.Slow).toEqual({ body: { walkSpeed: 0.7, windUp: 1.35 } });
+    expect(quirks.Dumb).toEqual({ ai: { defendRate: 0 } });
+    expect(quirks.Hopper).toEqual({ ai: { jumpAttackRate: { mul: 4, min: 0.002 }, jumpStep: { mul: 3, min: 0.3 }, jumpEscapeRate: { mul: 2, min: 0.1 }, landingPunish: { mul: 1.5, min: 0.2 }, jumpNav: { min: 10 } } });
+  });
+
+  it('parses ai.quirks: an ai part (any difficulty extra, defendRate and jumpNav; a number sets, { mul?, min } adjusts) and a body part (Mods), and refuses the rest', () => {
+    const good = goodRaw();
+    const withQuirks = (quirks: unknown) => ({ ...good, ai: { ...good.ai, quirks } });
+    expect(parseTuningData(good).ai.quirks).toEqual({});
+    const q = parseTuningData(withQuirks({ Clumsy: { ai: { defendRate: 0.5, chamberRate: { min: 0.1 }, caution: { mul: 2, min: 0 }, jumpNav: 4 } }, Heavy: { body: { damage: 1.2, maxHp: 0.5 } }, Plain: {} })).ai.quirks;
+    expect(q).toEqual({ Clumsy: { ai: { defendRate: 0.5, chamberRate: { min: 0.1 }, caution: { mul: 2, min: 0 }, jumpNav: 4 } }, Heavy: { body: { damage: 1.2, maxHp: 0.5 } }, Plain: {} });
+    expect(parseTuningData(withQuirks({ Up: { ai: { jumpNav: { min: 10 } } } })).ai.quirks.Up).toEqual({ ai: { jumpNav: { min: 10 } } });
+    const refused: [unknown, RegExp][] = [
+      [{ ai: { reactionTime: 0.1 } }, /ai\.quirks\.Q\.ai\.reactionTime: a Quirk changes only .*defendRate, jumpNav/],
+      [{ ai: { mistakeRate: 0 } }, /ai\.quirks\.Q\.ai\.mistakeRate: a Quirk changes only/],
+      [{ ai: { feintRate: 0 } }, /ai\.quirks\.Q\.ai\.feintRate: a Quirk changes only/],
+      [{ ai: { defendRate: 1.5 } }, /ai\.quirks\.Q\.ai\.defendRate must be between 0 and 1/],
+      [{ ai: { caution: { mul: 2 } } }, /ai\.quirks\.Q\.ai\.caution: an object entry needs a min/],
+      [{ ai: { caution: { min: 2 } } }, /ai\.quirks\.Q\.ai\.caution\.min must be between 0 and 1/],
+      [{ ai: { jumpNav: -2 } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number of Ticks, -1 or more/],
+      [{ ai: { jumpNav: 2.5 } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number/],
+      [{ ai: { jumpNav: { mul: 2, min: 10 } } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number of Ticks or \{ min \}/],
+      [{ ai: { jumpNav: { min: -1 } } }, /ai\.quirks\.Q\.ai\.jumpNav\.min must be a whole number of Ticks, 0 or more/],
+      [{ ai: { jumpNav: { min: 1.5 } } }, /ai\.quirks\.Q\.ai\.jumpNav\.min/],
+      [{ body: { luck: 2 } }, /ai\.quirks\.Q\.body: unknown effect "luck"/],
+      [{ mind: {} }, /ai\.quirks\.Q\.mind: a Quirk has only an ai part and a body part/],
+    ];
+    for (const [entry, error] of refused) expect(() => parseTuningData(withQuirks({ Q: entry })), JSON.stringify(entry)).toThrow(error);
+    expect(() => parseTuningData(withQuirks({ random: {} }))).toThrow(/ai\.quirks\.random/);
   });
 
   it('loads the Gait (stride threshold, step duration, step height, hip bob, hip sway) from data/gait.json', () => {

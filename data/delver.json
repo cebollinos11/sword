@@ -26,12 +26,12 @@
       { "difficulty": "Skilled", "hp": 50 },
       { "difficulty": "Expert", "hp": 60 }
     ] },
-    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "minTier": 2, "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
-      { "difficulty": "Beginner", "hp": 60 },
+    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "minTier": 2, "style": "Reckless", "mods": { "damage": 0.6 }, "variants": [
+      { "difficulty": "Beginner", "hp": 60, "quirks": ["Dumb"] },
       { "difficulty": "Skilled", "hp": 75 },
       { "difficulty": "Expert", "hp": 90 }
     ] },
-    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "style": "Tricky", "mods": { "damage": 0.45 }, "variants": [
+    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "style": "Skirmisher", "mods": { "damage": 0.45 }, "variants": [
       { "difficulty": "Beginner", "hp": 30 },
       { "difficulty": "Skilled", "hp": 36 },
       { "difficulty": "Expert", "hp": 42, "relics": ["Honed Daggers"] }
@@ -57,27 +57,27 @@
       { "difficulty": "Skilled", "hp": 60 },
       { "difficulty": "Expert", "hp": 70, "relics": ["Berserker Mask"] }
     ] },
-    { "name": "Lorekeeper", "body": "librarian", "weapon": "Quarterstaff", "style": "Counter", "variants": [
+    { "name": "Lorekeeper", "body": "librarian", "weapon": "Quarterstaff", "style": "Chambermaster", "variants": [
       { "difficulty": "Beginner", "hp": 35 },
       { "difficulty": "Skilled", "hp": 45 },
       { "difficulty": "Expert", "hp": 55 }
     ] },
     { "name": "Squire", "body": "prince", "weapon": "Arming Sword", "style": "Defensive", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
-      { "difficulty": "Skilled", "hp": 55 },
-      { "difficulty": "Expert", "hp": 65, "relics": ["Iron Plate"] }
+      { "difficulty": "Skilled", "hp": 55, "quirks": ["Hopper"] },
+      { "difficulty": "Expert", "hp": 65, "quirks": ["Hopper"], "relics": ["Iron Plate"] }
     ] },
-    { "name": "Revenant", "body": "wraith", "weapon": "Longsword", "style": "Aggressive", "variants": [
+    { "name": "Revenant", "body": "wraith", "weapon": "Longsword", "style": "Pack Hunter", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
       { "difficulty": "Skilled", "hp": 55 },
       { "difficulty": "Expert", "hp": 70 },
       { "name": "Wraith Lord", "boss": true, "mods": {}, "difficulty": "Expert", "style": "Aggressive", "hp": 300, "relics": ["Heavy Gauntlet"] }
     ] },
-    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "minTier": 2, "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
+    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "minTier": 2, "style": "Reckless", "quirks": ["Slow"], "mods": { "damage": 0.6 }, "variants": [
       { "difficulty": "Beginner", "hp": 80 },
       { "difficulty": "Skilled", "hp": 95 },
       { "difficulty": "Expert", "hp": 110 },
-      { "name": "Warden", "boss": true, "mods": {}, "difficulty": "Skilled", "style": "Aggressive", "hp": 250 }
+      { "name": "Warden", "boss": true, "mods": {}, "difficulty": "Skilled", "style": "Aggressive", "quirks": [], "hp": 250 }
     ] }
   ],
   "warbands": [

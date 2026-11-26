@@ -36,6 +36,8 @@ import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
 import { mirrorDirection, type Direction } from './intent';
 import type { Action, AttackAction, FighterState } from './state';
+import { windUpOf } from './mods';
+import { windUpTuning } from './tempo';
 
 /** The Chamber window (Tuning Data `chamber.windowSeconds`, seconds) in Ticks. */
 export const chamberWindowTicks = (tuning: TuningData): number => secondsToTicks(tuning.chamber.windowSeconds);
@@ -50,7 +52,7 @@ function startedAttack(prev: Action, next: Action): boolean {
 function chamberable(f: FighterState, tuning: TuningData): boolean {
   const a = f.action;
   if (a.kind !== 'Attack' || a.phase !== 'Release' || a.landed) return false;
-  const sinceRelease = f.motion.tick - attackTimings(tuning, f.weapon, a.direction).windUpEnd;
+  const sinceRelease = f.motion.tick - attackTimings(windUpTuning(tuning, windUpOf(f)), f.weapon, a.direction).windUpEnd;
   return sinceRelease >= 1 && sinceRelease <= chamberWindowTicks(tuning);
 }
 

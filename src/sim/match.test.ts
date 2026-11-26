@@ -9,9 +9,11 @@ import {
   restore,
   snapshot,
   stepMatch,
+  type DuelTroop,
   type Intent,
   type MatchState,
 } from './index';
+import { NO_MODS, storedMods, type Mods } from './mods';
 
 const repoTuning = loadTuningData();
 /** One clean Overhead hit decides a Duel. */
@@ -254,5 +256,93 @@ describe('A Random Map: a new Arena every Match, the same one every Duel', () =>
     expect(third.arena).toBe('gen:greybox:763946');
     // The same Match, stepped again, rematches onto the same Arena.
     expect(hashValue(stepUntil(decide(start), (m) => m.matchNumber === 2))).toBe(hashValue(second));
+  });
+});
+
+describe('Match: a Delver Troop in a Duel (docs/plans/enemy-behaviours.md, Stage 0)', () => {
+  // As stored (`storedMods`): the pace Mods at 1 left out.
+  const mods = storedMods({ ...NO_MODS, damage: 0.6, heavyDamage: 1.3 });
+  const troop: DuelTroop = { body: 'uruk', maxHp: 80, mods };
+  const base = { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 } as const;
+
+  it("gives a Troop's Fighter its HP, max HP and Mods at every Duel's start, and keeps the Troop in the config", () => {
+    let m = createMatch(tuning, { ...base, troops: [null, troop] });
+    expect(m.config.troops).toEqual([null, troop]);
+    expect(m.duel.fighters.map((f) => [f.hp, f.maxHp])).toEqual([[100, 100], [80, 80]]);
+    expect(m.duel.fighters[1]!.mods).toEqual(mods);
+    expect(m.duel.fighters[0]!.mods).toBeUndefined();
+    m = winDuel(m, 0);
+    expect(m.duelNumber).toBe(2);
+    expect(m.duel.fighters.map((f) => [f.hp, f.maxHp])).toEqual([[100, 100], [80, 80]]);
+    expect(m.duel.fighters[1]!.mods).toEqual(mods);
+  });
+
+  it('drops Mods that change nothing, and a snapshot of a Troop Match restores to the same hash', () => {
+    const m = createMatch(tuning, { ...base, troops: [{ body: 'monk', maxHp: 55, mods: NO_MODS }] });
+    expect(m.config.troops).toEqual([{ body: 'monk', maxHp: 55 }, null]);
+    expect(m.duel.fighters[0]!.mods).toBeUndefined();
+    expect(hashValue(restore(snapshot(m)))).toBe(hashValue(m));
+  });
+
+  it('without a Troop has exactly the config, state and hash it had: no `troops` key, whatever the options say', () => {
+    const plain = createMatch(tuning, base);
+    expect('troops' in plain.config).toBe(false);
+    for (const troops of [[], [null, null], [undefined, null]]) {
+      const m = createMatch(tuning, { ...base, troops });
+      expect('troops' in m.config).toBe(false);
+      expect(m).toEqual(plain);
+      expect(hashValue(m)).toBe(hashValue(plain));
+      expect(hashValue(winDuel(m, 1))).toBe(hashValue(winDuel(plain, 1)));
+    }
+  });
+
+  it('refuses a Troop outside Duels, and a bad entry', () => {
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Gauntlet', arena: 'gen:greybox:1', teams: [0], troops: [troop] })).toThrow(/Only Duels field a Delver Troop/);
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Battle', troops: [troop] })).toThrow(/Only Duels field a Delver Troop/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, null, troop] })).toThrow(/troops names 3 Fighters/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, maxHp: 0 }] })).toThrow(/HP must be positive/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, body: '' }] })).toThrow(/needs a Body/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, mods: { damage: 2 } as unknown as Mods }] })).toThrow(/must name every Mod/);
+  });
+});
+
+describe("Match: a Fighter's own Mods in a Duel (a plain AI Seat's Slow Quirk; docs/plans/enemy-behaviours.md, Stage 5)", () => {
+  const slow = storedMods({ ...NO_MODS, walkSpeed: 0.7, windUp: 1.35 });
+  const base = { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 } as const;
+
+  it('lays them on its Fighter at every Duel\'s start, at full HP, and keeps them in the config', () => {
+    let m = createMatch(tuning, { ...base, fighterMods: [null, slow] });
+    expect(m.config.fighterMods).toEqual([null, slow]);
+    expect(m.duel.fighters[1]!.mods).toEqual(slow);
+    expect(m.duel.fighters[0]!.mods).toBeUndefined();
+    expect(m.duel.fighters.map((f) => f.hp)).toEqual([100, 100]);
+    m = winDuel(m, 0);
+    expect(m.duelNumber).toBe(2);
+    expect(m.duel.fighters[1]!.mods).toEqual(slow);
+    expect(hashValue(restore(snapshot(m)))).toBe(hashValue(m));
+    // A maxHp share raises max HP, at full HP.
+    const hale = createMatch(tuning, { ...base, fighterMods: [storedMods({ ...NO_MODS, maxHp: 0.5 })] });
+    expect([hale.duel.fighters[0]!.hp, hale.duel.fighters[0]!.maxHp]).toEqual([150, 150]);
+  });
+
+  it('without any has exactly the config, state and hash it had: no `fighterMods` key, whatever the options say', () => {
+    const plain = createMatch(tuning, base);
+    expect('fighterMods' in plain.config).toBe(false);
+    for (const fighterMods of [[], [null, null], [undefined, NO_MODS], [storedMods(NO_MODS)]]) {
+      const m = createMatch(tuning, { ...base, fighterMods });
+      expect('fighterMods' in m.config).toBe(false);
+      expect(m).toEqual(plain);
+      expect(hashValue(m)).toBe(hashValue(plain));
+      expect(hashValue(winDuel(m, 1))).toBe(hashValue(winDuel(plain, 1)));
+    }
+  });
+
+  it('refuses them outside Duels, on a Fighter with a Troop, and a bad entry', () => {
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Gauntlet', arena: 'gen:greybox:1', teams: [0], fighterMods: [slow] })).toThrow(/Only Duels give a Fighter its own Mods/);
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Battle', fighterMods: [slow] })).toThrow(/Only Duels give a Fighter its own Mods/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { body: 'uruk', maxHp: 80 }], fighterMods: [null, slow] })).toThrow(/has a Troop/);
+    expect(() => createMatch(tuning, { ...base, fighterMods: [null, null, slow] })).toThrow(/fighterMods names 3 Fighters/);
+    expect(() => createMatch(tuning, { ...base, fighterMods: [null, { ...slow, windUp: -1 }] })).toThrow(/windUp must be above 0/);
+    expect(() => createMatch(tuning, { ...base, fighterMods: [null, { windUp: 1.35 } as unknown as Mods] })).toThrow(/must name every Mod/);
   });
 });

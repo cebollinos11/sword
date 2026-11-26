@@ -67,6 +67,12 @@ export interface WeaponTempo {
   readonly windUp: number;
   readonly release: number;
   readonly recovery: number;
+  /**
+   * A Fighter's `windUp` Mod (the Slow Quirk's) on top of `windUp`: its Wind-up lasts this many times its Ticks, rounded to whole Ticks, and its
+   * Release and Recovery are played as ever, just later (`windUpShift`, `src/sim/tempo.ts`). Never in Tuning Data: set only on a Fighter's own
+   * copy (`windUpTuning`), so it is absent everywhere else.
+   */
+  readonly fighterWindUp?: number;
 }
 
 /**

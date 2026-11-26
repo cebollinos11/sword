@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseRelicEffects, parseRelics, RELIC_EFFECTS, tuningDataHash } from './index';
+import { loadTuningData, PACE_MODS, parseRelicEffects, parseRelics, RELIC_EFFECTS, tuningDataHash } from './index';
 
 const tuning = loadTuningData();
 const raw = () => JSON.parse(JSON.stringify(tuning.relics)) as Record<string, unknown>[];
 const relic = (effects: Record<string, unknown>, more: Record<string, unknown> = {}) => [{ name: 'Test', icon: 'test', effects, ...more }];
 
 describe('Relic Tuning Data (data/relics.json)', () => {
-  it('loads the repo file: 10 to 15 Relics, each with an icon and effects, and every effect of the vocabulary used', () => {
+  it('loads the repo file: 10 to 15 Relics, each with an icon and effects, and every effect of the vocabulary used but the pace Mods (no Relic changes a walk or a Wind-up yet)', () => {
     expect(tuning.relics.length).toBeGreaterThanOrEqual(10);
     expect(tuning.relics.length).toBeLessThanOrEqual(15);
     for (const r of tuning.relics) {
@@ -14,16 +14,18 @@ describe('Relic Tuning Data (data/relics.json)', () => {
       expect(Object.keys(r.effects).length).toBeGreaterThan(0);
     }
     const used = new Set(tuning.relics.flatMap((r) => Object.keys(r.effects)));
-    expect([...used].sort()).toEqual([...RELIC_EFFECTS].sort());
+    expect([...used].sort()).toEqual(RELIC_EFFECTS.filter((e) => !(PACE_MODS as readonly string[]).includes(e)).sort());
   });
 
   it('accepts its own output', () => {
     expect(parseRelics(raw())).toEqual(tuning.relics);
   });
 
-  it('refuses an unknown effect, and any Motion, Tempo or speed effect', () => {
+  it('refuses an unknown effect, and any Motion, Tempo or speed effect but the pace Mods (walkSpeed, windUp), which it accepts as factors above 0', () => {
     expect(() => parseRelics(relic({ luck: 2 }))).toThrow(/unknown effect "luck"/);
-    for (const effect of ['walkSpeed', 'speed', 'tempo', 'motion', 'attackSpeed']) expect(() => parseRelics(relic({ [effect]: 1.2 }))).toThrow(/unknown effect/);
+    for (const effect of ['speed', 'tempo', 'motion', 'attackSpeed', 'release', 'recovery']) expect(() => parseRelics(relic({ [effect]: 1.2 }))).toThrow(/unknown effect/);
+    expect(parseRelics(relic({ walkSpeed: 1.2, windUp: 0.9 }))[0]!.effects).toEqual({ walkSpeed: 1.2, windUp: 0.9 });
+    for (const effect of ['walkSpeed', 'windUp']) for (const v of [0, -1]) expect(() => parseRelics(relic({ [effect]: v }))).toThrow(new RegExp(`effects\\.${effect}`));
   });
 
   it('refuses a duplicate name, an empty name or icon, and no effects', () => {

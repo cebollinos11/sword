@@ -317,6 +317,14 @@ describe('AI Whirlwind: answering it', () => {
     expect(events(blind.run, 'Hit').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
   });
 
+  it('Dumb (defendRate 0, Stage 4 of docs/plans/enemy-behaviours.md) answers no Whirlwind: the same Spin Hits it, read or not', () => {
+    const start = atSpin({ x: 0, z: 3.4 }, 'Left');
+    const dumb = playOn(start, reads({ defendRate: 0 }), 90);
+    expect(events(dumb.run, 'Block').some((e) => e.whirlwind && e.defender === 0)).toBe(false);
+    expect(events(dumb.run, 'Hit').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
+    expect([...dumb.intents.values()].some((i) => i.block)).toBe(false);
+  });
+
   it('seeing a hold in reach where its Attack lands before arming, it attacks and the hold is broken', () => {
     const { run } = play(repo, reads(), [{ x: 0, z: 1.2, team: 1 }], 150, undefined, [], [...heldG('Left'), ...wait(200)]);
     const hit = events(run, 'Hit').find((e) => e.attacker === 0 && e.defender === 1);
@@ -398,5 +406,35 @@ describe('AI Whirlwind: answering it', () => {
     // One Wind-up roll per spinner per seed, however often the nearer of the two changes.
     const windUps = [...rolls.keys()].filter((k) => k.includes(':Wind-up:'));
     expect(new Set(windUps.map((k) => k.split(':').slice(0, 2).join(':'))).size).toBe(windUps.length);
+  });
+});
+
+describe('AI Whirlwind: a Showoff (whirlwindAlone) at a lone enemy', () => {
+  const one = [{ x: 0, z: 1.1, team: 1 }];
+  const showoff = (extra: Partial<AiDifficulty> = {}) => calm({ whirlwindAlone: 1, footwork: 0, pressure: 0, caution: 0, teamwork: 0, ...extra });
+
+  it('the Showoff Style gives every tier a Whirlwind, at a lone enemy too', () => {
+    for (const tier of ['Beginner', 'Skilled', 'Expert']) {
+      const s = skillOf(repo, aiDifficulty(repo, tier), aiStyle(repo, 'Showoff'));
+      expect(s.whirlwindRate, tier).toBeGreaterThanOrEqual(0.03);
+      expect(s.whirlwindAlone, tier).toBe(0.5);
+    }
+    expect(skillOf(repo, aiDifficulty(repo, 'Expert')).whirlwindAlone).toBe(0);
+  });
+
+  it('against one standing enemy in reach it starts, where the same AI without it does not', () => {
+    expect(begins(play(repo, showoff(), one, 150).intents)).toBe(true);
+    expect(begins(play(repo, showoff({ whirlwindAlone: 0 }), one, 150).intents)).toBe(false);
+  });
+
+  it('never toward a drop: a lone enemy toward the Abyss stops it, the same one on safe ground does not', () => {
+    expect(begins(play(onLedge, showoff(), one, 150, 'whirlLedge').intents)).toBe(false);
+    expect(begins(play(onLedge, showoff(), [{ x: 0, z: -1.1, team: 1 }], 150, 'whirlLedge').intents)).toBe(true);
+  });
+
+  it('never through a teammate: one on the drive path, or within its reach + 1, stops it', () => {
+    expect(begins(play(repo, showoff(), [...one, { x: 0, z: 3, team: 0 }], 150).intents)).toBe(false);
+    expect(begins(play(repo, showoff(), [...one, { x: 1.2, z: 0.3, team: 0 }], 150).intents)).toBe(false);
+    expect(begins(play(repo, showoff(), [...one, { x: 0, z: -4, team: 0 }], 150).intents)).toBe(true);
   });
 });

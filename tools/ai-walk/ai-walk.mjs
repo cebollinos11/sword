@@ -1,5 +1,5 @@
 /**
- * The AI check of generated Delver Floors: `npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--piece spiral] [--notes] [--json]`.
+ * The AI check of generated Delver Floors: `npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--quirks Hopper] [--piece spiral] [--notes] [--json]`.
  * `--piece cross|uphill|spiral|room` deals each Floor with every Hall rolled for that set piece (docs/plans/delver.md, Stage 7f; `room`, Stage 7g: every bundled drawn room), as the Map Editor's Set piece choice does.
  * For each (seed, Floor) it probes the Fighters' navmesh and walks one AI Fighter through the real Simulation to every Hall centre and marker,
  * printing what got stuck, fell, was slow or had no route, with a Map Editor link (on `npm run dev`) that opens the Floor and walks it again.
@@ -23,7 +23,7 @@ const seeds = list(value('--seeds') ?? '1-10');
 const floors = list(value('--floors') ?? '1-9');
 const piece = value('--piece');
 if ([...seeds, ...floors].some((n) => !Number.isInteger(n) || n < 0) || (piece !== undefined && !['cross', 'uphill', 'spiral', 'room'].includes(piece))) {
-  console.error('usage: npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--piece cross|uphill|spiral|room] [--notes] [--json]');
+  console.error('usage: npm run ai-walk -- [--seeds 1-20] [--floors 1,5,9] [--drawn] [--walk-only] [--difficulty Hard] [--quirks Hopper] [--piece cross|uphill|spiral|room] [--notes] [--json]');
   process.exit(2);
 }
 
@@ -37,6 +37,7 @@ try {
     sheathed: !args.includes('--drawn'),
     walkOnly: args.includes('--walk-only'),
     difficulty: value('--difficulty'),
+    ...(value('--quirks') ? { quirks: value('--quirks').split(',') } : {}),
     notes: args.includes('--notes'),
     ...(piece ? { piece } : {}),
   });

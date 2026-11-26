@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, storedMods, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, runControllers, scriptedController, type Controller, type Lineup } from '../controllers';
-import { parseNetMessage, PROTOCOL_VERSION } from './messages';
+import { resolveTroop } from '../sim/delver';
+import { isPoolAiMemory, isQuirkList, MAX_QUIRKS, parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
 
@@ -693,7 +694,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
 
   it('accepts a Fighter with Mods, and one without', () => {
     const state = matchState();
-    const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: { ...NO_MODS, damage: 1.1, daggers: 1 } } : f)) } };
+    const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: storedMods({ ...NO_MODS, damage: 1.1, daggers: 1 }) } : f)) } };
     expect(parseNetMessage(resync(armed))).not.toBeNull();
     expect(parseNetMessage(resync(state))).not.toBeNull();
   });
@@ -714,8 +715,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
       expect(parseNetMessage(resync(stock(bad), ai)), JSON.stringify(bad)).toBeNull();
   });
 
-  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 37', () => {
-    expect(PROTOCOL_VERSION).toBe(37);
+  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 41', () => {
+    expect(PROTOCOL_VERSION).toBe(41);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -837,5 +838,112 @@ describe('Peer message validation: the AI memory of an answered Whirlwind (docs/
     for (const bad of bads) {
       expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlReads: bad }])), JSON.stringify(bad)).toBeNull();
     }
+  });
+});
+
+describe('Peer message validation: Quirks (docs/plans/enemy-behaviours.md, Stage 4)', () => {
+  function memory(): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Skilled');
+    let m = createMatch(tuning, { bestOf: 1, teams: [0, 1], seed: 3 });
+    for (let t = 0; t < 40; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it("an AI memory may hold a None Defence plan and a kickRead (Dumb's rolls), and refuses a malformed kickRead", () => {
+    const good = memory();
+    expect('kickRead' in good).toBe(false);
+    const none = { attacker: 0, attackStart: 12, kind: 'None', direction: 'Left', pressAt: -1 };
+    for (const ok of [{ ...good, defencePlan: none }, { ...good, kickRead: { kicker: 0, defend: false } }, { ...good, kickRead: { kicker: 2, defend: true } }]) {
+      const m = resync(matchState(), [null, ok]);
+      expect(parseNetMessage(m)).toEqual(m);
+    }
+    for (const bad of [null, { kicker: 0 }, { kicker: -1, defend: true }, { kicker: 0, defend: 1 }, true])
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, kickRead: bad }])), JSON.stringify(bad)).toBeNull();
+    expect(parseNetMessage(resync(matchState(), [null, { ...good, defencePlan: { ...none, kind: 'Ignore' } }]))).toBeNull();
+  });
+
+  it("a hello's Lineup carries an AI's Quirks (1 to MAX_QUIRKS names, each once; Tuning Data judges them), and a Pool AI's memory may name them", () => {
+    const hello = (quirks: unknown) => ({
+      type: 'hello',
+      protocol: 1,
+      tuningHash: 'abcd1234',
+      match: { bestOf: 3, seed: 4 },
+      lineup: [{ team: 0, pilot: { kind: 'Player', player: 0 } }, { team: 1, pilot: { kind: 'AI', difficulty: 'Expert', quirks }, weapon: 'Halberd' }],
+      weapons: ['Halberd'],
+      player: 0,
+    });
+    for (const q of [['Dumb'], ['Dumb', 'Hopper'], ['Anything']]) expect(parseNetMessage(hello(q))).toEqual(hello(q));
+    for (const q of [[], 'Dumb', ['Dumb', 'Dumb'], [''], [3], Array.from({ length: MAX_QUIRKS + 1 }, (_, k) => `Q${k}`), ['x'.repeat(33)]]) expect(parseNetMessage(hello(q)), JSON.stringify(q)).toBeNull();
+    expect(isQuirkList(['Dumb'])).toBe(true);
+    const pool = { bound: { index: 3, since: 10, role: 'Attack' }, difficulty: 'Beginner', style: 'Aggressive', memory: memory() };
+    expect(isPoolAiMemory(pool)).toBe(true);
+    expect(isPoolAiMemory({ ...pool, quirks: ['Dumb', 'Hopper'] })).toBe(true);
+    for (const quirks of [[], ['Dumb', 'Dumb'], 'Dumb', null]) expect(isPoolAiMemory({ ...pool, quirks }), JSON.stringify(quirks)).toBe(false);
+    expect(isPoolAiMemory({ ...pool, extra: 1 })).toBe(false);
+  });
+});
+
+describe('Peer message validation: a Delver Troop in a Duel (docs/plans/enemy-behaviours.md, Stage 0)', () => {
+  const uruk = { prefab: 'Uruk', variant: 'Uruk (Beginner)' };
+  const withTroop = (troop: unknown) => ({
+    type: 'hello',
+    protocol: 1,
+    tuningHash: 'abcd1234',
+    match: { bestOf: 3, seed: 4 },
+    lineup: [
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 1, pilot: { kind: 'AI', difficulty: 'Expert' }, weapon: 'Halberd', troop },
+    ],
+    weapons: ['Halberd'],
+    player: 0,
+  });
+
+  it("a hello's Lineup carries an AI's Troop ref: a Prefab and a Variant name and an optional whole tier (Tuning Data judges the names)", () => {
+    for (const troop of [uruk, { ...uruk, tier: 1 }, { prefab: 'Goblin', variant: 'Anything' }]) expect(parseNetMessage(withTroop(troop))).toEqual(withTroop(troop));
+    for (const troop of [null, 'Uruk', { prefab: 'Uruk' }, { ...uruk, variant: '' }, { ...uruk, tier: 0 }, { ...uruk, tier: 1.5 }, { ...uruk, tier: 10 }, { ...uruk, quirks: [] }, { ...uruk, prefab: 'x'.repeat(65) }])
+      expect(parseNetMessage(withTroop(troop)), JSON.stringify(troop)).toBeNull();
+  });
+
+  it("a resync carries a Duel's Troops (one entry per Fighter, null for none), and refuses a malformed one", () => {
+    const troop = resolveTroop(tuning, uruk);
+    const state = (troops: unknown) => {
+      const m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3, troops: [null, { body: troop.body, maxHp: troop.maxHp, mods: troop.mods }] });
+      const plain = JSON.parse(JSON.stringify(m)) as MatchState;
+      return { ...plain, config: { ...plain.config, troops } };
+    };
+    const good = state([null, { body: 'uruk', maxHp: troop.maxHp, mods: storedMods(troop.mods) }]);
+    expect(parseNetMessage(resync(good))).toEqual(resync(good));
+    for (const bad of [[null], [null, null], [null, { body: 'uruk', maxHp: 0 }], [null, { body: '', maxHp: 80 }], [null, { body: 'uruk', maxHp: 80, mods: { damage: 1 } }], [null, { body: 'uruk', maxHp: 80, hp: 3 }]])
+      expect(parseNetMessage(resync(state(bad))), JSON.stringify(bad)).toBeNull();
+    // Only a Duel fields one.
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, format: 'Gauntlet' } }))).toBeNull();
+  });
+});
+
+describe('Peer message validation: the pace Mods and a Duel Fighter\'s own Mods (docs/plans/enemy-behaviours.md, Stage 5)', () => {
+  const slow = storedMods({ ...NO_MODS, walkSpeed: 0.7, windUp: 1.35 });
+  const slowMatch = () => JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3, fighterMods: [null, slow] }))) as MatchState;
+  const withFighterMods = (m: MatchState, mods: unknown) => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 1 ? { ...f, mods } : f)) } });
+
+  it("a resync carries a Slow Fighter's Mods (each pace Mod only when not 1) and config.fighterMods, and refuses a malformed one", () => {
+    const good = slowMatch();
+    expect(good.config.fighterMods).toEqual([null, slow]);
+    expect(parseNetMessage(resync(good))).toEqual(resync(good));
+    // A pace Mod may be left out (1); written as 1, at 0 or below, or not a number, it is refused. An unknown key is refused.
+    const { walkSpeed: _w, ...noWalk } = slow;
+    expect(parseNetMessage(resync(withFighterMods(good, noWalk)))).not.toBeNull();
+    for (const bad of [{ ...slow, walkSpeed: 1 }, { ...slow, windUp: 0 }, { ...slow, windUp: -1 }, { ...slow, walkSpeed: '0.7' }, { ...slow, haste: 2 }, { ...NO_MODS }])
+      expect(parseNetMessage(resync(withFighterMods(good, bad))), JSON.stringify(bad)).toBeNull();
+    for (const bad of [[slow], [null, null], [null, { ...slow, windUp: 1 }], [null, { damage: 1 }], 'slow'])
+      expect(parseNetMessage(resync({ ...good, config: { ...good.config, fighterMods: bad } })), JSON.stringify(bad)).toBeNull();
+    // Only a Duel, and never on a Fighter with a Troop (its Troop carries its Mods).
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, format: 'Gauntlet' } }))).toBeNull();
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, troops: [null, { body: 'uruk', maxHp: 80 }] } }))).toBeNull();
+  });
+
+  it('a resync of a Match without Mods anywhere has no fighterMods key, as before', () => {
+    const plain = JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 }))) as MatchState;
+    expect('fighterMods' in plain.config).toBe(false);
+    expect(parseNetMessage(resync(plain))).toEqual(resync(plain));
   });
 });

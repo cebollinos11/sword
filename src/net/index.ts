@@ -23,7 +23,7 @@ export {
   type SessionStatus,
   type TickResult,
 } from './session';
-export { isFormatOnMap, isLobbyFormatOnMap, isRandomMapName, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
+export { isFormatOnMap, isLobbyFormatOnMap, isQuirkList, isRandomMapName, isTroopRef, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 export { MainThreadLag, mainThreadLag } from './mainThreadLag';
 export { createPeerTransport, type DataConnectionLike } from './peerTransport';
 export { hostRoom, joinRoom, RoomError, type HostedRoom, type PendingRoom } from './peerRoom';

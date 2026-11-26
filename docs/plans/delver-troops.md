@@ -30,16 +30,18 @@ Eleven Prefabs, one per Body. Each has a Beginner, a Skilled and an Expert Varia
 | Prefab | Body | Weapon | Style | HP (B/S/E) | Notes |
 |---|---|---|---|---|---|
 | Sellsword | female | Arming Sword | Balanced | 40/50/60 | |
-| Bruiser | brawler | Sledge Hammer | Aggressive | 60/75/90 | damage ×0.6 |
-| Cutthroat | snake | Dagger | Tricky | 30/36/42 | damage ×0.45; Expert has Honed Daggers |
+| Bruiser | brawler | Sledge Hammer | Reckless | 60/75/90 | damage ×0.6; Beginner is Dumb |
+| Cutthroat | snake | Dagger | Skirmisher | 30/36/42 | damage ×0.45; Expert has Honed Daggers |
 | Acolyte | monk | Quarterstaff | Defensive | 45/55/65 | Expert has Buckler Rim |
 | Fencer | duelist | Longsword | Counter | 40/50/60 | **Duelist** (Boss, 250 HP, Expert) |
 | Halberdier | asturian | Halberd | Balanced | 50/60/70 | engage reach 2.2 |
 | Flagellant | templar | Flail | Aggressive | 50/60/70 | Expert has Berserker Mask |
-| Lorekeeper | librarian | Quarterstaff | Counter | 35/45/55 | |
-| Squire | prince | Arming Sword | Defensive | 45/55/65 | Expert has Iron Plate |
-| Revenant | wraith | Longsword | Aggressive | 45/55/70 | **Wraith Lord** (Boss, 300 HP, Expert, Heavy Gauntlet) |
-| Uruk | uruk | Sledge Hammer | Aggressive | 80/95/110 | damage ×0.6; **Warden** (Boss, 250 HP, Skilled) |
+| Lorekeeper | librarian | Quarterstaff | Chambermaster | 35/45/55 | |
+| Squire | prince | Arming Sword | Defensive | 45/55/65 | Skilled and Expert are Hoppers; Expert has Iron Plate |
+| Revenant | wraith | Longsword | Pack Hunter | 45/55/70 | **Wraith Lord** (Boss, 300 HP, Expert Aggressive, Heavy Gauntlet) |
+| Uruk | uruk | Sledge Hammer | Reckless | 80/95/110 | damage ×0.6; Slow; **Warden** (Boss, 250 HP, Skilled Aggressive, not Slow) |
+
+The Styles and Quirks (Dumb, Slow, Hopper) are the roster pass of docs/plans/enemy-behaviours.md (Stage 6, 2026-11-26); the Bosses keep their own Style and no Quirks.
 
 Every Weapon is used: Arming Sword, Dagger, Flail, Halberd, Longsword, Quarterstaff and Sledge Hammer. A Variant's Mods default to its Prefab's, and then to the generic soldier's half damage (`battle.soldier.mods`). The Bosses wear none, as before. The old templates were mapped to skills: Levy to Beginner, Halberdier to Skilled, Swordsman and Brute to Expert.
 

@@ -6,7 +6,7 @@ import { createCrowd, floorRingSpots, ringSpots, stepCrowd, walkDistance, walkFi
 import { arenaTuning, deployWarbands, floorArenaName, floorOf, warbandHomes } from './delver';
 import { battleMapOf, clearanceAt, fieldDistance, fieldToward, inSight, oneField } from './destinations';
 import { stepBubbles, unboundSlot, type BossHold } from './bubble';
-import { foldMods } from './mods';
+import { foldMods, storedMods } from './mods';
 import { BOSS, ELITE } from './warband';
 import { warbandBrain } from './warband';
 import { hashValue } from './hash';
@@ -292,7 +292,7 @@ describe('the Bubble with elites and a Boss', { timeout: TIMEOUT }, () => {
     expect(troop.name).toMatch(/\(elite\)$/);
     const own = foldMods([{ effects: troop.mods }, ...troop.relics!.filter((r) => r !== 'Whetstone').map((name) => ({ effects: s.t.relics.find((x) => x.name === name)!.effects }))]);
     expect(got.f.mods!.damage).toBeCloseTo((own.damage ?? 1) * 1.1);
-    expect(got.f.mods).toEqual(foldMods([{ effects: troop.mods }, ...troop.relics!.map((name) => ({ effects: s.t.relics.find((x) => x.name === name)!.effects }))]));
+    expect(got.f.mods).toEqual(storedMods(foldMods([{ effects: troop.mods }, ...troop.relics!.map((name) => ({ effects: s.t.relics.find((x) => x.name === name)!.effects }))])));
   });
 
   it('gives a promoted Boss no half-damage Mod, and a guard of its Warband its Variant\'s', () => {

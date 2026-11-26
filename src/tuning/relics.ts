@@ -1,17 +1,23 @@
 /**
  * The Relics as Tuning Data (data/relics.json, hashed): each a name, an icon id and effects from a fixed vocabulary the
- * Simulation implements (`foldMods`, `src/sim/mods.ts`), so a new Relic is data, not code (docs/plans/dungeon.md). No
- * effect changes a Motion, a Tempo or how fast a Fighter walks: how a Fighter moves stays readable, and the AI's
- * Reaction Time stays fair.
+ * Simulation implements (`foldMods`, `src/sim/mods.ts`), so a new Relic is data, not code (docs/plans/dungeon.md). Two
+ * effects change how a Fighter moves, and only by a plain factor anyone can see: `walkSpeed` (its ground walk) and `windUp`
+ * (its Attack Wind-up's length), the Slow Quirk's (docs/plans/enemy-behaviours.md, Stage 5). No Relic uses them yet. No
+ * effect changes a Motion's shape, a Release or a Recovery, so the AI's Reaction Time stays fair.
  */
 import { array, nonEmptyString, record, TuningDataError } from './validate';
 
 /** Effects that multiply a number (written as the factor: 1.1 is +10%, 0.9 is -10%; above 0). */
-export const RELIC_MULTIPLIERS = ['damage', 'heavyDamage', 'damageTaken', 'blockImpactTaken', 'daggerDamage', 'kickDamage'] as const;
+export const RELIC_MULTIPLIERS = ['damage', 'heavyDamage', 'damageTaken', 'blockImpactTaken', 'daggerDamage', 'kickDamage', 'walkSpeed', 'windUp'] as const;
 /** Effects that add to a number. */
 export const RELIC_ADDITIONS = ['maxHp', 'daggers', 'healOnKill', 'healOnClear'] as const;
-/** The multipliers that are good below 1 (a share of the damage taken): scaling them pulls the factor further below 1. Every other multiplier is good above 1. */
-export const RELIC_GOOD_LOW = ['damageTaken', 'blockImpactTaken'] as const;
+/** The multipliers that are good below 1 (a share of the damage taken, a shorter Wind-up): scaling them pulls the factor further below 1. Every other multiplier is good above 1. */
+export const RELIC_GOOD_LOW = ['damageTaken', 'blockImpactTaken', 'windUp'] as const;
+/**
+ * The pace Mods: the multipliers that change how a Fighter moves (its ground walk, its Attack Wind-up). A Fighter's stored Mods
+ * (`StoredMods`, `src/sim/mods.ts`) leave each out while it is 1, so every Mods record made before they existed stores and hashes as it did.
+ */
+export const PACE_MODS = ['walkSpeed', 'windUp'] as const;
 /** The additions that are whole counts (rounded after scaling); the other additions are shares. */
 export const RELIC_COUNTS = ['daggers', 'healOnKill'] as const;
 /** The whole vocabulary. */
@@ -53,7 +59,7 @@ export function parseRelicEffects(raw: unknown, where: string): RelicEffects {
   const e = record(raw, where);
   const effects: Partial<Record<RelicEffect, number>> = {};
   for (const key of Object.keys(e)) {
-    if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')}; none changes a Motion, Tempo or walk speed)`);
+    if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')})`);
     effects[key as RelicEffect] = effectValue(key as RelicEffect, e[key], where);
   }
   return effects;

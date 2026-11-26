@@ -10,7 +10,7 @@
 import { guardKey, weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData, type WeaponTempo } from '../tuning';
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
-import { authoredSeconds, motionTempo } from './tempo';
+import { authoredSeconds, motionTempo, unshiftedTick } from './tempo';
 import { arcLerp, lerp, vec3, type Vec3 } from './vec';
 
 /** Every channel resolved: the targets IK solves the Skeleton to reach. */
@@ -121,7 +121,7 @@ function sampleChannel<C extends keyof PoseTargets>(
 
 /** Authored seconds into the Motion at a Tick of playback (played at `tempo`, if any): looping Motions wrap, others hold their end. */
 export function motionTime(motion: Motion, tick: number, tempo?: WeaponTempo): number {
-  const t = tick / TICK_RATE;
+  const t = (tempo ? unshiftedTick(motion, tempo, tick) : tick) / TICK_RATE;
   if (motion.loop) return t % motion.duration;
   return Math.min(tempo ? authoredSeconds(motion, tempo, t) : t, motion.duration);
 }

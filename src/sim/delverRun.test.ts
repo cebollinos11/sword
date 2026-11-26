@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
+import { storedMods } from './mods';
 import { floorNear } from './levels';
 import { LAVA_KEEP } from './delver/plan';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -618,7 +619,7 @@ describe('a Player equipping another Weapon mid-Floor', { timeout: 60_000 }, () 
     const after = states.at(-1)!.duel.fighters[0]!;
     expect(after.weapon).toBe('Arming Sword');
     expect(after.mods).toMatchObject({ daggers: 0, daggerDamage: 1, blockImpactTaken: 0.85 });
-    expect(after.mods).toEqual(inventoryMods(tuning, after.inventory!));
+    expect(after.mods).toEqual(storedMods(inventoryMods(tuning, after.inventory!)));
     for (const back of [0, EQUIP_AT - 1, EQUIP_AT]) {
       let r = restore(snapshot(states[back]!));
       for (let k = back; k < states.length - 1; k++) r = stepMatch(r, intents[k]!, tuning);

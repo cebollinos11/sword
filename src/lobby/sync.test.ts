@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon } from '../tuning';
-import { IDLE_INTENT, TICK_RATE } from '../sim';
+import { createMatch, hashValue, IDLE_INTENT, storedMods, TICK_RATE } from '../sim';
+import { lineupMatch } from '../controllers';
+import { resolveTroop } from '../sim/delver';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions, type RollbackSession } from '../net';
 import { lobbyLineup, setSeat, updateSettings } from './lobby';
 import { GuestLobby, HostLobby, LOBBY_TIMEOUT_MS } from './sync';
@@ -126,6 +128,68 @@ describe('Lobby sync', () => {
     r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Sneaky' }));
     r.run(500);
     expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Tricky' });
+  });
+
+  it("an AI Seat's Troop reaches the guest; a broken host's unknown Troop is ignored", () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    const at = { team: 1, index: 1 };
+    const troop = { prefab: 'Uruk', variant: 'Uruk (Beginner)', tier: 3 };
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, troop }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, troop });
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, troop: { prefab: 'Uruk', variant: 'Goblin' } }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, troop });
+  });
+
+  it("an AI Seat's Quirks reach the guest; a broken host's unknown Quirk is ignored", () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    const at = { team: 1, index: 1 };
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Clumsy'] }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
+  });
+
+  it('an online Lobby with a Troop Seat starts the same Match on both peers', () => {
+    const r = room({ latencyMs: 30, jitterMs: 10 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    r.host.edit((s) => setSeat(s, { team: 1, index: 1 }, { kind: 'AI', difficulty: 'Skilled', weapon: first, troop: { prefab: 'Revenant', variant: 'Wraith Lord' } }));
+    g.setMine({ ready: true });
+    r.run(1000);
+    expect(r.host.start(true)).toBeNull();
+    let sessions: [RollbackSession, RollbackSession] | null = null;
+    r.run(1500, () => {
+      if (!sessions && r.host.state.playing && g.state!.playing) {
+        const { lineup } = lobbyLineup(r.host.state);
+        const gen = r.host.state.generation;
+        sessions = [
+          createRollbackSession({ role: 'host', transport: r.host.matchTransport(gen, 1)!, tuning, weapon: first, lineup, match: { bestOf: 3, arena: 'circle', seed: 5 } }),
+          createRollbackSession({ role: 'guest', transport: g.matchTransport(gen, 0)!, tuning, weapon: second }),
+        ];
+      }
+      sessions?.forEach((s) => s.tick(IDLE_INTENT));
+    });
+    const [h, gs] = sessions!;
+    expect(h.status).toBe('Running');
+    expect(gs.status).toBe('Running');
+    const wraith = resolveTroop(tuning, { prefab: 'Revenant', variant: 'Wraith Lord' });
+    // Both peers resolved the Troop from the same Lineup: the same config, and the same Duel start.
+    expect(gs.state!.config).toEqual(h.state!.config);
+    expect(h.state!.config.troops).toEqual([null, null, { body: 'wraith', maxHp: wraith.maxHp, mods: storedMods(wraith.mods) }]);
+    const start = (s: RollbackSession) => createMatch(tuning, lineupMatch(tuning, s.lineup!, [first, second], { bestOf: 3, arena: 'circle', seed: 5 }));
+    expect(hashValue(start(gs))).toBe(hashValue(start(h)));
+    expect(gs.state!.duel.fighters[2]).toMatchObject({ weapon: 'Longsword', maxHp: wraith.maxHp, size: wraith.size, mods: storedMods(wraith.mods) });
   });
 
   it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {

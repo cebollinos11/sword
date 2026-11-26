@@ -43,6 +43,5 @@ class TraitorPilot implements Controller {
 
 /** A traitor pilot at `difficulty` (default Hard); with `walk`, its routes take no jump Link (as `createDelverPilot`'s, for an Input Delay). */
 export function createTraitorPilot(tuning: TuningData, difficulty = 'Hard', options: { readonly walk?: boolean } = {}): Controller {
-  const skill = aiDifficulty(tuning, difficulty);
-  return new TraitorPilot(createAiController(tuning, options.walk ? { ...skill, jumpNav: -1 } : skill));
+  return new TraitorPilot(createAiController(tuning, aiDifficulty(tuning, difficulty), undefined, { walk: options.walk === true }));
 }

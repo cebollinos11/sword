@@ -1,9 +1,10 @@
-import { defaultWeaponName, sizedTuning, weaponByName, type TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { applyBlockImpact, applyGuard, offHandFree, whirlwindLastTick, whirlwindLowMotion } from './actions';
 import { footPitch, footPose, hipShift, toLocal } from './gait';
 import { lerpTargets, motionBlendTicks, motionTargets, playbackTargets, type PoseTargets } from './motion';
 import { kickLegOf, NO_GAIT, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState, MotionPlayback } from './state';
+import { fighterTuning } from './mods';
 
 /** What a Fighter records of its solved Skeleton each Tick: the blade and the kicking leg, whose last-Tick values bound the next Tick's sweeps. */
 export const bladeAndLeg = (pose: SkeletonPose): Pick<FighterState, 'blade' | 'kickLeg'> => ({ blade: pose.blade, kickLeg: kickLegOf(pose) });
@@ -113,7 +114,7 @@ function aimAzimuth(f: FighterState, targets: PoseTargets): number {
 }
 
 function solveFighter(f: FighterState, standard: TuningData): SkeletonPose {
-  const tuning = sizedTuning(standard, f.size);
+  const tuning = fighterTuning(standard, f);
   const moving = applyLook(applyCrouch(playedTargets(f, tuning), f.crouch, tuning), f.pitch, tuning);
   // A Knockdown holding a guard holds its hands as that Block does, on top of the lying body.
   const guard = f.action.kind === 'Knockdown' ? f.action.guard : null;

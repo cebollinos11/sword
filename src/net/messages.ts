@@ -1,10 +1,10 @@
 import { ATTACK_PHASES, WHIRLWIND_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
 import { runFloorArena } from '../sim/delver/world';
-import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
+import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, PACE_MODS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 37;
+export const PROTOCOL_VERSION = 41;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -231,11 +231,35 @@ export function isLobbyFormatOnMap(format: unknown, arena: unknown): boolean {
 /** A Format and Map a session plays (a Battle too). */
 const isSessionFormatOnMap = (format: unknown, arena: unknown): boolean => isFormatOnMap(format, arena, SESSION_FORMATS);
 
-/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
+/** The longest name a Troop ref may carry on the wire (a Prefab's or a Variant's). */
+const MAX_TROOP_NAME = 64;
+/** The highest Floor tier a Troop ref may name on the wire (Tuning Data's `delver.tiers` says which exist). */
+const MAX_TROOP_TIER = 9;
+/** The most Quirks an AI Seat, a Lineup slot or a Pool AI's memory names. */
+export const MAX_QUIRKS = 8;
+
+/**
+ * A list of Quirk names (`ai.quirks`, docs/plans/enemy-behaviours.md, Stage 4): 1 to MAX_QUIRKS short strings, each once (an empty list is
+ * written by leaving the field out). Whether each exists is Tuning Data's to say, as for a Style.
+ */
+export function isQuirkList(v: unknown): boolean {
+  return Array.isArray(v) && v.length >= 1 && v.length <= MAX_QUIRKS && v.every((q) => typeof q === 'string' && q.length > 0 && q.length <= 32) && new Set(v).size === v.length;
+}
+
+/**
+ * A Delver Troop ref (`TroopRef`, docs/plans/enemy-behaviours.md, Stage 0): exactly a Prefab's and a Variant's name and an optional whole Floor
+ * tier, 1 to MAX_TROOP_TIER. Whether they exist is Tuning Data's to say (`resolveTroop`, in `checkLineup`). Shared with the Lobby's Seat check.
+ */
+export function isTroopRef(v: unknown): boolean {
+  const name = (x: unknown) => isString(x) && x.length > 0 && x.length <= MAX_TROOP_NAME;
+  return isObject(v) && Object.keys(v).every((k) => k === 'prefab' || k === 'variant' || k === 'tier') && name(v.prefab) && name(v.variant) && (v.tier === undefined || (isInt(v.tier) && v.tier >= 1 && v.tier <= MAX_TROOP_TIER));
+}
+
+/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style and Quirks), an optional AI Weapon, Size and Troop. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
-  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size))) return false;
+  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size)) || (v.troop !== undefined && !isTroopRef(v.troop))) return false;
   const p = v.pilot;
-  return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)));
+  return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)) && (p.quirks === undefined || isQuirkList(p.quirks)));
 }
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
@@ -398,8 +422,14 @@ const SOLDIER_ROLES: ReadonlySet<unknown> = new Set<SoldierRole>(['Attack', 'All
 /** A Fighter Pool slot's Soldier: its index in the Crowd (checked against the Crowd by `isBattle`), its Promotion Tick and its role. */
 const isSoldierBinding = (v: unknown): boolean => isObject(v) && isInt(v.index) && v.index >= 0 && isTick(v.since) && SOLDIER_ROLES.has(v.role);
 
-/** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
-const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
+/**
+ * A Fighter's Mods, as stored (`StoredMods`): every key of the Relic vocabulary, a finite number (a factor or a count above zero where it
+ * must be, so max HP and damage stay real numbers), except that a pace Mod (`walkSpeed`, `windUp`) is there only when it is not 1, and above 0.
+ */
+const isMods = (v: unknown): boolean =>
+  isObject(v) &&
+  Object.keys(v).every((key) => (MODS_KEYS as readonly string[]).includes(key)) &&
+  MODS_KEYS.every((key) => ((PACE_MODS as readonly string[]).includes(key) ? v[key] === undefined || (isNum(v[key]) && v[key] > 0 && v[key] !== 1) : isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0)));
 
 /** An Item: a name and one of the Rarities. Whether the name exists is for Tuning Data to say. */
 const isItem = (v: unknown): boolean => isObject(v) && isString(v.name) && (RARITIES as readonly unknown[]).includes(v.rarity);
@@ -698,6 +728,18 @@ const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) 
 const isPlayers = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 
+/** One Fighter's entry of a Duel's `config.troops`: null, or a Body, a positive max HP and optional Mods (as a Fighter's). */
+const isDuelTroop = (v: unknown): boolean =>
+  v === null || (isObject(v) && Object.keys(v).every((k) => k === 'body' || k === 'maxHp' || k === 'mods') && isString(v.body) && v.body.length > 0 && v.body.length <= MAX_TROOP_NAME && isNum(v.maxHp) && v.maxHp > 0 && (v.mods === undefined || isMods(v.mods)));
+
+/** A Duel's `config.fighterMods`: one entry per Fighter, each null or Mods (as a Fighter's), some not null, and null for every Fighter with a Troop. */
+const isFighterMods = (v: unknown, config: Record<string, unknown>): boolean =>
+  config.format === 'Duels' &&
+  isArrayOf(v, (m) => m === null || isMods(m)) &&
+  (v as unknown[]).length === (config.teams as unknown[]).length &&
+  (v as unknown[]).some((m) => m !== null) &&
+  (v as unknown[]).every((m, i) => m === null || !(config.troops as unknown[] | undefined)?.[i]);
+
 function isMatchState(v: unknown): v is MatchState {
   if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
   const { config, status } = v;
@@ -712,6 +754,10 @@ function isMatchState(v: unknown): v is MatchState {
     (config.rematchTicks === null || (isInt(config.rematchTicks) && config.rematchTicks >= 1)) &&
     isWeapons(config.weapons) &&
     (config.sizes === undefined || (isArrayOf(config.sizes, isSize) && (config.sizes as unknown[]).length === (config.teams as unknown[]).length)) &&
+    // A Duel's Troops (docs/plans/enemy-behaviours.md, Stage 0): one entry per Fighter, absent when none has one.
+    (config.troops === undefined || (config.format === 'Duels' && isArrayOf(config.troops, isDuelTroop) && (config.troops as unknown[]).length === (config.teams as unknown[]).length && (config.troops as unknown[]).some((t) => t !== null))) &&
+    // A Duel's own Mods for a Fighter without a Troop (Stage 5: a plain AI Seat's Quirks): one entry per Fighter, absent when none has any.
+    (config.fighterMods === undefined || isFighterMods(config.fighterMods, config)) &&
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isInt(v.matchNumber) &&
     v.matchNumber >= 1 &&
@@ -846,7 +892,8 @@ function isSighting(v: unknown): boolean {
     isNum(v.facing) &&
     (v.airStart === null || isTick(v.airStart)) &&
     isBool(v.sheathed) &&
-    (v.size === undefined || isSize(v.size))
+    (v.size === undefined || isSize(v.size)) &&
+    (v.windUp === undefined || (isNum(v.windUp) && v.windUp > 0 && v.windUp !== 1))
   );
 }
 
@@ -886,12 +933,12 @@ export function isAiMemory(v: unknown): boolean {
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
-  const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until);
+  const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until) && (v.tactic.kite === undefined || v.tactic.kite === true);
   const st = v.strafe;
   const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop);
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
-  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread));
+  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread) && (v.focus.gang === undefined || v.focus.gang === true));
   const turn = (v.turn === null || isBool(v.turn)) && isInt(v.lineHold);
   const b = v.beat;
   const beat = b === null || (isObject(b) && isBool(b.timed) && isNum(b.need) && isNum(b.done) && isBool(b.double) && isBool(b.wild));
@@ -900,14 +947,17 @@ export function isAiMemory(v: unknown): boolean {
   const w = v.whirlReads;
   const whirlRead = (e: unknown) => isObject(e) && isTick(e.fighter) && (e.phase === 'Wind-up' || e.phase === 'Spin') && isInt(e.since) && isBool(e.read);
   const whirlReads = w === undefined || (isArrayOf(w, whirlRead) && new Set((w as { fighter: number }[]).map((e) => e.fighter)).size === (w as unknown[]).length);
-  return seen && defence && whirlReads && feint && attack && throwPlan && isNum(v.aimError) && jumpRun && failedJumps && landing && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
+  const k = v.kickRead;
+  const kickRead = k === undefined || (isObject(k) && isTick(k.kicker) && isBool(k.defend));
+  return seen && defence && whirlReads && kickRead && feint && attack && throwPlan && isNum(v.aimError) && jumpRun && failedJumps && landing && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
 }
 
 /**
  * A Pool AI's memory (a Battle's Fighter Pool slot, `src/controllers/poolAi.ts`) while its slot is bound: the binding its AI plays for and
- * that AI's memory, and the AI difficulty and Style it plays (its Troop's; the Style is '' for the Battle's own). Null while its slot is unbound.
+ * that AI's memory, and the AI difficulty, Style and Quirks it plays (its Troop's; the Style is '' for the Battle's own; `quirks` absent for
+ * none). Null while its slot is unbound.
  */
 export function isPoolAiMemory(v: unknown): boolean {
-  return isObject(v) && Object.keys(v).length === 4 && isSoldierBinding(v.bound) && typeof v.difficulty === 'string' && v.difficulty.length > 0 && v.difficulty.length <= 32 && typeof v.style === 'string' && v.style.length <= 32 && isAiMemory(v.memory);
+  return isObject(v) && Object.keys(v).length === (v.quirks === undefined ? 4 : 5) && (v.quirks === undefined || isQuirkList(v.quirks)) && isSoldierBinding(v.bound) && typeof v.difficulty === 'string' && v.difficulty.length > 0 && v.difficulty.length <= 32 && typeof v.style === 'string' && v.style.length <= 32 && isAiMemory(v.memory);
 }
 const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isPoolAiMemory(v));

@@ -229,3 +229,41 @@ describe('A Battle in the Lobby', () => {
     expect(parseLobbyMessage({ ...m, state: { ...s, settings: { ...s.settings, arena: 'circle', format: 'Gauntlet' } } })).toBeNull();
   });
 });
+
+describe("Lobby: an AI Seat's Delver Troop (docs/plans/enemy-behaviours.md, Stage 0)", () => {
+  const at = { team: 1, index: 0 };
+  const troop = { prefab: 'Uruk', variant: 'Uruk (Beginner)', tier: 1 };
+  const seat = { kind: 'AI' as const, difficulty: 'Skilled', weapon: other, style: 'Counter', troop };
+
+  it('goes into the Duel Lineup with the Seat (which keeps its own settings for later), and a lobby message carries it', () => {
+    const s = setSeat(newLobby(options(false)), at, seat);
+    expect(lobbyLineup(s).lineup[1]).toEqual({ team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', style: 'Counter' }, weapon: other, troop });
+    expect(() => checkLineup(tuning, lobbyLineup(s).lineup, 1)).not.toThrow();
+    const m = { type: 'lobby', you: 0, ack: 0, state: s };
+    expect(parseLobbyMessage(m)).toEqual(m);
+    for (const bad of [{ prefab: 'Uruk' }, { ...troop, tier: 'two' }, 'Uruk'])
+      expect(parseLobbyMessage({ ...m, state: setSeat(s, at, { ...seat, troop: bad as unknown as typeof troop }) }), JSON.stringify(bad)).toBeNull();
+  });
+
+  it("a Seat's Quirks (Stage 4) go into its Pilot in every Lineup it fields, and a lobby message carries them", () => {
+    const quirky = { kind: 'AI' as const, difficulty: 'Skilled', weapon: other, quirks: ['Dumb'] };
+    const s = setSeat(newLobby(options(false)), at, quirky);
+    expect(lobbyLineup(s).lineup[1]).toEqual({ team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', quirks: ['Dumb'] }, weapon: other });
+    expect(() => checkLineup(tuning, lobbyLineup(s).lineup, 1)).not.toThrow();
+    const m = { type: 'lobby', you: 0, ack: 0, state: s };
+    expect(parseLobbyMessage(m)).toEqual(m);
+    for (const bad of [[], ['Dumb', 'Dumb'], 'Dumb', [7]]) expect(parseLobbyMessage({ ...m, state: setSeat(s, at, { ...quirky, quirks: bad as string[] }) }), JSON.stringify(bad)).toBeNull();
+    expect(lobbyLineup(newLobby(options(false))).lineup[1]!.pilot).not.toHaveProperty('quirks');
+  });
+
+  it('a Seat without a Troop gives the Lineup it always did', () => {
+    expect(lobbyLineup(newLobby(options(false))).lineup[1]).not.toHaveProperty('troop');
+  });
+
+  it('a Gauntlet ignores it: its AI Seats are the party allies', () => {
+    const s = setFormat(setSeat({ ...newLobby(options(false)), teams: newLobby(options(false)).teams.map((row, t) => (t === 0 ? row.map((x, i) => (i === 1 ? seat : x)) : row)) }, at, seat), 'Gauntlet', 'gen:greybox:3');
+    const { lineup } = lobbyLineup(s);
+    expect(lineup.some((slot) => slot.troop)).toBe(false);
+    expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).not.toThrow();
+  });
+});

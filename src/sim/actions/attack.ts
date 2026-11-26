@@ -8,7 +8,7 @@ import { attackDirection, spinUpChargeTicks, UNIT_TEMPO, weaponByName, weaponMot
 import { secondsToTicks } from '../constants';
 import type { Direction, Intent } from '../intent';
 import { motionBlendTicks } from '../motion';
-import { motionTempo, playedSeconds } from '../tempo';
+import { motionTempo, playedSeconds, windUpShift } from '../tempo';
 import type { Action, AttackAction, AttackPhase, FighterState } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionContext, ActionHandler, ActionUpdate } from './types';
@@ -39,7 +39,9 @@ export function attackTimings(tuning: TuningData, weapon: string, direction: Dir
     throw new Error(`Attack Motion "${name}" needs windUpEnd and releaseEnd markers`);
   }
   const tempo = motionTempo(tuning, weapon, name) ?? UNIT_TEMPO;
-  const played = (authored: number) => secondsToTicks(playedSeconds(motion, tempo, authored));
+  // A Fighter's `windUp` Mod lengthens the Wind-up by whole Ticks and moves the rest along (`windUpShift`).
+  const shift = windUpShift(motion, tempo);
+  const played = (authored: number) => secondsToTicks(playedSeconds(motion, tempo, authored)) + shift;
   return { windUpEnd: played(windUpEnd), releaseEnd: played(releaseEnd), end: played(motion.duration) };
 }
 
@@ -55,6 +57,14 @@ function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: Acti
  */
 export const attackDirectionOf = (f: FighterState, direction: Direction, tuning: TuningData): Direction =>
   attackDirection(weaponByName(tuning, f.weapon), direction);
+
+/** The Ticks a Fighter's `windUp` Mod adds to its Attack's Wind-up in `direction` (`windUpShift`), by its own Tuning Data (`fighterTuning`); 0 without the Mod. */
+export function attackWindUpShift(tuning: TuningData, weapon: string, direction: Direction): number {
+  const name = attackMotionName(direction);
+  const motion = weaponMotion(tuning, weapon, name);
+  const tempo = motionTempo(tuning, weapon, name);
+  return motion && tempo ? windUpShift(motion, tempo) : 0;
+}
 
 /** The Spin-up's charge after one more Wind-up Tick of `f`'s Attack at `charge`: one more, up to its Weapon's full charge. */
 export const windUpCharge = (f: FighterState, charge: number, tuning: TuningData): number =>
@@ -84,7 +94,8 @@ export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
     case 'Wind-up': {
       // Wind-up always plays to its held pose; it then holds (playhead frozen) while attack is held.
       // A held Wind-up looks and swings exactly like a short one; only a Weapon with a Spin-up gains by it (its charge).
-      const spun = a.charge === undefined ? a : { ...a, charge: windUpCharge(f, a.charge, ctx.tuning) };
+      // The Ticks a `windUp` Mod adds to the Wind-up (its first ones) build no charge, so a Slow Flail let go at once swings as hard as anyone's.
+      const spun = a.charge === undefined || tick < attackWindUpShift(ctx.tuning, f.weapon, a.direction) ? a : { ...a, charge: windUpCharge(f, a.charge, ctx.tuning) };
       if (tick < t.windUpEnd) return enter(spun, 'Wind-up', tick + 1, ctx);
       if (intent.attack) return enter(spun, 'Wind-up', tick, ctx);
       // The Tick that lets go is Release's first: the charge Released with is the last Wind-up Tick's.

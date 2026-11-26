@@ -186,6 +186,11 @@ export interface DelverVariant {
   readonly style: string;
   /** The Relics (0 to MAX_ENEMY_RELICS names) its promoted Fighter wears; an elite Soldier of it wears its template's set on top. */
   readonly relics: readonly string[];
+  /**
+   * Its Quirks (names from `ai.quirks`, docs/plans/enemy-behaviours.md, Stage 4): its own list, which replaces its Prefab's, or its Prefab's.
+   * Absent when the list is empty, so a Variant without Quirks parses as before.
+   */
+  readonly quirks?: readonly string[];
   /** A promoted Soldier's Mods, as a Relic's multipliers (default `battle.soldier.mods`). */
   readonly mods: RelicEffects;
   /** Its Crowd stats (default the Crowd's own): a blow's damage, its chance and the engage reach. */
@@ -229,11 +234,13 @@ export interface DelverTier {
   readonly boss?: DelverBoss;
 }
 
-/** The names the Prefabs, a Boss and an elite are checked against (the Weapon roster, `ai.difficulties`, `ai.styles` and the Relics). */
+/** The names the Prefabs, a Boss and an elite are checked against (the Weapon roster, `ai.difficulties`, `ai.styles`, `ai.quirks` and the Relics). */
 export interface DelverNames {
   readonly weapons: readonly string[];
   readonly difficulties: readonly string[];
   readonly styles: readonly string[];
+  /** `ai.quirks`' names (absent: none). */
+  readonly quirks?: readonly string[];
   readonly relics: readonly string[];
 }
 
@@ -404,6 +411,16 @@ function relicList(raw: unknown, where: string, relicNames: readonly string[], m
   });
 }
 
+/** A list of Quirk names (`ai.quirks`), each once. */
+function quirkList(raw: unknown, where: string, quirkNames: readonly string[]): string[] {
+  const list = array(raw, where);
+  return list.map((name, k) => {
+    if (typeof name !== 'string' || !quirkNames.includes(name)) fail(`${where}[${k}]`, `one of the Quirks (${quirkNames.join(', ') || 'none defined'})`, name);
+    if (list.indexOf(name) !== k) fail(`${where}[${k}]`, 'a Quirk not already in the list', name);
+    return name;
+  });
+}
+
 interface PoolOptions {
   /** An elite pool: each template names its Relics, and the pool may be empty. */
   readonly elite?: boolean;
@@ -525,6 +542,7 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
       engageReach: p.engageReach === undefined ? battle.crowd.engageReach : positive(p, 'engageReach', where),
       mods: p.mods === undefined ? battle.soldier.mods : soldierMods(p.mods, `${where}.mods`),
       style: oneOf(p, 'style', where, names.styles, 'one of the AI Styles', DEFAULT_STYLE),
+      quirks: p.quirks === undefined ? [] : quirkList(p.quirks, `${where}.quirks`, names.quirks ?? []),
     };
     const variantList = array(p.variants, `${where}.variants`);
     if (variantList.length === 0) fail(`${where}.variants`, 'a non-empty array', p.variants);
@@ -538,12 +556,14 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
       const vname = v.name === undefined ? `${name} (${difficulty})` : text(v, 'name', w);
       if (variantNames.has(vname)) fail(`${w}.name`, 'a name no other Variant has', vname);
       variantNames.add(vname);
+      const quirks = v.quirks === undefined ? base.quirks : quirkList(v.quirks, `${w}.quirks`, names.quirks ?? []);
       return {
         name: vname,
         hp: positive(v, 'hp', w),
         difficulty,
         style: oneOf(v, 'style', w, names.styles, 'one of the AI Styles', base.style),
         relics: v.relics === undefined ? [] : relicList(v.relics, `${w}.relics`, names.relics, 0),
+        ...(quirks.length > 0 ? { quirks } : {}),
         mods: v.mods === undefined ? base.mods : soldierMods(v.mods, `${w}.mods`),
         damage: v.damage === undefined ? base.damage : pair(v.damage, `${w}.damage`),
         hitChance: v.hitChance === undefined ? base.hitChance : share(v, 'hitChance', w),

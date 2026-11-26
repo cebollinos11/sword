@@ -1,7 +1,7 @@
 /**
  * Tuning panels for the Duel sandbox: Weapons (pick one from the roster; every field,
  * the Off-hand Grip included, and the Attack Directions and Spin-up of a Weapon that has them), Hit Zone
- * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire, and each Style's multipliers) and the
+ * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire, and each Style's multipliers and minimums) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
  * Block (the facing rule and the Block Impact's give and bounce) and Fall (gravity, the Jump, Landing damage, steps) and Camera (where the
  * third-person and orbit cameras sit; seen in a Player vs AI run, applied without a re-run).
@@ -12,7 +12,7 @@
  */
 import type { FolderApi, Pane } from 'tweakpane';
 import { DIRECTIONS } from '../sim';
-import { AI_DIFFICULTY_EXTRAS, AI_STYLE_KEYS, GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
+import { AI_DIFFICULTY_EXTRAS, AI_STYLE_KEYS, GAIT_FIELDS, HIT_ZONES, styleEntry, styleParts, WEAPON_GRIPS, WEAPON_LOOKS, type AiStyleEntry } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
 
@@ -157,13 +157,25 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
       }
       if (d.jumpNav !== undefined) g.addBinding(d, 'jumpNav', { min: -1, max: 30, step: 1, label: 'jump nav (Ticks held)' }).on('change', () => apply('ai'));
     }
-    // Each Style's multipliers on a preset's chances (the default Style has none).
+    // Each Style's entries on a preset's chances (the default Style has none): a multiplier and a minimum (`min`) for each key it
+    // names. They edit a `{ mul, min }` proxy, written back in the short form (`styleEntry`): a number while `min` is 0, else
+    // `{ mul, min }`, so Save keeps a plain multiplier a number.
     const styles = f.addFolder({ title: 'Styles', expanded: false });
     for (const [name, st] of Object.entries(ai.styles)) {
       const keys = AI_STYLE_KEYS.filter((k) => st[k] !== undefined);
       if (keys.length === 0) continue;
       const g = styles.addFolder({ title: name, expanded: false });
-      for (const key of keys) g.addBinding(st, key, { min: 0, max: 3, step: 0.05, label: `${key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`)} ×` }).on('change', () => apply('ai'));
+      const entries = st as Record<string, AiStyleEntry>;
+      for (const key of keys) {
+        const parts = styleParts(entries[key]!);
+        const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
+        const write = () => {
+          entries[key] = styleEntry(parts.mul, parts.min);
+          apply('ai');
+        };
+        g.addBinding(parts, 'mul', { min: 0, max: 3, step: 0.05, label: `${label} ×` }).on('change', write);
+        g.addBinding(parts, 'min', { min: 0, max: 1, step: 0.005, label: `${label} min` }).on('change', write);
+      }
     }
   });
 
