@@ -43,6 +43,8 @@ export interface DrawnRoom {
   readonly brushes: readonly Brush[];
   /** Its highest floor (a doorway's or a Platform's or a Ramp's top) plus `HALL_STOREY`: the ceiling over the room's floor (m). */
   readonly top: number;
+  /** Offered as a Duel map too (`room:<name>`, `sim/roomArena.ts`), its doorways walled up. The Floor generator ignores it. */
+  readonly duel?: true;
 }
 
 /** A room's 8 frames: frame f is mirrored (x negated) when f >= 4, then turned a quarter counter-clockwise (seen from above) f % 4 times. */
@@ -179,6 +181,10 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
     if (kinds.length !== ks.length) fail(`${at}.kinds`, 'each kind once');
   }
 
+  // Offered as a Duel map: `true`, or left out.
+  if (o.duel !== undefined && o.duel !== true) fail(`${at}.duel`, `true, or left out, got ${JSON.stringify(o.duel)}`);
+  const duel = o.duel === true;
+
   // The Brushes, by the Map Source's own parser on a whole-metre grid; every height a whole metre (lava at -LAVA_DEPTH only).
   const level = (v: number, a: string): number => {
     if (!Number.isInteger(v) || v < -LAVA_DEPTH) fail(a, `a whole metre at or above ${-LAVA_DEPTH}, got ${v}`);
@@ -290,15 +296,15 @@ export function parseRoom(raw: unknown, halfSize: readonly [number, number], pas
   }
 
   // A Block stands from the floor to the room's ceiling, whatever `top` the file gives it.
-  return { name: name as string, half, doorways, centre, kinds, brushes: brushes.map((b) => (b.kind === 'block' ? { ...b, top } : b)), top };
+  return { name: name as string, half, doorways, centre, kinds, brushes: brushes.map((b) => (b.kind === 'block' ? { ...b, top } : b)), top, ...(duel ? { duel: true as const } : {}) };
 }
 
 const sameRect = (a: Rect, b: Rect): boolean => a.x0 === b.x0 && a.z0 === b.z0 && a.x1 === b.x1 && a.z1 === b.z1;
 
-/** A room as its file holds it (`parseRoom` reads it back): `kinds` left out when it is all four, `top` left out (it is derived). */
+/** A room as its file holds it (`parseRoom` reads it back): `kinds` left out when it is all four, `duel` when it is not one, `top` left out (it is derived). */
 export function serializeRoom(room: DrawnRoom): Record<string, unknown> {
   const all = room.kinds.length === ROOM_KINDS.length;
-  return { name: room.name, half: [...room.half], doorways: { ...room.doorways }, centre: [...room.centre], ...(all ? {} : { kinds: [...room.kinds] }), brushes: room.brushes };
+  return { name: room.name, half: [...room.half], doorways: { ...room.doorways }, centre: [...room.centre], ...(all ? {} : { kinds: [...room.kinds] }), ...(room.duel ? { duel: true } : {}), brushes: room.brushes };
 }
 
 /** Each raw room (`delver.drawnRooms`, the bundled files in file order) by `parseRoom`, each name once. */

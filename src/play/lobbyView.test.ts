@@ -21,6 +21,23 @@ describe('the Random Map entry', () => {
   });
 });
 
+describe('drawn rooms on the Map picker', () => {
+  it('offers each room flagged duel after the hand-made Arenas, named after the room, each one a Lobby may name', () => {
+    const rooms = pickableArenas(tuning).filter((a) => a.startsWith('room:'));
+    expect(rooms).toEqual(['room:bastion', 'room:brink', 'room:chasm', 'room:colonnade', 'room:colosseum', 'room:crucible']);
+    expect(pickableArenas(tuning).slice(-rooms.length)).toEqual(rooms);
+    for (const r of rooms) expect(isArenaName(tuning, r)).toBe(true);
+    expect(arenaLabel('room:crucible')).toBe('Crucible');
+  });
+
+  it('leaves out a room not flagged duel', () => {
+    const drawnRooms = tuning.delver.floor.drawnRooms.map((r) => (r.name === 'brink' ? { ...r, duel: undefined } : r));
+    const t = { ...tuning, delver: { ...tuning.delver, floor: { ...tuning.delver.floor, drawnRooms } } };
+    expect(pickableArenas(t)).not.toContain('room:brink');
+    expect(pickableArenas(t)).toContain('room:crucible');
+  });
+});
+
 describe('the Lobby view in Gauntlet', () => {
   const weapon = Object.keys(tuning.weapons)[0]!;
   const skirmish = (arena: string): LobbyState =>

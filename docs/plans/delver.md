@@ -3187,11 +3187,11 @@ Written 2026-11-24 on base commit `11a4378` (7f done). Battles, Duels and every 
 
 **Adding a room after 7g** (the checklist for the user, or for an agent asked to add one):
 1. `npm run dev`, open `/sword/#/mapeditor?dev=1`, then File → New dungeon room (or Open dungeon room).
-2. Draw it, set the doorways, the kinds and the centre.
+2. Draw it, set the doorways, the kinds and the centre. Tick **Duel map** (`"duel": true` in the file) to offer it as a Duel map too (see "Drawn rooms as Duel maps" below).
 3. Check room until it is clean.
 4. Save it to `data/delver/rooms/<name>.json`.
 5. Optionally, Try in a Floor with `&delverPiece=room&delverRoom=<name>&aiwalk=1`.
-6. `npx vitest run src/tuning/delverRooms.test.ts`, then commit the file.
+6. `npx vitest run src/tuning/delverRooms.test.ts`, then commit the file. For a Duel room, also `npx vitest run src/sim/roomArena.test.ts src/play/lobbyView.test.ts` (add its name to the lists there), and draw its map card on `/sword/#/thumbs/arenas/room-<name>` (dev server), then commit `public/thumbs/arenas/room-<name>.webp`.
 
 No other test, pin or version needs to change.
 
@@ -3539,3 +3539,6 @@ The user designed three rooms (a Lava Bridge, an Uphill Room, a Spiral Stair) in
 14. **Hand-made rooms**: recorded as Stage 7f, a change from 7e's "no hand-made templates".
 15. **Process**: the Design is written in this plan, and implemented in a new chat.
 16. **No re-baseline, a lean flow** (asked after the Design): 7d's Result is the baseline; only the tests a task touches run while working; the rate is tuned with a plan-only probe; the generator slow test runs once; the soak is one new set-piece case; the editor comes early, for checks by eye.
+
+### Drawn rooms as Duel maps (2026-11-26)
+A drawn room whose file says `"duel": true` is also a Duel map, the Arena `room:<name>` (`src/sim/roomArena.ts`), offered on the Skirmish and online map picker after the hand-made Arenas. It is built from its name and the room file alone, as a Random Map is, so every peer builds the same one with nothing sent and no new hashed state (the room files are already Tuning Data). The room stands as Check room places it in frame 0, closed: no doorway is cut and no stub Passage built, so every doorway, a raised one too, is wall (`roomDuelSource`, `src/mapEditor/room.ts`). Its source is compiled as a Battle map's is, then given every jump Link (as a hand-made Arena has) and 8 spawns: the two Teams at the ends of the room's long axis (through its centre marker), up to 6 m from the middle, facing each other, each spawn moved to the nearest flat, safe floor clear of Walls if its spot is not. A room with no such floor near a spawn throws, so `roomArena.test.ts` catches it. It is drawn as a Delver Floor is (`mapModel`, the crypt look), with sconces along its walls and its Blocks taken as pillars, and a glow over its largest lava pool. The Floor generator ignores the flag. All six rooms (bastion, brink, chasm, colonnade, colosseum, crucible) ship flagged.

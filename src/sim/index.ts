@@ -198,6 +198,7 @@ export { runPick, runSeed } from './dungeon';
 export { presentPlayers, runPlayers, stairsCounters, ZONE_HEIGHT } from './party';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, blockWalls, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
+export { duelRoomOf, duelRooms, isRoomArena, parseRoomArena, roomArenaName, roomArenaOf, type BuiltRoomArena } from './roomArena';
 export { CHASE, GUARD, PATROL, RETURN, stepWarbands, warbandBrain, type WarbandState } from './warband';
 export { ATTACK, brainTicks, closeRanks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, walkAnchors, type Spawned, type SquadState, type SquadStep } from './squad';
 export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, distanceTo, fieldDistance, fieldToward, FIELDS_KEPT, inSight, oneField, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';

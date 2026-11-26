@@ -7,6 +7,7 @@ import type { TuningData } from '../../tuning';
 import { generateArena, type GeneratedArena } from './generate';
 import type { Layout } from './grid';
 import { DEFAULT_GEN_PARAMS } from './layout';
+import { isRoomArena } from '../roomArena';
 
 const PREFIX = 'gen:';
 
@@ -38,8 +39,9 @@ export function nextArenaName(name: string): string {
   return parsed ? `${PREFIX}${parsed.kit}:${nextArenaSeed(parsed.seed)}` : name;
 }
 
-/** May a Lobby name this Arena: one Tuning Data holds, or a well-formed gen: name of a Kit it holds? Builds nothing. */
-export function isArenaName(tuning: Pick<TuningData, 'arenas' | 'kits'>, name: string): boolean {
+/** May a Lobby name this Arena: one Tuning Data holds, a Duel room's (`room:<room>`), or a well-formed gen: name of a Kit it holds? Builds nothing. */
+export function isArenaName(tuning: Pick<TuningData, 'arenas' | 'kits'> & Partial<Pick<TuningData, 'delver'>>, name: string): boolean {
+  if (tuning.delver && isRoomArena({ delver: tuning.delver }, name)) return true;
   if (!name.startsWith(PREFIX)) return Boolean(tuning.arenas[name]);
   try {
     return Boolean(tuning.kits[parseGeneratedName(name)!.kit]);

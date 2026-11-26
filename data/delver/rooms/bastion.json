@@ -4,6 +4,7 @@
   "doorways": {"n":2,"e":0,"s":0,"w":0},
   "centre": [0,-4],
   "kinds": ["Fight","Empty","Stairs"],
+  "duel": true,
   "brushes": [
     {"kind":"platform","id":"terrace","rect":{"x0":-12,"z0":4,"x1":12,"z1":12},"top":2,"material":"brick"},
     {"kind":"platform","id":"keep","rect":{"x0":-6,"z0":8,"x1":6,"z1":12},"top":4,"material":"brick"},

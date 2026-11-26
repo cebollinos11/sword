@@ -75,6 +75,7 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
     rd: 0,
     centre: '',
     report: '',
+    duel: false,
     ...Object.fromEntries(SIDES.flatMap((d) => [[`door_${d}`, false], [`level_${d}`, 0]])),
     ...Object.fromEntries(ROOM_KINDS.map((k) => [`kind_${k}`, true])),
   } as Record<string, unknown> & { newName: string; width: number; depth: number; pick: string; name: string; rw: number; rd: number; centre: string; report: string };
@@ -126,6 +127,7 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
       ui[`level_${d}`] = meta.doorways[d] ?? 0;
     }
     for (const k of ROOM_KINDS) ui[`kind_${k}`] = meta.kinds.includes(k);
+    ui.duel = meta.duel === true;
     ui.centre = `(${meta.centre.join(', ')}): drag Objective D`;
     rebuildFolder();
   };
@@ -225,6 +227,10 @@ export function addRoomMode(host: RoomModeHost): RoomMode {
       change({ kinds: ks });
     };
     for (const k of ROOM_KINDS) fo.addBinding(ui, `kind_${k}`, { label: k }).on('change', kinds);
+    // Offered as a Duel map too (`room:<name>`), its doorways walled up.
+    fo.addBinding(ui, 'duel', { label: 'Duel map' }).on('change', (e) => {
+      if (meta && e.value !== (meta.duel === true)) change({ duel: e.value ? true : undefined });
+    });
     fo.addBinding(ui, 'centre', { label: 'centre', readonly: true });
     fo.addButton({ title: 'Check room' }).on('click', () => runCheck());
     fo.addButton({ title: 'Save room' }).on('click', () => void save());
