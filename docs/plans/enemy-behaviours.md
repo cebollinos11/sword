@@ -102,6 +102,8 @@ Reckless needs no new code. `caution` 0 already stops the backing off after a sw
 ## How Styles and Quirks play across the tiers
 - **A Style's signature minimum is why it works at Beginner.** A Beginner Chambermaster does try to Chamber. With 0.4 s Reaction Time and its mistake rate, it should often get the timing wrong. That shows a new player the move and how to beat it.
 
+  **Settled with the user (2026-11-26), after Stage 1:** a Beginner can't Chamber at all today (its 0.4 s Reaction Time outlasts every Weapon's Wind-up, so the Chamber is never planned; see Stage 1's Result). That's fine: a Beginner is bad at Chambers even as a Chambermaster. Nothing is added to make it try. Its minimum still counts once its Reaction Time allows, and in later tuning.
+
   Today a Chamber is pressed exactly when it fires (`pressAt`), since a mistake turns into a wrong Block before the Chamber check. So Stage 2 adds a **Chamber timing error**: `pressAt` moves by up to ±`CHAMBER_SLOP` Ticks × `mistakeRate`, rolled with the Chamber. An Expert's error is about 0, and a Beginner's often misses the window.
 - **Showoff at Beginner.** CONTEXT.md says Beginner never Whirlwinds. A Style's minimum now overrides that for Showoff only, and the Glossary changes to match. A Beginner Showoff's hold is just as long and as visible as anyone's, and with its slow reactions it rarely lets go at the right moment. It's an easy one to punish.
 - **Quirks are fixed handicaps, so their weight changes with the tier:**
@@ -333,15 +335,15 @@ Built 2026-11-26, as the Design above.
 - A Troop Seat (Lorekeeper, Counter) takes the Style's minimum through `lineupAis` (`lineup.test.ts`): its Controller is the one `createAiController` builds from the Counter with the minimum, and it plays differently from the bundled Counter. It wasn't checked in the Lobby by hand: the Lobby reads the bundled `data/ai.json`, not the Editor's unsaved edit, and has no event log to count Chambers in.
 
 **For Stage 2.**
-- **The Chamber timing error has to come with a "late" Chamber, or a Beginner Chambermaster never Chambers.** Today a Chamber the AI sees too late to time is not planned at all (`pressAt > state.tick`). For "a Beginner Chambermaster does try to Chamber, and often gets the timing wrong", Stage 2 must let it press anyway when the Wind-up is seen late (pressing at once, or at `pressAt` ± the slop, clamped to the next Tick), rolled only when a Chamber is planned, so an AI with `chamberRate` 0 draws nothing new. Then count Beginner attempts (its Attack pressed into a seen Wind-up), not only `Chamber` events.
+- **A Beginner Chambermaster won't Chamber, and that's settled as fine** (the user, 2026-11-26). A Chamber the AI sees too late to time is not planned at all (`pressAt > state.tick`), and a Beginner sees every Wind-up too late. Don't add a "late" Chamber to make it try. The Chamber timing error still applies to the tiers that can Chamber.
 - Write the Styles' entries as `{ "mul": 3, "min": 0.06 }`; a minimum alone is `{ "min": 0.5 }`. The bit-for-bit test in `ai.test.ts` names the five old Styles, so adding Styles needs no change to it.
 
 ### Stage 2: The data-only Styles, and the Chamber timing error
 - **Styles.** Add Chambermaster, Hopper and Reckless to `data/ai.json` with the starting values above.
 - **Chamber timing error.** Add it (`CHAMBER_SLOP`, starting at 4 Ticks), rolled only when a Chamber is planned. An AI that never Chambers draws no extra random numbers.
 - **Done:**
-  - Duels of each new Style against a Balanced AI of the same tier, on the Editor's flat Arena, count the signature move. Chambers, jumping Attacks, hops and Chains each come out at least 2× Balanced, at every tier.
-  - A Beginner Chambermaster lands fewer than half its Chambers, and an Expert one most of them.
+  - Duels of each new Style against a Balanced AI of the same tier, on the Editor's flat Arena, count the signature move. Chambers, jumping Attacks, hops and Chains each come out at least 2× Balanced, at every tier, except Chambers at Beginner (none, by Reaction Time; settled with the user).
+  - A Skilled Chambermaster lands fewer of its Chambers than an Expert one, which lands most of them. (A Beginner makes none.)
   - The AI memory sweep and the golden tests pass unchanged for the old Styles.
 
 ### Stage 3: Showoff, Skirmisher and Pack Hunter (new AI settings)
