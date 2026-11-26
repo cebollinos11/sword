@@ -400,3 +400,33 @@ describe('AI Whirlwind: answering it', () => {
     expect(new Set(windUps.map((k) => k.split(':').slice(0, 2).join(':'))).size).toBe(windUps.length);
   });
 });
+
+describe('AI Whirlwind: a Showoff (whirlwindAlone) at a lone enemy', () => {
+  const one = [{ x: 0, z: 1.1, team: 1 }];
+  const showoff = (extra: Partial<AiDifficulty> = {}) => calm({ whirlwindAlone: 1, footwork: 0, pressure: 0, caution: 0, teamwork: 0, ...extra });
+
+  it('the Showoff Style gives every tier a Whirlwind, at a lone enemy too', () => {
+    for (const tier of ['Beginner', 'Skilled', 'Expert']) {
+      const s = skillOf(repo, aiDifficulty(repo, tier), aiStyle(repo, 'Showoff'));
+      expect(s.whirlwindRate, tier).toBeGreaterThanOrEqual(0.03);
+      expect(s.whirlwindAlone, tier).toBe(0.5);
+    }
+    expect(skillOf(repo, aiDifficulty(repo, 'Expert')).whirlwindAlone).toBe(0);
+  });
+
+  it('against one standing enemy in reach it starts, where the same AI without it does not', () => {
+    expect(begins(play(repo, showoff(), one, 150).intents)).toBe(true);
+    expect(begins(play(repo, showoff({ whirlwindAlone: 0 }), one, 150).intents)).toBe(false);
+  });
+
+  it('never toward a drop: a lone enemy toward the Abyss stops it, the same one on safe ground does not', () => {
+    expect(begins(play(onLedge, showoff(), one, 150, 'whirlLedge').intents)).toBe(false);
+    expect(begins(play(onLedge, showoff(), [{ x: 0, z: -1.1, team: 1 }], 150, 'whirlLedge').intents)).toBe(true);
+  });
+
+  it('never through a teammate: one on the drive path, or within its reach + 1, stops it', () => {
+    expect(begins(play(repo, showoff(), [...one, { x: 0, z: 3, team: 0 }], 150).intents)).toBe(false);
+    expect(begins(play(repo, showoff(), [...one, { x: 1.2, z: 0.3, team: 0 }], 150).intents)).toBe(false);
+    expect(begins(play(repo, showoff(), [...one, { x: 0, z: -4, team: 0 }], 150).intents)).toBe(true);
+  });
+});

@@ -144,7 +144,7 @@ describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () =
     const reloaded = reloadWith(ai.fileName, ai.text);
     expect(reloaded.ai).toEqual(session.tuning.ai);
     expect(Object.keys(reloaded.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard', 'Beginner', 'Skilled', 'Expert']);
-    expect(Object.keys(reloaded.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive', 'Chambermaster', 'Reckless']);
+    expect(Object.keys(reloaded.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive', 'Chambermaster', 'Reckless', 'Showoff', 'Skirmisher', 'Pack Hunter']);
     expect(reloadWith(zones.fileName, zones.text).hitZones).toEqual({
       head: { multiplier: 2, radius: 0.12 },
       torso: { multiplier: 1, radius: 0.16 },

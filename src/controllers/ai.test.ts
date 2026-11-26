@@ -1354,10 +1354,11 @@ describe('AI Stage 2: team coordination (docs/plans/ai-behaviour.md)', { timeout
     return a.kind === 'Attack' && a.phase === 'Wind-up';
   };
 
-  it('Beginner, Skilled and Expert work as a team at 0.4 / 0.7 / 0.9; Easy, Normal and Hard do not, and no Style scales it', () => {
+  it('Beginner, Skilled and Expert work as a team at 0.4 / 0.7 / 0.9; Easy, Normal and Hard do not, and no Style but Pack Hunter scales it', () => {
     expect(['Beginner', 'Skilled', 'Expert'].map((t) => skillOf(repo, aiDifficulty(repo, t)).teamwork)).toEqual([0.4, 0.7, 0.9]);
     expect(['Easy', 'Normal', 'Hard'].map((t) => skillOf(repo, aiDifficulty(repo, t)).teamwork)).toEqual([0, 0, 0]);
-    for (const style of Object.keys(repo.ai.styles)) expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, style)).teamwork, style).toBe(0.7);
+    for (const style of Object.keys(repo.ai.styles)) if (style !== 'Pack Hunter') expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, style)).teamwork, style).toBe(0.7);
+    expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, 'Pack Hunter')).teamwork).toBe(1);
   });
 
   it('flank slots: in a 2 v 1 against a dummy, the two end up on opposite sides of it', () => {

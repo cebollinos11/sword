@@ -86,7 +86,9 @@
  *    reach. It never Kicks an opponent lying in a Knockdown.
  *  - Throws: an Idle AI with daggers left throws one (at `throwRate`; `mistakeRate` makes it lose the
  *    chance and spoils its aim) at an enemy on its level beyond its reach, within `throwRange`, in line of
- *    sight and last seen walking away. It leads the target (its walk over the flight and Reaction Time) and
+ *    sight and last seen walking away (or, at `throwStanding`, not). Kiting (`kite`: rolled as it picks its tactic, with
+ *    daggers left and the target within its reach + DISENGAGE_MARGIN), it Disengages and throws only from DISENGAGE_MARGIN / 2
+ *    beyond the target's reach; out of daggers, the kite ends. It leads the target (its walk over the flight and Reaction Time) and
  *    offsets for its left hand (the dagger leaves the left hand, parallel to the facing).
  *  - Against a Throw Wind-up or Release aimed at it, it turns to the thrower and raises a Block, and keeps it
  *    raised while that dagger is still on its way. Its Reaction Time means it raises it after the Wind-up began,
@@ -94,7 +96,7 @@
  *    again). `mistakeRate` is the chance, rolled once per throw, that it fails to.
  *  - Whirlwind (`whirlwindRate`, Skilled and Expert only; `whirlwindRead`, answering one). Using it: an Idle,
  *    grounded, drawn AI level with its focus and with a Weapon that can, begins the hold at `whirlwindRate` per Tick when two or
- *    more enemies stand within its reach + WHIRL_NEAR (or its focus does, down or Staggered), no ally within its reach +
+ *    more enemies stand within its reach + WHIRL_NEAR (or its focus does, down or Staggered, or, at `whirlwindAlone`, standing), no ally within its reach +
  *    WHIRL_ALLY of any point of its drive, and the whole drive toward its focus is safe ground (`pathIsSafe`: no drop, Lava, Water or Wall). It holds
  *    until armed and lets go (a Spin), always standing: never a Crouch or a Jump in its own Whirlwind. In the Spin it steers
  *    toward the enemies within SPIN_LOOK and away from allies (`spinSteer`), keeping a steer only if SPIN_AHEAD m of it is safe.
@@ -121,6 +123,9 @@
  *      its line, and tries no Chamber or Outpace with one near it.
  *    - Target spread (rolled as it picks an enemy): it fights the enemy its team leaves free (`spreadPick`), unless
  *      the one they share is low on HP (LOW_HP) or the last standing.
+ *    - Ganging up (`gangUp`, rolled as it picks an enemy, before the spread): it takes the enemy most of its allies are
+ *      seen facing (`gangPick`, of those within SPREAD_RANGE of its nearest), and follows the pack from then on; an enemy
+ *      swinging at it no longer takes its focus (it still defends).
  *  - Feel (the human touches, each rolled as below; none changes what it sees, only when and how it acts on it):
  *    - Rhythm (`rhythm`, rolled once per Attack from its spacing): instead of a coin flip every Tick, it swings on a beat,
  *      the pace the coin flip would have pressed at summed up to a bell-shaped need (`Beat`), now and then after a pause,
@@ -329,6 +334,8 @@ type Mode = (typeof MODES)[number];
 interface Tactic {
   readonly mode: Mode;
   readonly until: number;
+  /** A Disengage taken to throw from out of reach (`kite`): it ends once it has no daggers left. */
+  readonly kite?: true;
 }
 
 /** Which way it circles (+1 or -1, around its opponent), until Duel Tick `until`. */
@@ -460,6 +467,8 @@ interface Focus {
   readonly until: number;
   /** It rolled to spread out (`teamwork`, as it picked this enemy): it fights the enemy its allies leave free (`spreadPick`), not the nearest. */
   readonly spread: boolean;
+  /** It rolled to gang up (`gangUp`, as it picked this enemy): it fights the enemy most of its allies fight (`gangPick`), not the nearest. */
+  readonly gang?: true;
 }
 
 /** A difficulty preset with every optional part filled in. */
@@ -585,6 +594,8 @@ const TURN_TICKS = 60;
 const TURN_OPEN = 30;
 /** Spreading out, it may take an enemy up to this much (m) further than its nearest. */
 const SPREAD_RANGE = 3;
+/** Ganging up, an ally is counted on the enemy it faces: the one nearest its facing, if within this angle (radians) of it. */
+const GANG_FACING = Math.PI / 4;
 /** An enemy below this fraction of its max HP may be piled onto. */
 const LOW_HP = 0.35;
 
@@ -727,6 +738,10 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     whirlwindRate: 0,
     whirlwindRead: 0,
     leapSides: 0,
+    whirlwindAlone: 0,
+    throwStanding: 0,
+    kite: 0,
+    gangUp: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -1520,23 +1535,66 @@ class RuleAi implements AiController {
    * becomes its focus for AGGRO_TICKS (the nearest such, if several); else it keeps its focus while that enemy is
    * standing and no other is SWITCH_MARGIN nearer, and otherwise takes its nearest. With `allies` and more than one
    * enemy, it rolls as it picks a new one (`teamwork`) to spread out: it takes the enemy its allies leave free
-   * (`spreadPick`) instead of the nearest, and keeps it while none is SWITCH_MARGIN nearer than that one.
+   * (`spreadPick`) instead of the nearest, and keeps it while none is SWITCH_MARGIN nearer than that one. Before that, it rolls
+   * to gang up (`gangUp`): it takes the enemy most of its allies fight (`gangPick`) and follows the pack from then on, even
+   * while another enemy swings at it.
    */
   private chooseFocus(state: SimState, self: FighterState, fighter: number, enemies: readonly Enemy[], reach: number, allies: readonly Ally[]): Enemy {
     const tick = state.tick;
     const spread = this.focus?.spread ?? false;
     const attacker = enemies.find(({ o, flat, near }) => near && flat <= reach && (isThreat(o.action) || isKickThreat(o.action)) && this.aimedAt(o, self));
-    if (attacker) {
+    // Ganging up, it stays on the pack's enemy (it still defends against any Attack that can reach it: `planDefence`).
+    if (attacker && !this.focus?.gang) {
       this.focus = { fighter: attacker.i, until: tick + AGGRO_TICKS, spread };
       return attacker;
     }
     const nearest = enemies[0]!;
-    const pick = spread ? this.spreadPick(state, self, fighter, enemies, allies) : nearest;
+    const gang = this.focus?.gang ?? false;
+    const pick = gang ? this.gangPick(enemies, allies, this.focus!.fighter) : spread ? this.spreadPick(state, self, fighter, enemies, allies) : nearest;
     const kept = this.focus && enemies.find(({ i }) => i === this.focus!.fighter);
-    if (kept && (tick < this.focus!.until || kept.dist <= pick.dist + SWITCH_MARGIN)) return kept;
-    const go = allies.length > 0 && enemies.length > 1 && this.chance(this.skill.teamwork);
+    // Ganging up, it follows the pack: it keeps its focus only while that is the pack's (`gangPick` prefers it on a tie).
+    if (kept && (tick < this.focus!.until || (gang ? pick === kept : kept.dist <= pick.dist + SWITCH_MARGIN))) return kept;
+    if (gang && kept) {
+      this.focus = { ...this.focus!, fighter: pick.i };
+      return pick;
+    }
+    const many = allies.length > 0 && enemies.length > 1;
+    // Ganging up (`gangUp`) comes before spreading out, and draws nothing without it.
+    if (many && this.chance(this.skill.gangUp)) {
+      const chosen = this.gangPick(enemies, allies);
+      this.focus = { fighter: chosen.i, until: -1, spread: false, gang: true };
+      return chosen;
+    }
+    const go = many && this.chance(this.skill.teamwork);
     const chosen = go ? this.spreadPick(state, self, fighter, enemies, allies) : nearest;
     this.focus = { fighter: chosen.i, until: -1, spread: go };
+    return chosen;
+  }
+
+  /**
+   * The enemy to fight ganging up (`gangUp`): of `enemies` within SPREAD_RANGE of its own nearest, the one most of its `allies`
+   * fight. An ally (as seen) fights the enemy it faces: the one whose bearing from it is nearest its facing, within GANG_FACING.
+   * On a tie, `current` (its focus) if it is one of them, else the nearest.
+   */
+  private gangPick(enemies: readonly Enemy[], allies: readonly Ally[], current = -1): Enemy {
+    const on = new Map<number, number>();
+    for (const { o } of allies) {
+      let best = -1;
+      let bestOff = GANG_FACING;
+      for (const e of enemies) {
+        const bearing = Math.atan2(e.o.position.x - o.position.x, e.o.position.z - o.position.z);
+        const off = Math.abs(Math.atan2(Math.sin(bearing - o.facing), Math.cos(bearing - o.facing)));
+        if (off < bestOff) {
+          best = e.i;
+          bestOff = off;
+        }
+      }
+      if (best >= 0) on.set(best, (on.get(best) ?? 0) + 1);
+    }
+    const near = enemies[0]!.dist + SPREAD_RANGE;
+    const count = (e: Enemy) => on.get(e.i) ?? 0;
+    let chosen = enemies.find((e) => e.i === current && e.dist <= near) ?? enemies[0]!;
+    for (const e of enemies) if (e.dist <= near && count(e) > count(chosen)) chosen = e;
     return chosen;
   }
 
@@ -1675,6 +1733,16 @@ class RuleAi implements AiController {
     });
   }
 
+  /**
+   * Whether it kites this tactic (`kite`): with daggers left and `target` within its own reach plus DISENGAGE_MARGIN, rolled
+   * as it picks its tactic. Draws nothing without `kite`, daggers, or the target that close.
+   */
+  private kites(self: FighterState, target: Sighting): boolean {
+    if (this.skill.kite <= 0 || self.daggers <= 0) return false;
+    const flat = Math.hypot(target.position.x - self.position.x, target.position.z - self.position.z);
+    return flat <= this.reach(target) + DISENGAGE_MARGIN && this.chance(this.skill.kite);
+  }
+
   /** With `chase` (a Battle's Fighter holding an Attack Slot) it never Disengages: it keeps after its target. */
   private think(tick: number, self: FighterState, target: Sighting, chase = false): void {
     const { caution, pressure, footwork } = this.skill;
@@ -1682,8 +1750,12 @@ class RuleAi implements AiController {
     this.lastHp = self.hp;
     // Just hit, or in its own Recovery: shaken, it lapses more readily for a while.
     if (this.skill.humanMistakes > 0 && (hurt || (self.action.kind === 'Attack' && self.action.phase === 'Recovery'))) this.shaken = tick + LAPSE_TICKS;
+    // Kiting with no daggers left: it closes in.
+    if (this.tactic.kite && self.daggers <= 0) this.tactic = NEUTRAL;
     if (hurt && !chase && this.chance(caution)) {
       this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
+    } else if (tick >= this.tactic.until && !chase && this.kites(self, target)) {
+      this.tactic = { mode: 'Disengage', until: tick + 60 + Math.floor(this.random() * 120), kite: true };
     } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
       const max = self.maxHp;
       const ahead = (self.hp - target.hp) / max;
@@ -2042,18 +2114,22 @@ class RuleAi implements AiController {
    * can, two or more enemies within its reach + WHIRL_NEAR (or its focus there, down or Staggered), no ally within its reach +
    * WHIRL_ALLY of any point of the straight drive (a teammate in the way would be Staggered), and safe ground along the whole drive toward its focus
    * (along its facing when the focus stands on its spot: `driveClear`). Then, at `whirlwindRate` per Tick, it begins the hold, to a
-   * side drawn once. No random number is drawn before the last two tests, so an AI that never Whirlwinds draws nothing.
+   * side drawn once. With only its focus standing in reach, it spins at it too, at `whirlwindAlone` (rolled once that moment
+   * comes, after `whirlwindRate`). No random number is drawn before the last tests, so an AI that never Whirlwinds draws nothing.
    */
   private spinMoment(state: SimState, self: FighterState, focused: Enemy, enemies: readonly Enemy[], mates: readonly Ally[], toward: Vec2, base: Intent): Intent | null {
     if (this.skill.whirlwindRate <= 0 || self.action.kind !== 'Idle' || self.air || self.sheathed || !focused.level || !canWhirlwind(this.tuning, self.weapon)) return null;
     const myReach = this.reach(self);
     const within = myReach + WHIRL_NEAR;
     const down = focused.flat <= within && (focused.o.action.kind === 'Knockdown' || focused.o.action.kind === 'Stagger');
-    if (!down && enemies.filter((e) => e.level && e.flat <= within).length < 2) return null;
+    // A lone enemy standing in reach: only a Showoff spins at it (`whirlwindAlone`, rolled after the rest).
+    const alone = !down && enemies.filter((e) => e.level && e.flat <= within).length < 2;
+    if (alone && (this.skill.whirlwindAlone <= 0 || focused.flat > within)) return null;
     // With its focus on its own spot it has no direction: the drive goes along its facing.
     const dir = toward.x === 0 && toward.z === 0 ? { x: Math.sin(self.facing), z: Math.cos(self.facing) } : toward;
     if (!this.driveClear(state, self, dir, mates)) return null;
     if (!this.chance(this.skill.whirlwindRate)) return null;
+    if (alone && !this.chance(this.skill.whirlwindAlone)) return null;
     return { ...base, whirlwind: true, direction: this.random() < 0.5 ? 'Left' : 'Right' };
   }
 
@@ -2444,16 +2520,21 @@ class RuleAi implements AiController {
 
   /**
    * Whether to throw a dagger at `target` this Tick: it has daggers left, the target is beyond its reach and
-   * within `throwRange`, in line of sight, and was last seen walking away. At `throwRate` per Tick, lost at
-   * `mistakeRate`. Rolls the aim error for the throw. Draws from the generator only when a throw is possible.
+   * within `throwRange`, in line of sight, and was last seen walking away (or, at `throwStanding`, not). At `throwRate`
+   * per Tick, lost at `mistakeRate`. Rolls the aim error for the throw. Draws from the generator only when a throw is possible.
    */
   private toss(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2): boolean {
     const { throwRange } = this.tuning.ai;
     const { throwRate, mistakeRate } = this.skill;
     if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self) || dist > throwRange) return false;
+    // Kiting, it backs off before it throws: from at least half the Disengage margin beyond the target's reach.
+    if (this.tactic.kite && dist < this.reach(target) + DISENGAGE_MARGIN / 2) return false;
     const walkingAway = (target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
-    if (walkingAway < FLEEING || !this.clearLine(state, self, target)) return false;
+    // A target not walking away: only at `throwStanding` (a Skirmisher), rolled once the throw is.
+    const standing = walkingAway < FLEEING;
+    if ((standing && this.skill.throwStanding <= 0) || !this.clearLine(state, self, target)) return false;
     if (!this.chance(throwRate * (1 - mistakeRate))) return false;
+    if (standing && !this.chance(this.skill.throwStanding)) return false;
     this.aimError = mistakeRate > 0 ? (this.random() * 2 - 1) * AIM_ERROR * mistakeRate : 0;
     return true;
   }

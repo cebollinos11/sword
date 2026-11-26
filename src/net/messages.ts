@@ -4,7 +4,7 @@ import { runFloorArena } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 38;
+export const PROTOCOL_VERSION = 39;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -905,12 +905,12 @@ export function isAiMemory(v: unknown): boolean {
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
-  const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until);
+  const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until) && (v.tactic.kite === undefined || v.tactic.kite === true);
   const st = v.strafe;
   const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop);
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
-  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread));
+  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread) && (v.focus.gang === undefined || v.focus.gang === true));
   const turn = (v.turn === null || isBool(v.turn)) && isInt(v.lineHold);
   const b = v.beat;
   const beat = b === null || (isObject(b) && isBool(b.timed) && isNum(b.need) && isNum(b.done) && isBool(b.double) && isBool(b.wild));

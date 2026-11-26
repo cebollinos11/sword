@@ -488,10 +488,27 @@ export interface AiDifficulty {
   readonly whirlwindRead?: number;
   /** 0..1: the chance, rolled once per jumping Attack, that it swings Left or Right (or Overhead) in the air instead of always Overhead. 0 = always Overhead. */
   readonly leapSides?: number;
+  /**
+   * 0..1: the chance, rolled once per moment a Whirlwind could start at its focus standing alone in its reach (no second enemy
+   * near, its focus not down), that it spins anyway (a Showoff). 0 = it spins only at two or more, or a focus down.
+   */
+  readonly whirlwindAlone?: number;
+  /** 0..1: the chance, rolled once per throw, that it throws a dagger at a target not walking away (a Skirmisher). 0 = only at one walking away. */
+  readonly throwStanding?: number;
+  /**
+   * 0..1: the chance, rolled as it picks its tactic with daggers left and its target within that target's reach plus the
+   * Disengage margin, that it Disengages to throw from out there (it kites). Out of daggers, a kite ends and it plays Neutral.
+   */
+  readonly kite?: number;
+  /**
+   * 0..1: the chance, rolled as it picks an enemy with allies about, that it takes the one most of its allies fight (each
+   * ally on its nearest enemy, as seen), of those near its own nearest, rather than spread out (a Pack Hunter).
+   */
+  readonly gangUp?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead', 'leapSides'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect', 'whirlwindRate', 'whirlwindRead', 'leapSides', 'whirlwindAlone', 'throwStanding', 'kite', 'gangUp'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];

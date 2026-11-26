@@ -382,6 +382,8 @@ Built 2026-11-26.
 **Not checked by hand yet.** Play Chambermaster and Reckless on a plain AI Seat at each tier (`?dev=1`) to see that they feel as intended, and whether `CHAMBER_SLOP` should rise.
 
 ### Stage 3: Showoff, Skirmisher and Pack Hunter (new AI settings)
+> Done (2026-11-26).
+
 - **Settings.** Add `whirlwindAlone`, `throwStanding`, `kite` and `gangUp` to `AiDifficulty`'s extras. Each defaults to 0, so nothing changes. Each is rolled only where its move is possible, so the existing random draws stay the same.
 - **Styles.** Add Showoff, Skirmisher and Pack Hunter.
 - **Glossary.** Update CONTEXT.md (AI difficulty, Whirlwind): a Style may give Beginner a Whirlwind.
@@ -389,6 +391,42 @@ Built 2026-11-26.
   - A Showoff spins at a lone standing enemy, and still never toward a drop or through a teammate (the Whirlwind safety tests, run over Showoff).
   - A Skirmisher with daggers throws at a target standing still and keeps out of reach. With none left it closes in.
   - Three Pack Hunters against two enemies put at least two on one target most of the time, where Balanced Expert spreads out.
+
+### Result
+Built 2026-11-26.
+
+**Where it lives.**
+- `src/tuning/index.ts`: `whirlwindAlone`, `throwStanding`, `kite` and `gangUp` on `AiDifficulty`, in `AI_DIFFICULTY_EXTRAS` (so a Style may name them, and the Tuning panel edits them). No difficulty sets them: each defaults to 0 in `skillOf`.
+- `data/ai.json`: Showoff, Skirmisher and Pack Hunter, with the starting values above.
+- `src/controllers/ai.ts`:
+  - **`whirlwindAlone`** (`spinMoment`). A focus standing alone within reach + WHIRL_NEAR may be spun at. Every other test runs first (drive clear, no ally in the way, safe ground, then `whirlwindRate`), and `whirlwindAlone` is the last roll.
+  - **`throwStanding`** (`toss`). A target that isn't fleeing may be thrown at. It's rolled after the `throwRate` roll, once the throw would happen.
+  - **`kite`** (`kites`, in `think`). As it picks a tactic, with daggers left and its target within that target's reach + DISENGAGE_MARGIN, it Disengages at this chance. The tactic carries `kite: true`. When its daggers run out, a kite ends at once (Neutral, so it draws a new tactic and closes in).
+  - **`gangUp`** (`chooseFocus`, `gangPick`). It's rolled as it picks a new enemy, before the `teamwork` spread roll. The focus then carries `gang: true`.
+- `src/net/messages.ts`: the AI memory validator accepts the optional `tactic.kite` and `focus.gang` (each only `true`). `PROTOCOL_VERSION` 38 → 39.
+- `CONTEXT.md`: AI difficulty and Whirlwind say a Beginner Showoff Whirlwinds; the Style entry names the three Styles.
+- Tests:
+  - `aiWhirlwind.test.ts`: the Showoff block. It starts at a lone standing enemy, and the same AI with `whirlwindAlone` 0 doesn't. It never spins toward the Abyss, through a teammate on the drive, or with one within its reach + 1.
+  - `aiStyleMoves.test.ts` (new, fast):
+    - a Skirmisher throws at a still target and keeps out of reach, and closes in and swings with no daggers;
+    - three Pack Hunters gang up;
+    - the new memory passes the resync validator.
+  - `ai.test.ts`: the teamwork test now allows Pack Hunter to scale `teamwork`. `tuning.test.ts` and `tuningSections.test.ts` list the Styles.
+
+**Differs from the plan.**
+- **"Fighting" an enemy is read from facing.** An ally is counted on the enemy whose bearing is nearest its facing, within GANG_FACING (45°). Counting each ally on its nearest enemy, as `teamView` does, left three Pack Hunters split 2–1 from the start: every tie went to the nearest.
+- **A Pack Hunter follows the pack.** Ganging, it keeps its focus only while that is the `gangPick` (its current focus wins a tie), and it switches when the pack moves.
+- **A ganging Pack Hunter ignores aggro.** An enemy swinging at it no longer becomes its focus for AGGRO_TICKS. It still defends, because `planDefence` answers the nearest Attack that can reach it, whatever its focus. Without this the pack broke up every time an enemy swung (about 60% of Ticks with all three on one target).
+- **A kiting Skirmisher backs off before it throws.** While kiting, it doesn't throw from closer than DISENGAGE_MARGIN / 2 beyond the target's reach. Without this it threw all its daggers from just outside reach (about 1.4 m) and never backed off.
+- **The Pack Hunter test checks all three on one target.** With three on two enemies, at least two always share one, so the plan's measure is always true. Over 3 seeds × 10 s, three Expert Pack Hunters against two Balanced Experts all fought one target on 92%, 90% and 97% of Ticks; Balanced Experts on 0%.
+
+**Checked by the tests, not by hand.**
+- An Expert Skirmisher 1.3 m from a still target backs to about 2 m, throws its 3 daggers within about 4 s, then Pressures in and swings.
+- Old AIs draw nothing new. Each roll is reached only with its setting above 0 (and `kite` only with daggers and the target close), and every existing hash, golden, memory-sweep and Delver test passes unchanged.
+
+**Not checked by hand yet.** Play Showoff, Skirmisher and Pack Hunter on plain AI Seats at each tier (`?dev=1`), Pack Hunter with AI allies (a Gauntlet or a Battle). Things to watch:
+- whether a Pack Hunter that ignores aggro gets punished too easily from behind;
+- whether a Beginner Showoff (`whirlwindRate` 0.03 per Tick, half of that at a lone enemy) spins too often.
 
 ### Stage 4: Quirks, Dumb and Hopper
 - **Data.** Add `ai.quirks` (name → `{ ai?, body? }`). The `body` part may set any Mods key. The `ai` part may name any `AiDifficulty` extra, `defendRate` and `jumpNav`, never Reaction Time or the mistake rate:
