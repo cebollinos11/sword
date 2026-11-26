@@ -96,7 +96,7 @@ export interface DelverLava {
   readonly plaza?: Rect;
 }
 
-/** A feature's Ramp (Stage 7c): on the lower floor, its high end against the higher floor's edge, rising toward `up`. A step is walled to the roof on its open sides; `rails` are its long sides. */
+/** A feature's Ramp (Stage 7c): on the lower floor, its high end against the higher floor's edge, rising toward `up`. It has no rails: its long sides are open (a step-high skirt only), so a Fighter can walk or be knocked off them. */
 export interface DelverStep {
   readonly rect: Rect;
   /** The lower floor's height (m) and the higher's. */
@@ -104,7 +104,6 @@ export interface DelverStep {
   readonly hi: number;
   /** The side its high end faces. */
   readonly up: Side;
-  readonly rails: readonly Side[];
 }
 
 /** One tier of a split: a floor part at its own level, `y` its height (m). */
@@ -658,7 +657,7 @@ export function uphillGeometry(world: Rect, up: number, rise: 1 | 2, y: number):
   return {
     low: fr.rect({ x0, z0, x1, z1: z0 + UPHILL_FOOT }),
     high: fr.rect({ x0, z0: z1 - UPHILL_TOP, x1, z1 }),
-    step: { rect: fr.rect({ x0, z0: z0 + UPHILL_FOOT, x1, z1: z1 - UPHILL_TOP }), lo: y - rise * LEVEL_RISE, hi: y, up: SIDES[up]!, rails: [] },
+    step: { rect: fr.rect({ x0, z0: z0 + UPHILL_FOOT, x1, z1: z1 - UPHILL_TOP }), lo: y - rise * LEVEL_RISE, hi: y, up: SIDES[up]! },
     cx: centre.x0,
     cz: centre.z0,
   };
@@ -684,7 +683,7 @@ export function spiralGeometry(world: Rect, base: number, turn: 0 | 1, y: number
   const R = LEVEL_RISE;
   const H = LEVEL_RISE / 2;
   const tier = (q: Rect, dy: number): DelverTier => ({ rect: fr.rect(q), level: (y + dy) / LEVEL_RISE, y: y + dy });
-  const ramp = (q: Rect, lo: number, hi: number, up: Side, rail: Side): DelverStep => ({ rect: fr.rect(q), lo: y + lo, hi: y + hi, up: fr.side(up), rails: [fr.side(rail)] });
+  const ramp = (q: Rect, lo: number, hi: number, up: Side): DelverStep => ({ rect: fr.rect(q), lo: y + lo, hi: y + hi, up: fr.side(up) });
   const landings = [
     tier({ x0: x1 - L, z0: a1, x1, z1: b1 }, R),
     tier({ x0: x1 - L, z0: z1 - L, x1, z1 }, R + H),
@@ -693,11 +692,11 @@ export function spiralGeometry(world: Rect, base: number, turn: 0 | 1, y: number
     tier({ x0, z0: a1, x1: x0 + L, z1: b1 }, 3 * R),
   ];
   const steps = [
-    ramp({ x0: x1 - L, z0: z0 + SPIRAL_FOOT, x1, z1: a1 }, 0, R, 'n', 'e'),
-    ramp({ x0: x1 - L, z0: b1, x1, z1: z1 - L }, R, R + H, 'n', 'e'),
-    ramp({ x0: b3, z0: z1 - L, x1: x1 - L, z1 }, R + H, 2 * R, 'w', 'n'),
-    ramp({ x0: x0 + L, z0: z1 - L, x1: a3, z1 }, 2 * R, 2 * R + H, 'w', 'n'),
-    ramp({ x0, z0: b1, x1: x0 + L, z1: z1 - L }, 2 * R + H, 3 * R, 's', 'w'),
+    ramp({ x0: x1 - L, z0: z0 + SPIRAL_FOOT, x1, z1: a1 }, 0, R, 'n'),
+    ramp({ x0: x1 - L, z0: b1, x1, z1: z1 - L }, R, R + H, 'n'),
+    ramp({ x0: b3, z0: z1 - L, x1: x1 - L, z1 }, R + H, 2 * R, 'w'),
+    ramp({ x0: x0 + L, z0: z1 - L, x1: a3, z1 }, 2 * R, 2 * R + H, 'w'),
+    ramp({ x0, z0: b1, x1: x0 + L, z1: z1 - L }, 2 * R + H, 3 * R, 's'),
   ];
   return { landings, steps };
 }
@@ -735,7 +734,7 @@ export function roomFeature(id: string, room: DrawnRoom, frame: number, rect: Re
         return { ...b, id: bid, rect: mv(b.rect), y: b.y + y };
     }
   });
-  const steps: DelverStep[] = brushes.flatMap((b) => (b.kind === 'ramp' ? [{ rect: b.rect, lo: b.lo, hi: b.hi, up: b.up, rails: b.rails }] : []));
+  const steps: DelverStep[] = brushes.flatMap((b) => (b.kind === 'ramp' ? [{ rect: b.rect, lo: b.lo, hi: b.hi, up: b.up }] : []));
   const lava = brushes.flatMap((b) => (b.kind === 'hazard' && b.hazard === 'lava' ? [b.rect] : []));
   return { kind: 'room', name: room.name, frame, half: fr.half, doorways: fr.doorways, steps, lava, brushes, top: room.top, centre: [ox + fr.centre[0], oz + fr.centre[1]], shift: [0, 0] };
 }
@@ -1871,11 +1870,10 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       // The low-end outer tier's step stands against the low side wall when `s` is 0, else the high one; the high-end outer tier's against the other.
       const lowWall = f.s === 0;
       const across = (atLow: boolean): [number, number] => (atLow ? [a0, a0 + STEP_WIDTH] : [a1 - STEP_WIDTH, a1]);
-      const rails: Side[] = alongX ? ['n', 's'] : ['e', 'w'];
       const lowY = (L - 1) * LEVEL_RISE;
       const steps: DelverStep[] = [];
-      if (dLo >= 0) steps.push({ rect: R(cutLo - STEP_WIDTH, cutLo, ...across(lowWall)), lo: lowY, hi: y, up: alongX ? 'e' : 'n', rails });
-      if (dHi >= 0) steps.push({ rect: R(cutHi, cutHi + STEP_WIDTH, ...across(!lowWall)), lo: lowY, hi: y, up: alongX ? 'w' : 's', rails });
+      if (dLo >= 0) steps.push({ rect: R(cutLo - STEP_WIDTH, cutLo, ...across(lowWall)), lo: lowY, hi: y, up: alongX ? 'e' : 'n' });
+      if (dHi >= 0) steps.push({ rect: R(cutHi, cutHi + STEP_WIDTH, ...across(!lowWall)), lo: lowY, hi: y, up: alongX ? 'w' : 's' });
       featureOf[h] = { kind: 'split', axis: f.axis, tiers, steps };
     } else {
       const pit: Rect = { x0: r.x0 + PIT_RIM, z0: r.z0 + PIT_RIM, x1: r.x1 - PIT_RIM, z1: r.z1 - PIT_RIM };
@@ -1886,18 +1884,17 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       const run = 2 * f.depth;
       const R = (u0: number, u1: number, v0: number, v1: number): Rect => (vz ? { x0: u0, z0: v0, x1: u1, z1: v1 } : { x0: v0, z0: u0, x1: v1, z1: u1 });
       const [uLow, uHigh]: [Side, Side] = vz ? ['w', 'e'] : ['s', 'n'];
-      const rails: Side[] = vz ? ['n', 's'] : ['e', 'w'];
       const lowCorner = (v0: number, v1: number) => R(pu0, pu0 + run, v0, v1);
       const highCorner = (v0: number, v1: number) => R(pu1 - run, pu1, v0, v1);
       const steps: DelverStep[] =
         f.turn === 0
           ? [
-              { rect: lowCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uLow, rails },
-              { rect: highCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uHigh, rails },
+              { rect: lowCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uLow },
+              { rect: highCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uHigh },
             ]
           : [
-              { rect: highCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uHigh, rails },
-              { rect: lowCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uLow, rails },
+              { rect: highCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uHigh },
+              { rect: lowCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uLow },
             ];
       featureOf[h] = { kind: 'pit', depth: f.depth, pit, rim, rims: floorRects(r, [pit]), steps };
     }
@@ -2028,7 +2025,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const side = SIDES[d]!;
         featureOf[h] = {
           kind: 'dais', side, rect, y: y0 + DAIS_RISE,
-          steps: [{ rect: step, lo: y0, hi: y0 + DAIS_RISE, up: side, rails: alongX ? ['e', 'w'] : ['n', 's'] }],
+          steps: [{ rect: step, lo: y0, hi: y0 + DAIS_RISE, up: side }],
         };
         break;
       }

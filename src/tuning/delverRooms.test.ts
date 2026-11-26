@@ -83,6 +83,12 @@ describe('the shipped room files (data/delver/rooms/)', () => {
     }
   });
 
+  it('no Ramp has rails: a ramp\'s sides are open, as on the generator\'s (2026-11-26, the user\'s call)', () => {
+    for (const room of loadTuningData().delver.floor.drawnRooms) {
+      for (const b of room.brushes) if (b.kind === 'ramp') expect(b.rails, `${room.name} ${b.id}`).toEqual([]);
+    }
+  });
+
   it('a room file in the wrong file is refused', () => {
     expect(() => loadTuningData({ roomFiles: { '../../data/delver/rooms/other.json': FIXTURE_ROOM_RAW } })).toThrow(/must live in <its name>\.json/);
     expect(loadTuningData({ roomFiles: { '../../data/delver/rooms/fixture.json': FIXTURE_ROOM_RAW } }).delver.floor.drawnRooms.map((r) => r.name)).toContain('fixture');

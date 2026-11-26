@@ -10,6 +10,7 @@ import { flatRooms, fullFloors, noSetPieces, plainHalls } from './flat.testdata'
 import { withFixtureRoom } from './rooms.testdata';
 import { BRIDGE_MIN, onlySetPiece, setPieceOf, type DelverRoom, type DelverLava, type DelverSpiral, type DelverUphill, type SetPieceKind } from './plan';
 import { holeId, lavaId, stepId } from './source';
+import { wallSides } from './judge';
 import type { Rect } from '../../mapEditor/source';
 import { floorTuningOf, isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
@@ -819,7 +820,7 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
     expect(reasons[0]).toMatch(new RegExp(`^galleries: ${w.h.id}'s Deck 1 \\(.*\\) at ${w.h.gallery!.y} is not at that height$`));
   });
 
-  it('builds a navmesh with no jump Link from a 4 m pit\'s floor, every shortcut Link within SHORTCUT_RISE, and Links onto a tier, a rim or a dais', () => {
+  it('builds a navmesh with no jump Link from a 4 m pit\'s floor but onto its own open step Ramps, every shortcut Link within SHORTCUT_RISE, and Links onto a tier, a rim or a dais', () => {
     // A Floor with a 4 m pit; and (maybe another) with a 2 m pit, a split and a dais, for the ledges.
     let withPit: BuiltFloor | undefined = pool.find((b) => b.plan.halls.some((h) => h.feature?.kind === 'pit' && h.feature.depth === 4));
     for (let seed = 5; !withPit && seed < 40; seed++) {
@@ -849,7 +850,9 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
         if (ft?.kind !== 'pit' || ft.depth !== 4) continue;
         const onPitFloor = (k: number) => arena.walk[k]!.id.startsWith(`WALK_${h.id}_`) && !arena.walk[k]!.roof && arena.walk[k]!.points.every((p) => p.y === h.y);
         expect(arena.walk.some((_, k) => onPitFloor(k))).toBe(true);
-        expect(jumps.filter((l) => onPitFloor(l.from)), `${h.id}: no jump Link from its 4 m pit's floor`).toEqual([]);
+        // Its steps have no rails (2026-11-26), so a hop onto a step's open side, partway up, is fine; nothing jumps out onto the rim.
+        const ontoStep = (k: number) => new RegExp(`^WALK_${h.id}-step\\d+$`).test(arena.walk[k]!.id);
+        expect(jumps.filter((l) => onPitFloor(l.from) && !ontoStep(l.to)).map((l) => arena.walk[l.to]!.id), `${h.id}: no jump Link from its 4 m pit's floor but onto its steps`).toEqual([]);
       }
     };
     check(withPit!, true);
@@ -1152,7 +1155,8 @@ describe('the judge on Floors with set pieces (Stage 7f)', () => {
       const b = first('spiral');
       const h = b.plan.halls[hallOf(b.plan, 'spiral')]!;
       const st = (h.feature as DelverSpiral).steps[1]!;
-      const d = st.rails[0] === 'e' ? 'w' : st.rails[0] === 'w' ? 'e' : st.rails[0] === 'n' ? 's' : 'n';
+      const side = wallSides(st, h.rect)[0];
+      const d = side === 'e' ? 'w' : side === 'w' ? 'e' : side === 'n' ? 's' : 'n';
       const q = st.rect;
       const [a, z] = d === 'w' ? [{ x: q.x0, z: q.z0 }, { x: q.x0, z: q.z1 }] : d === 'e' ? [{ x: q.x1, z: q.z0 }, { x: q.x1, z: q.z1 }] : d === 's' ? [{ x: q.x0, z: q.z0 }, { x: q.x1, z: q.z0 }] : [{ x: q.x0, z: q.z1 }, { x: q.x1, z: q.z1 }];
       const wall = { kind: 'wall' as const, id: 'tall', a, b: z, bottom: h.y - 1, top: h.top };

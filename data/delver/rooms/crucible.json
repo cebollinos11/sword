@@ -5,7 +5,7 @@
   "centre": [2,-4],
   "brushes": [
     {"kind":"platform","id":"balcony","rect":{"x0":-12,"z0":4,"x1":12,"z1":10},"top":2,"material":"stone"},
-    {"kind":"ramp","id":"stair","rect":{"x0":8,"z0":-4,"x1":12,"z1":4},"lo":0,"hi":2,"up":"n","rails":["e"],"material":"stone"},
+    {"kind":"ramp","id":"stair","rect":{"x0":8,"z0":-4,"x1":12,"z1":4},"lo":0,"hi":2,"up":"n","material":"stone"},
     {"kind":"rail","id":"edge","a":{"x":-12,"z":4},"b":{"x":-2,"z":4},"y":2,"height":1},
     {"kind":"hole","id":"pool","rect":{"x0":-10,"z0":-10,"x1":-6,"z1":-6},"y":0},
     {"kind":"hazard","id":"lava","rect":{"x0":-10,"z0":-10,"x1":-6,"z1":-6},"y":-4,"hazard":"lava"},
