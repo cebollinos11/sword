@@ -7,6 +7,7 @@
  * guest and both peers build the same Match and the same AI Controllers.
  */
 import { checkRunTeams, checkTeams, MAX_TEAM_SIZE, runPick, type MatchFormat, type MatchOptions } from '../sim';
+import { resolveTroop, type ResolvedTroop, type TroopRef } from '../sim/delver';
 import { clampSize, DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type Size, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import { createAllyAi } from './allyAi';
@@ -39,6 +40,17 @@ export interface LineupSlot {
   readonly weapon?: string;
   /** Its Fighter's Size (default: the standard body). A Player's is the one they picked; an AI's is set in its slot. */
   readonly size?: Size;
+  /**
+   * A Delver Troop this AI fights as (docs/plans/enemy-behaviours.md, Stage 0; Duels only): its Body, Weapon, HP, Size, Mods, Relics,
+   * difficulty and Style, all from Tuning Data (`resolveTroop`). While set, the Pilot's difficulty and Style and the slot's `weapon` and
+   * `size` are ignored. Absent: a plain AI.
+   */
+  readonly troop?: TroopRef;
+}
+
+/** The Troop slot `s` fights as, resolved, or null for a slot without one. Throws on a Troop Tuning Data does not have (`resolveTroop`). */
+export function slotTroop(tuning: TuningData, s: LineupSlot): ResolvedTroop | null {
+  return s.troop ? resolveTroop(tuning, s.troop) : null;
 }
 
 export type Lineup = readonly LineupSlot[];
@@ -57,7 +69,7 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
 /**
  * Throws unless the Lineup is playable with `players` human Players: valid teams
  * (1 to MAX_TEAM_SIZE Fighters a side), each Player driving exactly one Fighter, and every
- * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
+ * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data, and every Troop too (AI slots only, Duels only). In a Gauntlet: Team 0's Fighters, then
  * MAX_TEAM_SIZE Team 1 slots, its traitors (Players, docs/plans/delver.md, Stage 8a) first, then each an AI of FLOOR_DIFFICULTY. In a Battle: only the Players' slots,
  * 0 to MAX_TEAM_SIZE a Team (the rest of the Fighter Pool is the Bubbles', each slot a Pool AI).
  */
@@ -88,6 +100,11 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
     if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);
     if (s.pilot.kind === 'AI' && s.weapon !== undefined && !tuning.weapons[s.weapon]) throw new RangeError(`Unknown Weapon "${s.weapon}"`);
+    if (s.troop !== undefined) {
+      if (s.pilot.kind !== 'AI') throw new RangeError('Only an AI slot fights as a Troop');
+      if (format !== 'Duels') throw new RangeError('Only Duels field a Delver Troop');
+      slotTroop(tuning, s);
+    }
   }
 }
 
@@ -105,10 +122,12 @@ function checkBattleTeams(lineup: Lineup): void {
  * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`) and Size, and for a
  * Gauntlet how many human Players its party fields (`humans`, which sizes the Warbands) and which Fighters they drive
  * (`players`, whose standing counts at the Stairs), and its traitors, so every peer building the Match from the same Lineup gets the same.
- * Duels never read them, and keep the defaults.
+ * Duels never read them, and keep the defaults. A slot with a Troop fields the Troop's Weapon and Size, and its Body, HP and Mods
+ * (`troops`, absent when no slot has one, so a Lineup without Troops gives the options it always did).
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
-  const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
+  const troops = lineup.map((s) => slotTroop(tuning, s));
+  const weapons = lineup.map((s, i) => troops[i]?.weapon ?? (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
   const gauntlet = options.format === 'Gauntlet';
   const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && (!gauntlet || s.team === 0) ? [i] : []));
   // A Run's Team 1 Players are its traitors (docs/plans/delver.md, Stage 8a): each with its own Size, in Lineup order.
@@ -117,9 +136,10 @@ export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: r
     ...options,
     teams: lineup.map((s) => s.team),
     weapons,
-    sizes: lineup.map((s) => s.size),
+    sizes: lineup.map((s, i) => troops[i]?.size ?? s.size),
     ...(gauntlet ? { humans: players.length, players } : {}),
     ...(traitors.length > 0 ? { traitors } : {}),
+    ...(troops.some((t) => t) ? { troops: troops.map((t) => t && { body: t.body, maxHp: t.maxHp, mods: t.mods }) } : {}),
   };
 }
 
@@ -143,7 +163,8 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
  * Players' (null), then a Pool AI on every other slot (`poolControllers`). In a Gauntlet (a Run, docs/plans/delver.md) the party's entries,
  * each Team 0 AI an Ally AI (walking with the party's Players), then a Pool AI on every Pool slot from the party's size to `bubble.poolSize`:
  * the Lineup's Team 1 slots are dropped (the Floors' enemies are the Crowd's; a traitor plays a Pool slot, which a Pool AI drives once it
- * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`).
+ * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`). In Duels, a slot with a Troop gets an AI of
+ * its Troop's difficulty and Style.
  */
 export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed'> = {}): (Controller | null)[] {
   if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
@@ -153,5 +174,10 @@ export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchForma
     const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), own)));
     return [...ais, ...Array.from({ length: tuning.battle.bubble.poolSize - ais.length }, () => createPoolAi(tuning))];
   }
-  return lineup.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i))));
+  return lineup.map((s, i) => {
+    if (s.pilot.kind !== 'AI') return null;
+    // A Troop plays its Variant's difficulty and Style (Stage 4 of docs/plans/enemy-behaviours.md adds its Quirks here).
+    const troop = slotTroop(tuning, s);
+    return troop ? createAiController(tuning, troop.difficulty, troop.style) : createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i));
+  });
 }

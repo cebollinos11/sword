@@ -557,7 +557,7 @@ Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Ma
 _Avoid_: Room (the connection), Lineup (what a start reads off it)
 
 **Seat**:
-A place on a Team in the Lobby (four a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty, Style and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
+A place on a Team in the Lobby (four a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty, Style and Weapon), or a Player. In dev mode an AI Seat may be set to a Delver Prefab's Variant (its **Troop**, with a Floor tier for its HP, `resolveTroop`): in Duels it then fights as that enemy would on a Floor, with its Body, Weapon, HP, Size, Mods, Relics, difficulty and Style, its own settings set aside (docs/plans/enemy-behaviours.md, Stage 0). A Seat with a Troop plays it on every peer, dev mode or not. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
 _Avoid_: Slot (that is the Lineup's)
 
 **Skirmish**:

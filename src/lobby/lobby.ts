@@ -23,6 +23,7 @@
  * on (an AI Seat fields nobody: the armies are the Battle's); the Map and the Match length are set aside (kept for Duels).
  */
 import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
+import type { TroopRef } from '../sim/delver';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
 import { applyBattleKnobs, storedSize, type BattleKnobs, type Size, type TuningData } from '../tuning';
 
@@ -49,7 +50,11 @@ export type Seat =
   | { readonly kind: 'Open' }
   | { readonly kind: 'Closed' }
   | { readonly kind: 'Player'; readonly member: number }
-  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string; readonly size?: Size };
+  /**
+   * An AI. `troop` (dev mode sets it, docs/plans/enemy-behaviours.md, Stage 0): in Duels it fights as that Delver Troop, and its difficulty,
+   * Style, Weapon and Size are ignored meanwhile (kept, for when the Troop is cleared); a Gauntlet or a Battle ignores it.
+   */
+  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string; readonly size?: Size; readonly troop?: TroopRef };
 
 export type SeatKind = Seat['kind'];
 
@@ -325,7 +330,10 @@ const memberSize = (state: LobbyState, id: number): { size?: Size } => {
   return size ? { size } : {};
 };
 
-/** Who fights, read off the Seats team by team (Open and Closed Seats field nobody); in a Gauntlet Team 0's, then MAX_TEAM_SIZE Floor slots. */
+/**
+ * Who fights, read off the Seats team by team (Open and Closed Seats field nobody); in a Gauntlet Team 0's, then MAX_TEAM_SIZE Floor slots.
+ * In Duels an AI Seat's Troop goes into its slot.
+ */
 export function lobbyLineup(state: LobbyState): LobbyLineup {
   const gauntlet = isGauntlet(state);
   // A Battle's Lineup names only its Players: its armies are the Battle's own.
@@ -343,7 +351,8 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
     }
     for (const s of row) {
       if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) });
-      else if (s.kind === 'AI' && !battle) lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon, ...(s.size && { size: s.size }) });
+      // A Seat's Troop only fights in Duels (a Gauntlet's Team 0 AIs are the party's allies).
+      else if (s.kind === 'AI' && !battle) lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon, ...(s.size && { size: s.size }), ...(s.troop && !gauntlet ? { troop: s.troop } : {}) });
     }
   });
   return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };

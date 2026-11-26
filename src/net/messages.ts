@@ -4,7 +4,7 @@ import { runFloorArena } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 37;
+export const PROTOCOL_VERSION = 38;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -231,9 +231,22 @@ export function isLobbyFormatOnMap(format: unknown, arena: unknown): boolean {
 /** A Format and Map a session plays (a Battle too). */
 const isSessionFormatOnMap = (format: unknown, arena: unknown): boolean => isFormatOnMap(format, arena, SESSION_FORMATS);
 
-/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
+/** The longest name a Troop ref may carry on the wire (a Prefab's or a Variant's). */
+const MAX_TROOP_NAME = 64;
+/** The highest Floor tier a Troop ref may name on the wire (Tuning Data's `delver.tiers` says which exist). */
+const MAX_TROOP_TIER = 9;
+/**
+ * A Delver Troop ref (`TroopRef`, docs/plans/enemy-behaviours.md, Stage 0): exactly a Prefab's and a Variant's name and an optional whole Floor
+ * tier, 1 to MAX_TROOP_TIER. Whether they exist is Tuning Data's to say (`resolveTroop`, in `checkLineup`). Shared with the Lobby's Seat check.
+ */
+export function isTroopRef(v: unknown): boolean {
+  const name = (x: unknown) => isString(x) && x.length > 0 && x.length <= MAX_TROOP_NAME;
+  return isObject(v) && Object.keys(v).every((k) => k === 'prefab' || k === 'variant' || k === 'tier') && name(v.prefab) && name(v.variant) && (v.tier === undefined || (isInt(v.tier) && v.tier >= 1 && v.tier <= MAX_TROOP_TIER));
+}
+
+/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), an optional AI Weapon, Size and Troop. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
-  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size))) return false;
+  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size)) || (v.troop !== undefined && !isTroopRef(v.troop))) return false;
   const p = v.pilot;
   return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)));
 }
@@ -698,6 +711,10 @@ const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) 
 const isPlayers = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 
+/** One Fighter's entry of a Duel's `config.troops`: null, or a Body, a positive max HP and optional Mods (as a Fighter's). */
+const isDuelTroop = (v: unknown): boolean =>
+  v === null || (isObject(v) && Object.keys(v).every((k) => k === 'body' || k === 'maxHp' || k === 'mods') && isString(v.body) && v.body.length > 0 && v.body.length <= MAX_TROOP_NAME && isNum(v.maxHp) && v.maxHp > 0 && (v.mods === undefined || isMods(v.mods)));
+
 function isMatchState(v: unknown): v is MatchState {
   if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
   const { config, status } = v;
@@ -712,6 +729,8 @@ function isMatchState(v: unknown): v is MatchState {
     (config.rematchTicks === null || (isInt(config.rematchTicks) && config.rematchTicks >= 1)) &&
     isWeapons(config.weapons) &&
     (config.sizes === undefined || (isArrayOf(config.sizes, isSize) && (config.sizes as unknown[]).length === (config.teams as unknown[]).length)) &&
+    // A Duel's Troops (docs/plans/enemy-behaviours.md, Stage 0): one entry per Fighter, absent when none has one.
+    (config.troops === undefined || (config.format === 'Duels' && isArrayOf(config.troops, isDuelTroop) && (config.troops as unknown[]).length === (config.teams as unknown[]).length && (config.troops as unknown[]).some((t) => t !== null))) &&
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isInt(v.matchNumber) &&
     v.matchNumber >= 1 &&

@@ -173,6 +173,7 @@ export {
   teamMembers,
   stepMatch,
   type DuelStartEvent,
+  type DuelTroop,
   type DroppedItem,
   type ItemDroppedEvent,
   type ItemTakenEvent,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, runControllers, scriptedController, type Controller, type Lineup } from '../controllers';
+import { resolveTroop } from '../sim/delver';
 import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
@@ -715,7 +716,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
   });
 
   it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 37', () => {
-    expect(PROTOCOL_VERSION).toBe(37);
+    expect(PROTOCOL_VERSION).toBe(38);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -837,5 +838,42 @@ describe('Peer message validation: the AI memory of an answered Whirlwind (docs/
     for (const bad of bads) {
       expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlReads: bad }])), JSON.stringify(bad)).toBeNull();
     }
+  });
+});
+
+describe('Peer message validation: a Delver Troop in a Duel (docs/plans/enemy-behaviours.md, Stage 0)', () => {
+  const uruk = { prefab: 'Uruk', variant: 'Uruk (Beginner)' };
+  const withTroop = (troop: unknown) => ({
+    type: 'hello',
+    protocol: 1,
+    tuningHash: 'abcd1234',
+    match: { bestOf: 3, seed: 4 },
+    lineup: [
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 1, pilot: { kind: 'AI', difficulty: 'Expert' }, weapon: 'Halberd', troop },
+    ],
+    weapons: ['Halberd'],
+    player: 0,
+  });
+
+  it("a hello's Lineup carries an AI's Troop ref: a Prefab and a Variant name and an optional whole tier (Tuning Data judges the names)", () => {
+    for (const troop of [uruk, { ...uruk, tier: 1 }, { prefab: 'Goblin', variant: 'Anything' }]) expect(parseNetMessage(withTroop(troop))).toEqual(withTroop(troop));
+    for (const troop of [null, 'Uruk', { prefab: 'Uruk' }, { ...uruk, variant: '' }, { ...uruk, tier: 0 }, { ...uruk, tier: 1.5 }, { ...uruk, tier: 10 }, { ...uruk, quirks: [] }, { ...uruk, prefab: 'x'.repeat(65) }])
+      expect(parseNetMessage(withTroop(troop)), JSON.stringify(troop)).toBeNull();
+  });
+
+  it("a resync carries a Duel's Troops (one entry per Fighter, null for none), and refuses a malformed one", () => {
+    const troop = resolveTroop(tuning, uruk);
+    const state = (troops: unknown) => {
+      const m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3, troops: [null, { body: troop.body, maxHp: troop.maxHp, mods: troop.mods }] });
+      const plain = JSON.parse(JSON.stringify(m)) as MatchState;
+      return { ...plain, config: { ...plain.config, troops } };
+    };
+    const good = state([null, { body: 'uruk', maxHp: troop.maxHp, mods: troop.mods }]);
+    expect(parseNetMessage(resync(good))).toEqual(resync(good));
+    for (const bad of [[null], [null, null], [null, { body: 'uruk', maxHp: 0 }], [null, { body: '', maxHp: 80 }], [null, { body: 'uruk', maxHp: 80, mods: { damage: 1 } }], [null, { body: 'uruk', maxHp: 80, hp: 3 }]])
+      expect(parseNetMessage(resync(state(bad))), JSON.stringify(bad)).toBeNull();
+    // Only a Duel fields one.
+    expect(parseNetMessage(resync({ ...good, config: { ...good.config, format: 'Gauntlet' } }))).toBeNull();
   });
 });

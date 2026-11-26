@@ -10,6 +10,7 @@
  */
 import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName, type MatchFormat } from '../sim';
 import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
+import { duelTroopTier, resolveTroop, troopLabel, type ResolvedTroop, type TroopRef } from '../sim/delver';
 import { teamColour } from '../render/fighterView';
 import { PortraitView } from '../render/portrait';
 import {
@@ -158,6 +159,8 @@ export interface LobbyViewContext {
   readonly played?: string | null;
   /** Your look and build controls (the Character screen's), opened from your portrait; absent, the portrait is only a picture. */
   readonly look?: () => { readonly grid: HTMLElement; readonly sliders: HTMLElement };
+  /** Dev mode (`devMode()`, `?dev=1`): the host may set an AI Seat to a Delver Troop (docs/plans/enemy-behaviours.md, Stage 0). */
+  readonly dev?: boolean;
 }
 
 /** The whole Lobby body: you (your look and Weapon) on the left; the Match, the teams and the rest under "More options" on the right. */
@@ -326,8 +329,16 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
   if (seat.kind === 'AI') {
     row.append(avatar('AI', colour));
     const info = h('div', 'seat-info');
+    // A Troop (set in dev mode) shows whether or not this peer is in dev mode: it plays all the same. Only Duels field one.
+    const troop = seat.troop && !isGauntlet(state) ? seat.troop : undefined;
     if (host) {
-      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat), sizeSelect(ctx, at, seat)));
+      // With a Troop, its own line stands in for the Style, Weapon and build: the Troop sets them.
+      const own = troop ? [] : [styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat), sizeSelect(ctx, at, seat)];
+      const dev = ctx.dev && !isGauntlet(state) ? [troopSelect(ctx, at, seat), troop && troopTierSelect(ctx, at, seat, troop)] : [];
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), ...dev.filter((e) => e), ...own));
+      if (troop) info.append(h('div', 'seat-sub', troopLine(ctx.tuning, troop)));
+    } else if (troop) {
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${troopName(ctx.tuning, troop)} AI`)), h('div', 'seat-sub', troopLine(ctx.tuning, troop)));
     } else {
       info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', `${styleLabel(seat.style)} · ${seat.weapon}`));
     }
@@ -365,8 +376,9 @@ function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat:
   const weapon = seat.kind === 'AI' ? seat.weapon : Object.keys(ctx.tuning.weapons)[0]!;
   const style = seat.kind === 'AI' && seat.style !== undefined ? { style: seat.style } : {};
   const size = seat.kind === 'AI' && seat.size !== undefined ? { size: seat.size } : {};
+  const troop = seat.kind === 'AI' && seat.troop !== undefined ? { troop: seat.troop } : {};
   return select('Seat', options, value, (v) => {
-    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style, ...size } : { kind: v as 'Open' | 'Closed' };
+    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style, ...size, ...troop } : { kind: v as 'Open' | 'Closed' };
     ctx.lobby.edit((s) => setSeat(s, at, next));
   });
 }
@@ -405,6 +417,73 @@ function styleSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { k
   return select('AI Style', styles, seat.style ?? DEFAULT_STYLE, (v) => {
     const { style: _old, ...rest } = seat;
     ctx.lobby.edit((s) => setSeat(s, at, v === DEFAULT_STYLE ? rest : { ...rest, style: v }));
+  });
+}
+
+/** The Troop select's value for no Troop. */
+export const NO_TROOP = '';
+
+/** The Troop select's value for a ref (its Prefab and Variant names; never NO_TROOP). */
+const troopKey = (ref: Pick<TroopRef, 'prefab' | 'variant'>): string => JSON.stringify([ref.prefab, ref.variant]);
+
+/**
+ * The Troops an AI Seat may fight as, in dev mode (docs/plans/enemy-behaviours.md, Stage 0): "(none)", then every Variant of every Prefab of
+ * `delver.troops` in order, Boss Variants too ("Uruk · Beginner", "Uruk · Warden (Boss)"). Each is [select value, label, ref].
+ */
+export function troopChoices(tuning: TuningData): readonly (readonly [string, string, TroopRef | null])[] {
+  const list: [string, string, TroopRef | null][] = [[NO_TROOP, '(none)', null]];
+  for (const p of tuning.delver.troops) for (const v of p.variants) list.push([troopKey({ prefab: p.name, variant: v.name }), troopLabel(p, v), { prefab: p.name, variant: v.name }]);
+  return list;
+}
+
+/** A Troop's short name ("Uruk · Beginner"), or its ref as given when Tuning Data lacks it. */
+export function troopName(tuning: TuningData, ref: TroopRef): string {
+  const p = tuning.delver.troops.find((x) => x.name === ref.prefab);
+  const v = p?.variants.find((x) => x.name === ref.variant);
+  return p && v ? troopLabel(p, v) : `${ref.prefab} · ${ref.variant}`;
+}
+
+/**
+ * What an AI Seat with a Troop fights as, read-only, in place of its own Style, Weapon and build: its Body, Weapon, HP (and the Floor tier it
+ * is scaled as, or Boss), AI difficulty and Style, and Relics (`resolveTroop`). A Troop Tuning Data lacks says so instead.
+ */
+export function troopLine(tuning: TuningData, ref: TroopRef): string {
+  let t: ResolvedTroop;
+  try {
+    t = resolveTroop(tuning, ref);
+  } catch {
+    return `Unknown Troop ${ref.prefab} · ${ref.variant}`;
+  }
+  const hp = `${Math.round(t.maxHp)} HP ${t.troop.boss ? '(Boss)' : `(Floor tier ${t.tier})`}`;
+  const relics = t.relics.length > 0 ? t.relics.join(', ') : 'no Relics';
+  return `${t.body} · ${t.weapon} · ${hp} · ${t.difficulty} ${t.style} · ${relics}`;
+}
+
+/** Host, dev mode: the Delver Troop an AI Seat fights as, or none (its own settings again). */
+function troopSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>): HTMLSelectElement {
+  const choices = troopChoices(ctx.tuning);
+  const options: [string, string][] = choices.map(([value, label]) => [value, label]);
+  const value = seat.troop ? troopKey(seat.troop) : NO_TROOP;
+  // A Troop this build lacks (a stale Seat) still shows, so the select says what the Seat holds.
+  if (seat.troop && !choices.some(([v]) => v === value)) options.push([value, troopName(ctx.tuning, seat.troop)]);
+  return select('AI Troop', options, value, (v) => {
+    const { troop: old, ...rest } = seat;
+    const ref = choices.find(([key]) => key === v)?.[2];
+    // A new Troop keeps the Floor tier the Seat had.
+    ctx.lobby.edit((s) => setSeat(s, at, ref ? { ...rest, troop: { ...ref, ...(old?.tier === undefined ? {} : { tier: old.tier }) } } : rest));
+  });
+}
+
+/** Host, dev mode: the Floor tier a Troop's HP is scaled as (1 to `delver.tiers`; a Boss's HP is whole, so a Boss Troop has none). */
+function troopTierSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>, troop: TroopRef): HTMLSelectElement | null {
+  const p = ctx.tuning.delver.troops.find((x) => x.name === troop.prefab);
+  if (!p || p.variants.find((v) => v.name === troop.variant)?.boss) return null;
+  const tiers = Array.from({ length: ctx.tuning.delver.tiers }, (_, k) => [String(k + 1), `Floor tier ${k + 1}`] as [string, string]);
+  const fallback = duelTroopTier(ctx.tuning.delver);
+  return select('Troop Floor tier', tiers, String(troop.tier ?? fallback), (v) => {
+    const { tier: _old, ...ref } = troop;
+    const tier = Number(v);
+    ctx.lobby.edit((s) => setSeat(s, at, { ...seat, troop: tier === fallback ? ref : { ...ref, tier } }));
   });
 }
 
@@ -657,7 +736,11 @@ function whoRow(ctx: LobbyViewContext, state: LobbyState, seat: Exclude<Seat, { 
     else if (state.playing && !state.inMatch.includes(seat.member)) row.append(h('span', 'lb-ready', waitingTag(state)));
     return row;
   }
-  if (seat.kind === 'AI') return h('div', 'lb-who-row', null, avatar('AI', colour), h('span', 'lb-who-name', `${seat.difficulty} AI`));
+  if (seat.kind === 'AI') {
+    // A Duel Troop is named, not its Seat's own (ignored) difficulty.
+    const name = seat.troop && !isGauntlet(state) ? troopName(ctx.tuning, seat.troop) : seat.difficulty;
+    return h('div', 'lb-who-row', null, avatar('AI', colour), h('span', 'lb-who-name', `${name} AI`));
+  }
   return h('div', 'lb-who-row lb-who-open', null, h('span', 'seat-avatar seat-avatar-empty', '+'), h('span', 'lb-who-name', 'Open for a player'));
 }
 

@@ -31,6 +31,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { runPlayers, stairsTicksNeeded } from './party';
 import type { Dropped, Item } from './inventory';
 import { placeDrop, type DroppedItem, type PickupAt } from './pickups';
+import { isNoMods, MODS_KEYS, type Mods } from './mods';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -111,6 +112,25 @@ export interface MatchConfig {
    * config is as it always was. Only a Gauntlet, at most MAX_TEAM_SIZE, and `humans` plus traitors at most MAX_TEAM_SIZE (the Players a Match fields).
    */
   readonly traitors?: readonly TraitorSeat[];
+  /**
+   * Each Fighter's Delver Troop in a Duel (docs/plans/enemy-behaviours.md, Stage 0; `resolveTroop`): null for a Fighter without one. Kept
+   * across Duels, and laid on its Fighter at every Duel's start (`initialDuel`). Absent unless some Fighter has a Troop, so every other
+   * Match's config is as it always was. Duels only. Its Weapon and Size are in `weapons` and `sizes`, as any Fighter's.
+   */
+  readonly troops?: readonly (DuelTroop | null)[];
+}
+
+/**
+ * A Fighter's Delver Troop in a Duel (`MatchConfig.troops`), resolved by every peer from the same Lineup and Tuning Data: what a Floor's
+ * promotion gives the Soldier (`promotedFighter`) that a Duel Fighter does not have of its own.
+ */
+export interface DuelTroop {
+  /** The Body it is drawn as (render-only: the Simulation never reads it). */
+  readonly body: string;
+  /** Its HP and max HP at each Duel's start (its Relics' `maxHp` share already in, as on a Floor). Positive. */
+  readonly maxHp: number;
+  /** Its Mods (its Troop's and its Relics', folded); absent when they are NO_MODS. */
+  readonly mods?: Mods;
 }
 
 /** A traitor of a Delver Run (`MatchConfig.traitors`): its own Size (absent: the standard body), which it keeps in every Soldier it takes over. */
@@ -118,9 +138,11 @@ export interface TraitorSeat {
   readonly size?: Size;
 }
 
-export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
+export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes' | 'troops'>> {
   /** Each Fighter's Size (default: the standard body). */
   readonly sizes?: readonly (Size | undefined)[];
+  /** Each Fighter's Delver Troop in a Duel (default: none); Duels only. Mods equal to NO_MODS may be given, and are dropped. */
+  readonly troops?: readonly (DuelTroop | null | undefined)[];
   readonly bestOf: number;
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
@@ -333,8 +355,15 @@ function startPlacements(tuning: TuningData, config: MatchConfig, arena: string)
   return placed.every((p) => p !== undefined) ? placed : teamPlacements(config.teams, config.distance, config.spacing);
 }
 
+/**
+ * A Duel at its start: every Fighter at its place, at full HP. A Fighter with a Delver Troop (`config.troops`) then takes the Troop's HP, max HP
+ * and Mods, as a promoted Soldier does on a Floor (`promotedFighter`: its Throwing Daggers are not moved by them).
+ */
 function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, seed: number): SimState {
-  return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena, config.sizes);
+  const duel = createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena, config.sizes);
+  const { troops } = config;
+  if (!troops) return duel;
+  return { ...duel, fighters: duel.fighters.map((f, i) => { const t = troops[i]; return t ? { ...f, hp: t.maxHp, maxHp: t.maxHp, ...(t.mods ? { mods: { ...t.mods } } : {}) } : f; }) };
 }
 
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
@@ -351,6 +380,24 @@ function runArena(tuning: TuningData, name: string): string {
 function sizesOf(count: number, given: readonly (Size | undefined)[] | undefined): { sizes?: Size[] } {
   const sizes = Array.from({ length: count }, (_, i) => storedSize(given?.[i]) ?? { height: 1, thick: 1 });
   return sizes.every((s) => isStandardSize(s)) ? {} : { sizes };
+}
+
+/**
+ * `{ troops }` for the Fighters' Delver Troops (a missing one: none; Mods equal to NO_MODS dropped), or nothing when no Fighter has one (so a
+ * Match without Troops has the config it always had). Throws on a bad entry.
+ */
+function troopsOf(count: number, given: readonly (DuelTroop | null | undefined)[] | undefined): { troops?: (DuelTroop | null)[] } {
+  if (!given?.some((t) => t)) return {};
+  if (given.length > count) throw new RangeError(`troops names ${given.length} Fighters, the Match has ${count}`);
+  const troops = Array.from({ length: count }, (_, i): DuelTroop | null => {
+    const t = given[i];
+    if (!t) return null;
+    if (typeof t.body !== 'string' || t.body.length === 0) throw new RangeError(`Fighter ${i}'s Troop needs a Body, got ${JSON.stringify(t.body)}`);
+    if (!Number.isFinite(t.maxHp) || t.maxHp <= 0) throw new RangeError(`Fighter ${i}'s Troop HP must be positive, got ${t.maxHp}`);
+    if (t.mods && !MODS_KEYS.every((k) => Number.isFinite(t.mods![k]))) throw new RangeError(`Fighter ${i}'s Troop Mods must name every Mod (${MODS_KEYS.join(', ')})`);
+    return { body: t.body, maxHp: t.maxHp, ...(t.mods && !isNoMods(t.mods) ? { mods: { ...t.mods } } : {}) };
+  });
+  return { troops };
 }
 
 /** A Match at Tick 0: Duel 1 (or a Run's first Floor) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
@@ -381,7 +428,9 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     ...(options.delverStart === undefined ? {} : { delverStart: options.delverStart }),
     ...(options.delverGallery ? { delverGallery: true as const } : {}),
     ...(options.traitors?.length ? { traitors: options.traitors.map((t) => (storedSize(t.size) ? { size: storedSize(t.size)! } : {})) } : {}),
+    ...troopsOf(teams.length, options.troops),
   };
+  if (config.troops && gauntlet) throw new RangeError('Only Duels field a Delver Troop');
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
     const own = teams.filter((t) => t === 0).length;
@@ -445,6 +494,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   for (const t of [0, 1]) if (teams.filter((team) => team === t).length > MAX_TEAM_SIZE) throw new RangeError(`A Battle fields at most ${MAX_TEAM_SIZE} Fighters on Team ${t}`);
   if (options.rematchTicks != null) throw new RangeError('A Battle has no Rematch: rematchTicks must be null');
   if (options.delverStart !== undefined || options.delverGallery || options.relics?.length) throw new RangeError('Only a Run has a start Floor, the Set Piece Gallery or Relics');
+  if (options.troops?.some((t) => t)) throw new RangeError('Only Duels field a Delver Troop');
   const seed = options.seed ?? 1;
   const arena = options.arena ?? battleArenaName(seed);
   if (!battlefieldOf(tuning.battle, arena)) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed> or a map of battle.maps), got "${arena}"`);

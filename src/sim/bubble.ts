@@ -50,8 +50,8 @@ import { battleMapOf } from './destinations';
 import type { Battlefield, MapPoint } from './battlefield';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
-import { relicOf } from './inventory';
-import { foldMods, isNoMods, type Mods } from './mods';
+import { troopMods } from './delver/troops';
+import { isNoMods, type Mods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
 
@@ -242,7 +242,7 @@ function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
     byRelics.set(
       tuning.relics,
       (made = tuning.battle.troops.map((t) => {
-        const folded = foldMods([{ effects: t.mods }, ...(t.relics ?? []).map((name) => relicOf(tuning, name))]);
+        const folded = troopMods(tuning, t);
         return isNoMods(folded) ? {} : { mods: folded };
       })),
     );

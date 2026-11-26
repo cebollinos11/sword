@@ -5,7 +5,7 @@
  */
 import { MAX_TEAM_SIZE } from '../sim';
 import { BATTLE_KNOB_KEYS, isSize, MAX_MAP_NAME, type Size } from '../tuning';
-import { isLobbyFormatOnMap } from '../net';
+import { isLobbyFormatOnMap, isTroopRef } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
 export type RefuseLobbyReason = 'RoomFull' | 'TuningDataMismatch' | 'ProtocolMismatch';
@@ -58,7 +58,7 @@ function isSeat(v: unknown): boolean {
     case 'Player':
       return isCount(v.member);
     case 'AI':
-      return isShortString(v.difficulty) && isShortString(v.weapon) && (v.style === undefined || isShortString(v.style)) && (v.size === undefined || isSize(v.size));
+      return isShortString(v.difficulty) && isShortString(v.weapon) && (v.style === undefined || isShortString(v.style)) && (v.size === undefined || isSize(v.size)) && (v.troop === undefined || isTroopRef(v.troop));
     default:
       return false;
   }

@@ -128,11 +128,13 @@ export function floorFade(match: MatchState, tuning: TuningData): number {
   return Math.max(0, 1 - match.duel.tick / ticks);
 }
 
-/** A Fighter's short HUD label: "You", the other human Player by name, or an AI by difficulty. */
+/** A Fighter's short HUD label: "You", the other human Player by name, an AI by difficulty, or an AI fighting as a Delver Troop by its Variant ("Uruk (Beginner)"). */
 function label(lineup: Lineup | null, fighter: number, me: number, names: readonly string[] | null | undefined): string {
   if (fighter === me) return 'You';
-  const pilot = lineup?.[fighter]?.pilot;
+  const slot = lineup?.[fighter];
+  const pilot = slot?.pilot;
   if (!pilot) return '';
+  if (slot.troop) return slot.troop.variant;
   return pilot.kind === 'Player' ? (names?.[pilot.player] ?? `Player ${pilot.player + 1}`) : `${pilot.difficulty} AI`;
 }
 

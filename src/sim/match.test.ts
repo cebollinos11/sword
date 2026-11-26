@@ -9,9 +9,11 @@ import {
   restore,
   snapshot,
   stepMatch,
+  type DuelTroop,
   type Intent,
   type MatchState,
 } from './index';
+import { NO_MODS, type Mods } from './mods';
 
 const repoTuning = loadTuningData();
 /** One clean Overhead hit decides a Duel. */
@@ -254,5 +256,51 @@ describe('A Random Map: a new Arena every Match, the same one every Duel', () =>
     expect(third.arena).toBe('gen:greybox:763946');
     // The same Match, stepped again, rematches onto the same Arena.
     expect(hashValue(stepUntil(decide(start), (m) => m.matchNumber === 2))).toBe(hashValue(second));
+  });
+});
+
+describe('Match: a Delver Troop in a Duel (docs/plans/enemy-behaviours.md, Stage 0)', () => {
+  const mods = { ...NO_MODS, damage: 0.6, heavyDamage: 1.3 };
+  const troop: DuelTroop = { body: 'uruk', maxHp: 80, mods };
+  const base = { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 } as const;
+
+  it("gives a Troop's Fighter its HP, max HP and Mods at every Duel's start, and keeps the Troop in the config", () => {
+    let m = createMatch(tuning, { ...base, troops: [null, troop] });
+    expect(m.config.troops).toEqual([null, troop]);
+    expect(m.duel.fighters.map((f) => [f.hp, f.maxHp])).toEqual([[100, 100], [80, 80]]);
+    expect(m.duel.fighters[1]!.mods).toEqual(mods);
+    expect(m.duel.fighters[0]!.mods).toBeUndefined();
+    m = winDuel(m, 0);
+    expect(m.duelNumber).toBe(2);
+    expect(m.duel.fighters.map((f) => [f.hp, f.maxHp])).toEqual([[100, 100], [80, 80]]);
+    expect(m.duel.fighters[1]!.mods).toEqual(mods);
+  });
+
+  it('drops Mods that change nothing, and a snapshot of a Troop Match restores to the same hash', () => {
+    const m = createMatch(tuning, { ...base, troops: [{ body: 'monk', maxHp: 55, mods: NO_MODS }] });
+    expect(m.config.troops).toEqual([{ body: 'monk', maxHp: 55 }, null]);
+    expect(m.duel.fighters[0]!.mods).toBeUndefined();
+    expect(hashValue(restore(snapshot(m)))).toBe(hashValue(m));
+  });
+
+  it('without a Troop has exactly the config, state and hash it had: no `troops` key, whatever the options say', () => {
+    const plain = createMatch(tuning, base);
+    expect('troops' in plain.config).toBe(false);
+    for (const troops of [[], [null, null], [undefined, null]]) {
+      const m = createMatch(tuning, { ...base, troops });
+      expect('troops' in m.config).toBe(false);
+      expect(m).toEqual(plain);
+      expect(hashValue(m)).toBe(hashValue(plain));
+      expect(hashValue(winDuel(m, 1))).toBe(hashValue(winDuel(plain, 1)));
+    }
+  });
+
+  it('refuses a Troop outside Duels, and a bad entry', () => {
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Gauntlet', arena: 'gen:greybox:1', teams: [0], troops: [troop] })).toThrow(/Only Duels field a Delver Troop/);
+    expect(() => createMatch(repoTuning, { bestOf: 1, format: 'Battle', troops: [troop] })).toThrow(/Only Duels field a Delver Troop/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, null, troop] })).toThrow(/troops names 3 Fighters/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, maxHp: 0 }] })).toThrow(/HP must be positive/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, body: '' }] })).toThrow(/needs a Body/);
+    expect(() => createMatch(tuning, { ...base, troops: [null, { ...troop, mods: { damage: 2 } as unknown as Mods }] })).toThrow(/must name every Mod/);
   });
 });

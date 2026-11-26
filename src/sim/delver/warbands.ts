@@ -10,11 +10,10 @@ import type { CrowdState } from '../crowd';
 import { runPick } from '../dungeon';
 import { createObjectives } from '../objectives';
 import { createRng } from '../rng';
-import { relicMods } from '../inventory';
 import { COLUMN, DEFEND, placeOffset } from '../squad';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN, RETURN } from '../warband';
 import type { FloorPlan } from './plan';
-import { floorPrefabs, floorTroops, sizeOfHp, tierOf } from './troops';
+import { floorPrefabs, floorTroops, sizeOfHp, soldierHp, tierOf } from './troops';
 
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
 export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, patrolPick: 23, extra: 24, prefab: 25, variant: 26, elitePick: 28, bossGuard: 29 } as const;
@@ -302,8 +301,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       surface.push(groundOf(battle, field, px, pz, w.y));
       heading.push(w.facing);
       // Its Troop's HP (a Boss's whole, every other Soldier's scaled by its template and its tier), with its Relics' `maxHp` share on top.
-      const worn = relicMods(tuning, troop.relics ?? []).maxHp;
-      const life = bossSoldier ? troop.hp * (1 + worn) : troop.hp * w.template.hpScale * hpOfTier * (1 + worn);
+      const life = soldierHp(tuning, troop, bossSoldier, w.template.hpScale, hpOfTier);
       hp.push(life);
       // Its Size follows that HP (docs/plans/delver-troops.md).
       const size = sizeOfHp(delver, life);

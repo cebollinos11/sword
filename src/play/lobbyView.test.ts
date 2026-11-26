@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
 import { moveMember, newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
+import { NO_TROOP, troopChoices, troopLine, troopName } from './lobbyView';
 import { addToSide, arenaLabel, joinSeat, removeFromSide, sideCount, traitorSeat, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
@@ -174,5 +175,27 @@ describe("Join: changing sides from the Lobby's sides", () => {
     const ais = (s: LobbyState, team: number) => s.teams[team]!.filter((seat) => seat.kind === 'AI').length;
     expect(back.teams[0]!.some((s) => s.kind === 'Player')).toBe(true);
     expect([ais(back, 0), ais(back, 1)]).toEqual([ais(traitor, 0), ais(traitor, 1)]);
+  });
+});
+
+describe('the Lobby view: an AI Seat fighting as a Delver Troop (docs/plans/enemy-behaviours.md, Stage 0)', () => {
+  it('offers "(none)", then every Variant of every Prefab, Boss Variants too', () => {
+    const choices = troopChoices(tuning);
+    const labels = choices.map(([, label]) => label);
+    expect(choices[0]).toEqual([NO_TROOP, '(none)', null]);
+    expect(labels).toContain('Uruk · Beginner');
+    expect(labels).toContain('Uruk · Warden (Boss)');
+    expect(labels).toContain('Revenant · Wraith Lord (Boss)');
+    expect(choices.length).toBe(1 + tuning.delver.troops.reduce((n, p) => n + p.variants.length, 0));
+    expect(choices.find(([, label]) => label === 'Uruk · Beginner')![2]).toEqual({ prefab: 'Uruk', variant: 'Uruk (Beginner)' });
+    expect(new Set(choices.map(([value]) => value)).size).toBe(choices.length);
+  });
+
+  it("reads the Troop out in place of the Seat's own settings: Body, Weapon, HP and tier, difficulty and Style, Relics", () => {
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive · no Relics');
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)', tier: 3 })).toBe('uruk · Sledge Hammer · 120 HP (Floor tier 3) · Beginner Aggressive · no Relics');
+    expect(troopLine(tuning, { prefab: 'Revenant', variant: 'Wraith Lord' })).toBe('wraith · Longsword · 300 HP (Boss) · Expert Aggressive · Heavy Gauntlet');
+    expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Goblin' })).toBe('Unknown Troop Uruk · Goblin');
+    expect(troopName(tuning, { prefab: 'Uruk', variant: 'Warden' })).toBe('Uruk · Warden (Boss)');
   });
 });

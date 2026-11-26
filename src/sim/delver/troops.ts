@@ -4,9 +4,11 @@
  * object, never state. A Floor's Battle Tuning carries this list as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in
  * it; the Battles' own `battle.troops` are never a Floor's. Which Prefabs a Floor fields is `floorPrefabs`.
  */
-import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type Size, type TroopTuning } from '../../tuning';
+import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type Size, type TroopTuning, type TuningData } from '../../tuning';
 import type { DelverFloorTuning, DelverPrefab, DelverVariant } from '../../tuning/delver';
 import { runPick } from '../dungeon';
+import { relicMods, relicOf } from '../inventory';
+import { foldMods, type Mods } from '../mods';
 
 /** The `runPick` salt of a Floor's Prefab order (apart from the Floor generator's and the Warbands'). */
 const PREFAB_SALT = 40;
@@ -146,4 +148,109 @@ export function sizeOfHp(delver: Pick<DelverTuning, 'sizeHp'>, hp: number): Size
     height: MIN_SIZE + t * (DELVE_MAX_HEIGHT - MIN_SIZE),
     thick: DELVE_MIN_THICK + t * (MAX_SIZE - DELVE_MIN_THICK),
   });
+}
+
+/**
+ * A Delver Soldier's HP from its Troop (docs/plans/delver-troops.md): a Boss's whole HP (`boss`), every other Soldier's times its Warband
+ * template's `hpScale` and then its tier's `tierHp`, with its Relics' `maxHp` share on top, multiplied left to right in that order so every
+ * caller gets the same bits. The one formula a Floor's Crowd (`deployWarbands`) and a Duel Troop (`resolveTroop`, `hpScale` 1) both use.
+ * Throws on a Relic Tuning Data lacks. Pure.
+ */
+export function soldierHp(tuning: Pick<TuningData, 'relics'>, troop: Pick<TroopTuning, 'hp' | 'relics'>, boss: boolean, hpScale: number, tierHp: number): number {
+  const worn = relicMods(tuning, troop.relics ?? []).maxHp;
+  return boss ? troop.hp * (1 + worn) : troop.hp * hpScale * tierHp * (1 + worn);
+}
+
+/**
+ * A promoted Soldier's Mods from its Troop: its Troop's `mods` and then its Relics, folded (`foldMods`). The one fold a Floor's promotion
+ * (`bubble.ts`) and a Duel Troop (`resolveTroop`) both use. Stage 4 of docs/plans/enemy-behaviours.md folds a Troop's Quirks' `body` parts in
+ * here too, after its Relics. Throws on a Relic Tuning Data lacks. Pure.
+ */
+export function troopMods(tuning: Pick<TuningData, 'relics'>, troop: Pick<TroopTuning, 'mods' | 'relics'>): Mods {
+  return foldMods([{ effects: troop.mods }, ...(troop.relics ?? []).map((name) => relicOf(tuning, name))]);
+}
+
+/**
+ * A Delver Troop to fight in a Duel (docs/plans/enemy-behaviours.md, Stage 0): a Prefab by its name, one of its Variants by the Variant's own
+ * `name` ("Uruk (Beginner)" for a plain one, "Warden" for a Boss), and the Floor tier whose HP it has (1 to `delver.tiers`; absent:
+ * `duelTroopTier`). Plain data, on an AI Seat and its Lineup slot, and over the wire.
+ */
+export interface TroopRef {
+  readonly prefab: string;
+  readonly variant: string;
+  readonly tier?: number;
+}
+
+/** The Floor tier a Duel Troop's HP is scaled as when its ref names none. */
+export const DUEL_TROOP_TIER = 2;
+
+/** The tier a Duel Troop takes with no `tier` of its own: DUEL_TROOP_TIER, or the last tier when a Run has fewer. */
+export const duelTroopTier = (delver: Pick<DelverTuning, 'tiers'>): number => Math.min(DUEL_TROOP_TIER, delver.tiers);
+
+/** A Duel Troop resolved from Tuning Data (`resolveTroop`): everything a Duel needs to field it as the enemy it is on a Floor. */
+export interface ResolvedTroop {
+  /** Its Prefab (an index into `delver.troops`) and Variant there. */
+  readonly prefab: number;
+  readonly variant: number;
+  /** The Floor's own Troop for that Variant (`floorTroops(...).plain`), which a Floor's Crowd indexes. */
+  readonly troop: TroopTuning;
+  /** The Floor tier its HP is scaled as (a Boss's HP is whole whatever it says). */
+  readonly tier: number;
+  /** Its Prefab's Body (render-only) and Weapon. */
+  readonly body: string;
+  readonly weapon: string;
+  /** Its Variant's AI difficulty and Style. */
+  readonly difficulty: string;
+  readonly style: string;
+  /** The Relics it wears (its Variant's). */
+  readonly relics: readonly string[];
+  /** Its Mods: the Variant's `mods` with its Relics folded in (`troopMods`). */
+  readonly mods: Mods;
+  /** Its HP and max HP (`soldierHp`, scaled as on a Floor of `tier`). */
+  readonly maxHp: number;
+  /** Its Size, from that HP (`sizeOfHp`). */
+  readonly size: Size;
+}
+
+/** How the Lobby names a Variant: "Uruk · Beginner" for a plain one with its default name, "Uruk · Warden (Boss)", else "Prefab · its name". */
+export function troopLabel(p: Pick<DelverPrefab, 'name'>, v: Pick<DelverVariant, 'name' | 'difficulty' | 'boss'>): string {
+  if (v.boss) return `${p.name} · ${v.name} (Boss)`;
+  return `${p.name} · ${v.name === `${p.name} (${v.difficulty})` ? v.difficulty : v.name}`;
+}
+
+/**
+ * The Duel Troop `ref` names, from Tuning Data (docs/plans/enemy-behaviours.md, Stage 0), built the way a Floor builds its promoted Soldier:
+ * the Floor's own Troop for the Variant (`floorTroops`), its HP (`soldierHp`, a Boss's whole, every other at its tier's `tierHp`: a Duel has
+ * no Warband template, so no `hpScale`), its Mods (`troopMods`) and its Size from that HP (`sizeOfHp`). Every peer resolves the same ref to the
+ * same numbers. Throws a RangeError naming the known ones for a Prefab, a Variant or a tier Tuning Data does not have. Pure.
+ *
+ * Stage 4 (Quirks) plugs in here: the Variant's Quirks go beside its Style, for the AI to apply after it, and their `body` parts into `mods`
+ * through `troopMods`, the seam a Floor's promotion shares.
+ */
+export function resolveTroop(tuning: Pick<TuningData, 'delver' | 'relics'>, ref: TroopRef): ResolvedTroop {
+  const { delver } = tuning;
+  const prefab = delver.troops.findIndex((p) => p.name === ref.prefab);
+  if (prefab < 0) throw new RangeError(`Unknown Troop Prefab "${ref.prefab}" (have: ${delver.troops.map((p) => p.name).join(', ')})`);
+  const p = delver.troops[prefab]!;
+  const variant = p.variants.findIndex((v) => v.name === ref.variant);
+  if (variant < 0) throw new RangeError(`Unknown Variant "${ref.variant}" of Troop Prefab "${p.name}" (have: ${p.variants.map((v) => v.name).join(', ')})`);
+  const tier = ref.tier ?? duelTroopTier(delver);
+  if (!Number.isInteger(tier) || tier < 1 || tier > delver.tiers) throw new RangeError(`A Troop's Floor tier is 1 to ${delver.tiers}, got ${tier}`);
+  const troop = floorTroops(delver).troops[floorTroops(delver).plain[prefab]![variant]!]!;
+  const boss = troop.boss === true;
+  const maxHp = soldierHp(tuning, troop, boss, 1, delver.tierHp[tier - 1]!);
+  return {
+    prefab,
+    variant,
+    troop,
+    tier,
+    body: troop.bodies[0]!,
+    weapon: troop.weapon,
+    difficulty: troop.difficulty,
+    style: troop.style ?? p.variants[variant]!.style,
+    relics: troop.relics ?? [],
+    mods: troopMods(tuning, troop),
+    maxHp,
+    size: sizeOfHp(delver, maxHp),
+  };
 }

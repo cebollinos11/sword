@@ -743,7 +743,7 @@ export class Menu {
       null,
       head,
       this.messageLine(),
-      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, look: () => this.lookControls() })),
+      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame, played: this.arenaInPlay, look: () => this.lookControls(), dev: devMode() })),
       foot,
     );
   }

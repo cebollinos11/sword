@@ -143,6 +143,121 @@ The test bench for the rest of the plan: fight any Delver enemy one on one, with
   - A Duel with no Troop on any Seat has the same config and hash as before (the existing Match and Lobby tests).
   - An online Lobby with a Troop Seat starts the same Match on both peers (the Lobby sync tests).
 
+#### Design
+Settled 2026-11-26, before any code. The two open choices first:
+- **A Variant is named by its `name`**, the one `parseDelver` gives every Variant: "Uruk (Beginner)" for a plain one (its Prefab and its difficulty), "Warden" for a Boss. It is firmer than the difficulty, because a Prefab may have two Variants of one skill (`troopFor` picks among them), and it is already unique over every Prefab's Variants. The Lobby shows it shorter ("Uruk · Beginner", "Uruk · Warden (Boss)").
+- **The Floor tier lives on the ref** (`troop.tier`), absent for the default (`DUEL_TROOP_TIER`, 2, or `delver.tiers` if there are fewer). It is part of which enemy you fight, so it goes where the Troop goes: the Seat, the Lineup and the wire, with nothing else to keep in step. A Boss Variant ignores it (its HP is whole), but a tier it names must still be one of `delver.tiers`.
+
+**The ref.** `TroopRef` (in `src/sim/delver/troops.ts`, exported from `sim`):
+
+```ts
+interface TroopRef { readonly prefab: string; readonly variant: string; readonly tier?: number }
+```
+
+- The AI Seat gains `troop?: TroopRef`, absent on a plain AI Seat, so a Lobby without one is as it was.
+- `LineupSlot` gains `troop?: TroopRef`, only on an AI slot, only in Duels. `lobbyLineup` copies it from the Seat in Duels; a Gauntlet's or a Battle's Lineup never names one (their AI Seats are allies or set aside).
+- The Seat keeps its own difficulty, Style, Weapon and Size underneath, ignored while `troop` is set, so clearing the Troop gives the Seat back as it was.
+
+**Resolving it.** One pure function, `resolveTroop(tuning, ref)` in `src/sim/delver/troops.ts`, returns `ResolvedTroop`: the Prefab and Variant indices, the Floor's own `TroopTuning` for it, and `body`, `weapon`, `difficulty`, `style`, `relics`, `mods`, `maxHp`, `size` and `tier`. It throws a `RangeError` naming the known ones for an unknown Prefab, a Variant that is not that Prefab's, or a tier out of range. It shares the Delver's own code rather than copying it:
+- **The Troop** is `floorTroops(delver).plain[prefab][variant]`: the same `TroopTuning` a Floor's Crowd indexes (`troopOf` in `build`), so its Body, Weapon, difficulty, Style, Relics and Mods are the Floor's by construction.
+- **The Mods** are `troopMods(tuning, troop)`, new in `troops.ts`: the fold of the Troop's `mods` and its Relics (`foldMods`). `bubble.ts`'s `troopModsOf` now calls it, so a promoted Soldier and a Duel Troop fold the same way.
+- **The HP** is `soldierHp(tuning, troop, scale)`, new in `troops.ts`: a Boss's whole HP, or the Troop's HP times `scale` (template `hpScale` × the tier's `tierHp`), with its Relics' `maxHp` share on top. `deployWarbands` now calls it with the same factors in the same order, so its numbers are bit for bit as before. A Duel passes `scale` = `tierHp[tier - 1]` (a template's `hpScale` is a Warband's, and a Duel has none: 1).
+- **The Size** is `sizeOfHp(delver, maxHp)`, as on a Floor.
+- **Quirks (Stage 4).** `resolveTroop` is where they go: the Variant's Quirks returned beside the Style (applied by `lineupAis`), and their `body` parts folded into `mods` with the Relics, inside `troopMods`, so the Floor gets them at the same seam. A comment marks the place; nothing is added now.
+
+**The Match.** `MatchConfig` gains one per-Fighter field, as `sizes` is:
+
+```ts
+readonly troops?: readonly (DuelTroop | null)[];
+interface DuelTroop { readonly body: string; readonly maxHp: number; readonly mods?: Mods }
+```
+
+- An entry is null for a Fighter without a Troop. `mods` is absent when the fold is `NO_MODS`.
+- The field is absent unless some Fighter has a Troop (`troopsOf`, as `sizesOf`), so a Match with no Troop Seat has the same config, state and hash as before.
+- Only Duels take it: `createMatch` refuses it in a Gauntlet or a Battle, and refuses a bad entry (length, HP, Mods).
+- The Weapon and Size need no new field: `lineupMatch` puts the Troop's in `weapons` and `sizes`.
+- `lineupMatch` (`src/controllers/lineup.ts`) fills it from each slot's `resolveTroop`, and `lineupAis` builds that slot's AI at the Troop's difficulty and Style. Every peer builds the Match from the same Lineup and Tuning Data, so they agree.
+
+**HP and Mods at each Duel's start.** `initialDuel` (`src/sim/match.ts`), which every Duel and Rematch starts from (`freshDuel` calls it), lays each Troop on its Fighter after `createInitialState`: `hp` and `maxHp` the Troop's `maxHp`, and its `mods`. That is what `promotedFighter` does on a Floor: the HP already holds the Relics' `maxHp` share, and the daggers are not moved by Mods.
+
+**The Body.** It is render-only, but it rides in `config.troops` so both peers draw the same one. `fighterBodies` (`src/game.ts`) reads `match.config.troops[i].body` for a Fighter with a Troop, where an AI otherwise gets none and is drawn as a random Body.
+
+**The validators.**
+- `src/lobby/messages.ts` (`isSeat`) and `src/net/messages.ts` (`isLineupSlot`) accept an optional `troop`: an object of exactly `prefab` and `variant` (short strings) and an optional whole `tier` from 1 to 9. Anything else is refused.
+- `isMatchState` (the resync validator) accepts an optional `config.troops`: one entry per Fighter, each null or `{ body, maxHp > 0, mods? }`, the Mods checked as a Fighter's are.
+- Whether the names exist is Tuning Data's to say, as for a Style:
+  - `checkLineup` resolves every slot's Troop (`resolveTroop` throws, naming the known ones), and refuses a Troop on a Player slot or outside Duels.
+  - The guest's Lobby (`sync.ts`, `valid`) refuses a host state whose Troop does not resolve.
+
+**The Lobby, in dev mode.**
+- `LobbyViewContext` gains `dev` (the menu passes `devMode()`; `src/sim` never reads it).
+- For the host, with `dev`, each AI Seat row gets a **Troop** select ("(none)", then every Prefab's Variants, from `troopChoices`) and, with a plain Variant, a **Floor tier** select.
+- With a Troop set, the row shows a read-only line (`troopLine`: Body, Weapon, HP, tier, Style, Relics) in place of the Style, Weapon and Size selects, whether `dev` is on or not. A guest sees the same line.
+
+**Tests.**
+- `troops.test.ts`:
+  - `resolveTroop` for "Uruk (Beginner)" at the default, first and last tiers, and for "Wraith Lord" (its Relics, whole HP, Size).
+  - It refuses an unknown Prefab, Variant or tier, naming the known ones.
+  - `soldierHp` and `troopMods` match what a Floor's Crowd and promotion give the same Troop.
+- `match.test.ts`:
+  - A Troop's HP, max HP and Mods on Duel 1 and again on Duel 2.
+  - A Match with no Troop (and one given `troops: [null, null]`) has no `troops` key and the same hash as before.
+  - Refused outside Duels, and for a bad entry.
+- `lineup.test.ts`:
+  - `lineupMatch` takes the Troop's Weapon, Size, HP, Mods and Body.
+  - `lineupAis` takes its difficulty and Style.
+  - `checkLineup` refuses an unknown Troop, a Troop on a Player, and one outside Duels.
+- `lobby.test.ts`: `lobbyLineup` carries a Seat's Troop in Duels and drops it in a Gauntlet.
+- `sync.test.ts`:
+  - An online Lobby with a Troop Seat starts the same Match (hash) on both peers.
+  - A guest refuses a host's Troop its Tuning Data does not know.
+- `messages.test.ts`: the Seat, Lineup and Match validators accept a good `troop` / `troops` and refuse bad shapes.
+- `lobbyView.test.ts`: `troopChoices` lists "(none)", "Uruk · Beginner" and "Uruk · Warden (Boss)", and `troopLine` reads the Troop.
+
+### Result
+Built 2026-11-26, as the Design above, with these additions and differences.
+
+**Where it lives.**
+- `src/sim/delver/troops.ts`:
+  - `TroopRef`, `DUEL_TROOP_TIER` and `duelTroopTier`.
+  - `resolveTroop`, returning `ResolvedTroop`.
+  - `troopLabel`, the Lobby's short name for a Variant.
+  - The two shared pieces, `soldierHp` and `troopMods`. `deployWarbands` and `bubble.ts` now call them in place of their own copies; `soldierHp` multiplies in the old order, so every Floor's numbers, goldens and hashes are unchanged.
+- `src/sim/match.ts`: `MatchConfig.troops` and `DuelTroop`. `troopsOf` keeps the field absent when no Fighter has a Troop and refuses a bad entry. `initialDuel` lays each Troop's HP and Mods on its Fighter at every Duel's and Rematch's start. Only Duels accept the field: a Gauntlet or a Battle refuses it.
+- `src/controllers/lineup.ts`:
+  - `LineupSlot.troop` and `slotTroop`.
+  - `checkLineup` refuses a Troop that doesn't resolve, one on a Player slot, and one outside Duels.
+  - `lineupMatch` fills `weapons`, `sizes` and `troops` from the Troop, and `lineupAis` builds the slot's AI at the Troop's difficulty and Style.
+- `src/lobby/lobby.ts`: the AI Seat's `troop`. `lobbyLineup` copies it in Duels only.
+- Validators:
+  - `src/net/messages.ts`: `isTroopRef`, also used by `src/lobby/messages.ts`; the Lineup slot; the resync's `config.troops`.
+  - `src/lobby/sync.ts`: a guest refuses a host Troop its Tuning Data lacks.
+  - `PROTOCOL_VERSION` 37 → 38, since the wire format grew.
+- The Body: `fighterBodies` in `src/game.ts` reads `config.troops[i].body`.
+- The Lobby:
+  - `src/play/lobbyView.ts`: `troopChoices`, `troopName`, `troopLine`, the dev-only Troop and Floor tier selects, and `LobbyViewContext.dev`. `src/play/menu.ts` passes `devMode()` for `dev`.
+
+**Not in the plan.**
+- **Names.** The Lobby's side list shows the Troop's name ("Uruk · Beginner AI"). In a Duel, the HUD names a Troop Fighter by its Variant ("Uruk (Beginner)", "Wraith Lord") (`src/play/hud.ts`). The first hand check showed "Skilled AI" there: the Seat's own difficulty, which a Troop ignores.
+
+**Differs from the plan.**
+- **The Variant is named by its own `name`**, not its difficulty (see the Design). The Lobby still shows "Uruk · Beginner".
+- **No Quirks in the Seat's read-only line yet.** They don't exist until Stage 4.
+- **No skill tint.** A Duel Troop wears its Team's colour, not `delver.skillTints`: tint is render-only and per Soldier, and the plan's Stage 0 list didn't ask for it.
+- **The Seat's difficulty doesn't apply while a Troop is set.** The host's "AI level" row still sets it, but it only counts again once the Troop is cleared.
+
+**Checked by hand** (`?dev=1`, a Skirmish on the Library):
+- **"Uruk · Beginner".** It is drawn as the Uruk Body with the Sledge Hammer. Its row reads "uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive · no Relics".
+- **"Revenant · Wraith Lord (Boss)".** It is drawn as the Wraith, visibly taller, with the Longsword. Its row reads "300 HP (Boss) · Expert Aggressive · Heavy Gauntlet".
+- **Without `dev=1`.** The Lobby has no Troop select.
+- **What the tests cover.** The HP, Mods and Size themselves are checked by the tests, since the HUD shows only the Player's HP number.
+
+**For Stage 4 (Quirks).**
+- **Data.** `resolveTroop` is the one place a Duel Troop is read from Tuning Data. Add `quirks` to `ResolvedTroop`, from the Variant (or its Prefab) through `floorTroops`' `TroopTuning` once it gains `quirks`.
+- **The AI.** `lineupAis` builds a Troop slot's Controller; pass the Quirks there, next to the difficulty and Style, as the Pool AI will take them.
+- **The Mods.** Fold the Quirks' `body` parts into `troopMods` (after the Relics). Both the Floor's promotion (`bubble.ts`) and a Duel Troop read it, so they get them at once.
+- **What needs no change.** `DuelTroop.mods` and `config.troops` already carry the result. Nothing in the Match, the validators or the Lobby wire needs to change for `body` Quirks. A plain AI Seat's dev-mode Quirks select would be a new optional Seat and slot field, validated like `style`.
+
 ### Stage 1: Style minimums
 - **Format.** `ai.styles` entries take a number or `{ mul, min }`, both non-negative; `min` is at most 1. The parser (`src/tuning/index.ts`, around `ai.styles`) and the `AiStyle` type follow. `skillOf` applies `clamp(max(min, v × mul), 0, 1)`.
 - **Default Style.** Balanced must still be present and empty.

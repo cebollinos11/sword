@@ -1287,8 +1287,9 @@ function loadBodiesWithBar(container: HTMLElement): void {
 }
 
 /**
- * Each Fighter's chosen Body: its Player's (index = Player number), none for an AI. In a Run, each Pool slot bound to a Soldier wears its
- * Troop's Body (`floorBodies`).
+ * Each Fighter's chosen Body: its Player's (index = Player number), none for an AI (drawn as a random one), except an AI fighting as a Delver
+ * Troop in a Duel, which wears its Troop's (`MatchConfig.troops`, docs/plans/enemy-behaviours.md, Stage 0). In a Run, each Pool slot bound
+ * to a Soldier wears its Troop's Body (`floorBodies`).
  */
 function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readonly string[] | null, match: MatchState): (string | undefined)[] {
   if (match.delver) {
@@ -1296,7 +1297,8 @@ function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readon
     const chosen = (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
     return floorBodies(match.duel, party, chosen, floorBodyOf(tuning, match.arena, match.duel.crowd));
   }
-  return (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
+  const troops = match.config.troops;
+  return (lineup ?? []).map((slot, i) => troops?.[i]?.body ?? (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
 }
 
 /** Where the Fighters still in the Duel are, on average (the Arena centre if none): neither fallen nor Benched. */
