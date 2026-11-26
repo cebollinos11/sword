@@ -228,19 +228,22 @@ export interface BossHold {
 }
 
 
-const modsCache = new WeakMap<BattleTuning, WeakMap<TuningData['relics'], readonly ({ readonly mods?: Mods })[]>>();
+const modsCache = new WeakMap<BattleTuning, WeakMap<TuningData['relics'], WeakMap<TuningData['ai'], readonly ({ readonly mods?: Mods })[]>>>();
 
 /**
- * A promoted Soldier's Mods per Troop (its Troop's, with its Relics' on top), when they change anything: one record per Troop of `tuning.battle`.
- * Folded once per (Battle Tuning, Relics) pair of objects and kept; derived from Tuning Data, never state.
+ * A promoted Soldier's Mods per Troop (its Troop's, with its Relics' and then its Quirks' `body` parts on top, `troopMods`), when they change
+ * anything: one record per Troop of `tuning.battle`. Folded once per (Battle Tuning, Relics, AI Tuning) triple of objects and kept; derived
+ * from Tuning Data, never state.
  */
 function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
   let byRelics = modsCache.get(tuning.battle);
   if (!byRelics) modsCache.set(tuning.battle, (byRelics = new WeakMap()));
-  let made = byRelics.get(tuning.relics);
+  let byAi = byRelics.get(tuning.relics);
+  if (!byAi) byRelics.set(tuning.relics, (byAi = new WeakMap()));
+  let made = byAi.get(tuning.ai);
   if (!made)
-    byRelics.set(
-      tuning.relics,
+    byAi.set(
+      tuning.ai,
       (made = tuning.battle.troops.map((t) => {
         const folded = troopMods(tuning, t);
         return isNoMods(folded) ? {} : { mods: folded };

@@ -206,7 +206,7 @@ import {
   type Vec2,
 } from '../sim';
 import { arenaTuning, parseFloorArena } from '../sim/delver';
-import { AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, styleParts, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_QUIRK_KEYS, AI_STYLE_KEYS, attackDirection, canWhirlwind, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, styleParts, weaponByName, weaponMotion, type AiDifficulty, type AiQuirk, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -261,13 +261,13 @@ interface Observation {
  * The ways a Defence plan meets an Attack (`DefencePlan.kind`). The one list: the resync validator (`src/net/messages.ts`)
  * reads it too, so a new kind cannot be left out there.
  */
-export const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back'] as const;
+export const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back', 'None'] as const;
 export type DefenceKind = (typeof DEFENCE_KINDS)[number];
 
 /**
  * How it means to meet one enemy Attack (rolled once, so a mistake sticks): Block it in `direction`, Crouch
- * under it (Duck), attack into it on Tick `pressAt` (Chamber), swing on with its own faster Attack (Outpace), or step
- * out of a spin's reach (Back).
+ * under it (Duck), attack into it on Tick `pressAt` (Chamber), swing on with its own faster Attack (Outpace), step
+ * out of a spin's reach (Back), or not at all (None: its `defendRate` missed, so it carries on with its own plan).
  */
 interface DefencePlan {
   readonly attacker: number;
@@ -451,6 +451,14 @@ interface AiMemory {
   readonly shaken: number;
   /** Whether it answers each enemy Whirlwind phase it sees (`whirlwindRead`), one entry per spinner, in Fighter order; absent while empty, so a memory that never met one is as it was. */
   readonly whirlReads?: readonly WhirlRead[];
+  /** Whether it answers the Kick it sees coming (`defendRate`, only below 1); absent while none, so a memory without one is as it was. */
+  readonly kickRead?: KickRead;
+}
+
+/** The `defendRate` roll for the Kick of `kicker` it sees coming: `defend` is whether it answers it (stands still). */
+interface KickRead {
+  readonly kicker: number;
+  readonly defend: boolean;
 }
 
 /** The roll for one phase of one enemy Whirlwind: `since` (the Tick the phase began, as seen) identifies it; `read` is whether it answers. */
@@ -699,6 +707,46 @@ export function aiStyle(tuning: TuningData, name: string): AiStyle {
   return s;
 }
 
+/** The Quirk (Tuning Data `ai.quirks`) named `name`; throws naming the known ones for a Quirk Tuning Data lacks. */
+export function aiQuirk(tuning: TuningData, name: string): AiQuirk {
+  const q = tuning.ai.quirks[name];
+  if (!q) throw new Error(`Unknown AI Quirk "${name}" (have: ${Object.keys(tuning.ai.quirks).join(', ') || 'none'})`);
+  return q;
+}
+
+/**
+ * `skill` with Quirks' `ai` parts applied, in order, after its Style (so a Quirk always wins): a number sets the setting; `{ mul?, min }`
+ * adjusts a chance as a Style entry does (`clamp(max(min, v × mul), 0, 1)`); on `jumpNav`, `{ min }` gives `max(min, jumpNav)`. With no
+ * Quirk (or none with an `ai` part) it is `skill` itself.
+ */
+export function quirkSkill(skill: Skill, quirks: readonly AiQuirk[]): Skill {
+  if (!quirks.some((q) => q.ai)) return skill;
+  const out: { -readonly [K in keyof Skill]: Skill[K] } = { ...skill };
+  for (const q of quirks) {
+    if (!q.ai) continue;
+    for (const k of AI_QUIRK_KEYS) {
+      const entry = q.ai[k];
+      if (entry === undefined) continue;
+      if (typeof entry === 'number') out[k] = entry;
+      else if (k === 'jumpNav') out.jumpNav = Math.max(entry.min, out.jumpNav);
+      else {
+        const { mul, min } = styleParts(entry);
+        out[k] = Math.min(1, Math.max(0, min, out[k] * mul));
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The Skill an AI Controller plays: the preset scaled by its Style (`skillOf`), then its Quirks (`quirkSkill`), then, walking, `jumpNav` -1
+ * (last, so a Quirk such as Hopper never gives a walk-only AI its jumps back).
+ */
+export function controllerSkill(tuning: TuningData, d: AiDifficulty, style: AiStyle | undefined, quirks: readonly AiQuirk[], walk: boolean): Skill {
+  const skill = quirkSkill(skillOf(tuning, d, style), quirks);
+  return walk ? { ...skill, jumpNav: -1 } : skill;
+}
+
 /**
  * A preset with its optional parts filled in (the global `ai.aggression`/`ai.kickRate`, always punishing, and nothing
  * else), and then scaled by `style`: each chance it names multiplied, raised to the entry's `min` if below it, and clamped
@@ -742,6 +790,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     throwStanding: 0,
     kite: 0,
     gangUp: 0,
+    defendRate: 1,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -1019,6 +1068,8 @@ class RuleAi implements AiController {
   private jitter: Jitter | null = null;
   private shaken = -1;
   private whirlReads: readonly WhirlRead[] = [];
+  /** Its `defendRate` roll for the Kick it sees coming (only with `defendRate` below 1), or null. */
+  private kickRead: KickRead | null = null;
   /** Worked out once from its Tuning Data and difficulty (never memory): its jumping Attacks' holds and longest carry, and the default Weapon's length. */
   private holds: readonly number[] | undefined;
   private leapFar: number | undefined;
@@ -1030,16 +1081,18 @@ class RuleAi implements AiController {
     private readonly tuning: TuningData,
     difficulty: AiDifficulty,
     style?: AiStyle,
+    quirks: readonly AiQuirk[] = [],
+    walk = false,
   ) {
     this.reactionTicks = secondsToTicks(difficulty.reactionTime);
-    this.skill = skillOf(tuning, difficulty, style);
+    this.skill = controllerSkill(tuning, difficulty, style, quirks, walk);
     this.jitterTicks = this.skill.reactionJitter > 0 ? Math.min(JITTER_MAX, Math.max(1, Math.ceil(this.reactionTicks / 2))) : 0;
   }
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, whirlReads } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, ...(whirlReads.length > 0 ? { whirlReads } : {}) };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, whirlReads, kickRead } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken, ...(whirlReads.length > 0 ? { whirlReads } : {}), ...(kickRead ? { kickRead } : {}) };
   }
 
   load(saved: unknown): void {
@@ -1066,12 +1119,23 @@ class RuleAi implements AiController {
     this.jitter = m.jitter;
     this.shaken = m.shaken;
     this.whirlReads = m.whirlReads ?? [];
+    this.kickRead = m.kickRead ?? null;
   }
 
   private random(): number {
     const [v, next] = nextFloat(this.rng);
     this.rng = next;
     return v;
+  }
+
+  /**
+   * Whether it answers the Kick of `kicker` it sees coming: always at `defendRate` 1 (drawing nothing, keeping no roll); else rolled once
+   * per Kick (`kickRead`, kept while a Kick of that kicker is seen coming in reach).
+   */
+  private answersKick(kicker: number): boolean {
+    if (this.skill.defendRate >= 1) return true;
+    if (this.kickRead?.kicker !== kicker) this.kickRead = { kicker, defend: this.chance(this.skill.defendRate) };
+    return this.kickRead.defend;
   }
 
   /** True at chance `p`; never draws when `p` is 0 or 1, so a part of the repertoire left out costs no randomness. */
@@ -1108,6 +1172,7 @@ class RuleAi implements AiController {
     this.opening = null;
     this.landing = null;
     this.whirlReads = [];
+    this.kickRead = null;
     // A Jump already in the air is carried through.
     if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
   }
@@ -1337,10 +1402,13 @@ class RuleAi implements AiController {
 
     const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
+      const feint = this.feintPlan;
       this.feintPlan = null;
-      return this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat), team);
-    }
-    this.defencePlan = null;
+      const defended = this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat), team);
+      if (defended) return defended;
+      // Not defending it (`defendRate`): it keeps its None plan for this Attack, and its own plans.
+      this.feintPlan = feint;
+    } else this.defencePlan = null;
 
     // A dagger coming: face the thrower and Block it (raised after the throw began, or it does not count).
     const dodge = this.dodgeThrow(state, self, enemies, aimAt);
@@ -1355,10 +1423,12 @@ class RuleAi implements AiController {
 
     // A Kick coming: stand still (it only knocks down a mover), and do not start anything else.
     const kickReach = this.tuning.ai.kickRange;
-    if (enemies.some(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach)) {
+    const kicker = enemies.find(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach);
+    if (kicker && this.answersKick(kicker.i)) {
       this.feintPlan = null;
       return aimAt(focused.o, focused.flat);
     }
+    if (!kicker) this.kickRead = null;
 
     const { o: target, i: targetIndex, flat: dist, level } = focused;
     const base = aimAt(target, dist);
@@ -2210,7 +2280,8 @@ class RuleAi implements AiController {
     const rolled = this.whirlReads.find((r) => r.fighter === spinner.i);
     let read = rolled?.read ?? false;
     if (rolled?.phase !== spin.phase || rolled.since !== since) {
-      read = this.chance(this.skill.whirlwindRead);
+      // It reads it (`whirlwindRead`) and defends at all (`defendRate`, drawing nothing at 1).
+      read = this.chance(this.skill.whirlwindRead) && this.chance(this.skill.defendRate);
       this.whirlReads = [...this.whirlReads.filter((r) => r.fighter !== spinner.i), { fighter: spinner.i, phase: spin.phase, since, read }].sort((x, y) => x.fighter - y.fighter);
     }
     if (!read) return null;
@@ -2584,7 +2655,8 @@ class RuleAi implements AiController {
     const aimed = enemies.find(({ o, flat, near }) => near && flat <= throwRange && isThrowThreat(o.action) && this.aimedAt(o, self));
     const aimedThrow = aimed && isThrowThreat(aimed.o.action) ? aimed.o.action : null;
     if (aimed && aimedThrow && (this.throwPlan?.thrower !== aimed.i || this.throwPlan.startTick !== aimedThrow.startTick)) {
-      this.throwPlan = { thrower: aimed.i, startTick: aimedThrow.startTick, react: !this.chance(this.skill.mistakeRate) };
+      // Whether it defends at all (`defendRate`, drawing nothing at 1), then whether it errs.
+      this.throwPlan = { thrower: aimed.i, startTick: aimedThrow.startTick, react: this.chance(this.skill.defendRate) && !this.chance(this.skill.mistakeRate) };
     }
     const plan = this.throwPlan;
     if (!plan?.react) return null;
@@ -2923,9 +2995,10 @@ class RuleAi implements AiController {
   /**
    * Meet the seen Attack as planned for it (rolled once per Attack): Block it in the Direction that meets it
    * (unless the roll made it a mistake), Crouch under a Left or Right, Chamber it, or swing on when its own
-   * Wind-up lands first (neither of those, played as one of a team, with an ally where its blade would sweep).
+   * Wind-up lands first (neither of those, played as one of a team, with an ally where its blade would sweep). Null when its plan
+   * for it is None (`defendRate`).
    */
-  private defend(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent, team: TeamView | null): Intent {
+  private defend(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent, team: TeamView | null): Intent | null {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const attackStart = seen.attackStart!;
     const meets = mirrorDirection(atk.direction);
@@ -2938,8 +3011,10 @@ class RuleAi implements AiController {
       const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
       const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
-      this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
+      this.attackPlan = this.defencePlan.kind === 'Outpace' || this.defencePlan.kind === 'None' ? this.attackPlan : null;
     }
+    // It does not defend this Attack (`defendRate`): nothing to do here, it carries on with its own plan.
+    if (this.defencePlan!.kind === 'None') return null;
     if (atk.charge !== undefined) this.readSpin(state, self, seen, flat, meets, team);
     const own = self.action;
     const broken = this.defencePlan!.kind === 'Back' ? null : this.breakHold(state, self, seen, flat, base, meets);
@@ -3034,6 +3109,8 @@ class RuleAi implements AiController {
   private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction, swings: boolean): DefencePlan {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const plan = (kind: DefencePlan['kind'], direction = meets, pressAt = -1): DefencePlan => ({ attacker, attackStart, kind, direction, pressAt });
+    // Whether it defends at all (`defendRate`, a Quirk's: Dumb never does). Not a mistake: at 1 it draws nothing.
+    if (!this.chance(this.skill.defendRate)) return plan('None');
     // A human mistake (`humanMistakes`): likelier while shaken; usually a late Block, else one beside the right Direction.
     const human = this.chance(this.skill.humanMistakes);
     const rate = human && state.tick < this.shaken ? Math.min(1, this.skill.mistakeRate * LAPSE) : this.skill.mistakeRate;
@@ -3161,6 +3238,15 @@ export function prepareAi(tuning: TuningData, state: SimState): void {
   }
 }
 
-export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): AiController {
-  return new RuleAi(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
+/** How an AI Controller is made beyond its difficulty and Style (`createAiController`). */
+export interface AiControllerOptions {
+  /** Its Quirks (`ai.quirks` names, or the Quirks themselves), applied in order after its Style. */
+  readonly quirks?: readonly (string | AiQuirk)[];
+  /** It walks: it follows no jump Link (`jumpNav` -1), whatever its difficulty or Quirks say (applied last). For the Delver and traitor pilots and the AI check's walk-only mode. */
+  readonly walk?: boolean;
+}
+
+export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE, options: AiControllerOptions = {}): AiController {
+  const quirks = (options.quirks ?? []).map((q) => (typeof q === 'string' ? aiQuirk(tuning, q) : q));
+  return new RuleAi(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style, quirks, options.walk === true);
 }

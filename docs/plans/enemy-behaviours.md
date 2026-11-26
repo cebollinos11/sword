@@ -429,6 +429,8 @@ Built 2026-11-26.
 - whether a Beginner Showoff (`whirlwindRate` 0.03 per Tick, half of that at a lone enemy) spins too often.
 
 ### Stage 4: Quirks, Dumb and Hopper
+> Done (2026-11-26).
+
 - **Data.** Add `ai.quirks` (name → `{ ai?, body? }`). The `body` part may set any Mods key. The `ai` part may name any `AiDifficulty` extra, `defendRate` and `jumpNav`, never Reaction Time or the mistake rate:
   - a number sets it (a chance 0..1; `jumpNav` a whole number of Ticks, -1 or more);
   - `{ mul?, min }` adjusts a chance as a Style entry does, reusing Stage 1's `parseStyleEntry`, `styleParts` and the `skillOf` formula;
@@ -451,6 +453,77 @@ Built 2026-11-26.
   - A Troop with no Quirks hashes and plays exactly as before.
   - A Quirk the parser doesn't know is refused, with the list of known ones.
   - A Duel Troop Seat (Stage 0) plays its Variant's Quirks. In dev mode, a plain AI Seat's Quirks select adds them.
+
+### Result
+Built 2026-11-26.
+
+**Where it lives.**
+- `src/tuning/index.ts`:
+  - `AiQuirk` (`{ ai?, body? }`), `AiQuirkEntry`, `AI_QUIRK_KEYS` (every `AI_DIFFICULTY_EXTRAS` key, `defendRate` and `jumpNav`) and `AiTuning.quirks`.
+  - `parseQuirks`. A chance entry is a number 0..1 (`fraction`) or `parseStyleEntry`'s `{ mul?, min }`. `jumpNav` is a whole number of Ticks, -1 or more, or `{ min }` alone (whole, 0 or more). The `body` part is read by `parseRelicEffects`. `ai.quirks` absent parses to `{}`.
+  - `defendRate` joins `AiDifficulty` but not `AI_DIFFICULTY_EXTRAS`, so a difficulty or a Style can't name it (the parser refuses it as before); only a Quirk sets it.
+- `data/ai.json`: `quirks` with Dumb and Hopper at the plan's values.
+- `src/tuning/delver.ts`: `quirkList`; `quirks` on a Prefab and a Variant (a Variant's list replaces its Prefab's, `[]` drops them); `DelverNames.quirks`. A Variant without Quirks has no `quirks` key, so the bundled data parses, hashes and builds as before. `TroopTuning.quirks` (`src/tuning/battle.ts`) is filled by `floorTroops`, elites included.
+- `src/sim/delver/troops.ts`: `troopMods` folds the Quirks' `body` parts after the Relics (`quirkBodies`, throwing on an unknown Quirk with the known ones), so `bubble.ts`'s promotion and a Duel Troop get them at the one seam. `ResolvedTroop.quirks`. `bubble.ts`'s Mods cache is keyed by `tuning.ai` too.
+- `src/controllers/ai.ts`:
+  - `skillOf` fills `defendRate` 1. `aiQuirk`, `quirkSkill` (the `ai` parts, in order, after the Style) and `controllerSkill` (Style, then Quirks, then a walk-only `jumpNav` -1).
+  - `createAiController(tuning, difficulty, style, { quirks, walk })`. `delverPilot`, `traitorPilot` and the AI check's `walkOnly` (`navWalk.ts`) now pass `walk` rather than a difficulty with `jumpNav` -1, so the walk override is applied last and a Hopper's minimum can't undo it. Without Quirks the Skill is bit for bit the old one (a test).
+  - **Dumb** (`defendRate`):
+    - `planDefence` rolls it first, once per enemy Attack. A miss is a new Defence kind, `None` (`DEFENCE_KINDS`), kept for that Attack. `defend` then returns null and the AI carries on with its own plans: its attack plan and Feint are kept.
+    - The dagger roll (`throwPlan.react`) is `defendRate`, then the mistake roll as before.
+    - The Whirlwind read is `whirlwindRead`, then `defendRate`.
+    - The Kick answer (stand still) is rolled once per Kick, in a new optional memory field `kickRead` (`{ kicker, defend }`), kept while that Kick is seen coming. At `defendRate` 1 nothing is drawn and no `kickRead` is kept.
+- `src/controllers/poolAi.ts`: Controllers keyed by (difficulty, Style, Quirks). Its memory gains an optional `quirks` (absent for none).
+- `src/controllers/lineup.ts`: the AI `Pilot` gains an optional `quirks`. `checkLineup` refuses an unknown Quirk (listing the known ones), an empty list or a repeat. `lineupAis` passes a Troop's Quirks, a plain Pilot's, and an Ally AI's (`createAllyAi`) to the Controller.
+- The Lobby:
+  - `src/lobby/lobby.ts`: the AI Seat's `quirks`, which `lobbyLineup` copies into the Pilot.
+  - `src/play/lobbyView.ts`: `quirkChoices` and a dev-only "AI Quirks" select on a plain AI Seat (No Quirks, each Quirk, each combination). The plain Seat's line and `troopLine` list the Quirks after the Style ("Beginner Aggressive + Dumb").
+- The wire: `isQuirkList` (`src/net/messages.ts`, 1 to `MAX_QUIRKS` short names, each once) on the Lineup Pilot, the Lobby Seat and the Pool AI's memory. `isAiMemory` takes `kickRead` and the `None` kind. The guest's Lobby (`sync.ts`) refuses a host Seat whose Quirk it doesn't know. `PROTOCOL_VERSION` 39 → 40.
+- The AI check: `npm run ai-walk -- --quirks Hopper` (`AiWalkOptions.quirks`).
+- `CONTEXT.md`: **Quirk**, and Variant and Style mention it.
+- Tests:
+  - `aiQuirks.test.ts` (new, fast): `quirkSkill` for Hopper at every tier, Dumb, a Quirk winning over the Style, the walk override, an unknown Quirk. Dumb against a scripted attacker, thrower and kicker.
+  - `aiQuirks.slow.test.ts` (new, about 50 s): Hopper's counts, below.
+  - Also `tuning.test.ts`, `delver.test.ts`, `troops.test.ts`, `lineup.test.ts`, `floorPoolAi.test.ts`, `aiWhirlwind.test.ts` (Dumb answers no Whirlwind), `messages.test.ts`, `lobby.test.ts`, `sync.test.ts` and `lobbyView.test.ts`.
+
+**Differs from the plan.**
+- **A plain AI Seat's Quirks reach only its AI.** A Duel gives Mods only to a Troop Fighter (`config.troops`), so a `body` part on a plain Seat does nothing yet. Neither Dumb nor Hopper has one. Stage 5 (Slow) needs a way in: either a plain Seat's `DuelTroop` without a Body, or a per-Fighter Mods field.
+- **Quirks are on the Pilot, not on the slot,** next to `style`, so a Gauntlet's Ally AI may play them too.
+- **Dumb's Kick roll needed memory.** A Kick has no start Tick an AI can see, so the roll is kept per kicker while its Kick is seen coming (`kickRead`).
+- **Hopper doesn't double everything** (see the measurements):
+  - **Hops double only at Skilled.** A hop is taken only out of a pincer or round a blocked walk, so a 1 v 1 Duel has none with or without Hopper. The test counts them 1 v 2 instead.
+    - An Expert's `jumpStep` is 0.5, and ×3 caps at 1, so its chance can at most double.
+    - A Beginner's triples (0.2 to 0.6), but its count rises 1.8×: a hop also needs a moment that calls for one.
+    - The test asks for 1.5× at every tier.
+  - **An Expert's jumping Attacks don't rise.** They are rolled each Tick it stands between its reach + 0.2 m and its leap range, and an Expert's spacing keeps it there only a few hundred Ticks a minute. A temporary counter over 8 seeds: a plain Expert stood there 313 Ticks and a Hopper 290, so about 1.3 rolls against 4.6 expected. Each took 4, and `leap` turned down 1 and 2 of them. The counts are too small to show the ×4. (At Skilled, 1,772 and 2,063 Ticks, 2 rolls against 12.) The test asks Beginner and Skilled for 2× and Expert for no fewer.
+- **"A Dumb Expert takes every blade Hit" is checked standing its ground.** With its footwork and caution on, it also walks out of reach or backs off after a Hit (its own plan, not a defence). So the test plays an Expert with no spacing, backing off or offence of its own, against an attacker that keeps facing it and walking in. Every Release lands. "Still attacks as an Expert" is a second test on the full Expert. It starts at least as many Attacks as without the Quirk. Against a target that never attacks, it plays the same Duel to the hash.
+
+**Measured.**
+- **Old AIs and Troops are unchanged.** Every new roll draws nothing at its default (`defendRate` 1 draws nothing and keeps no `kickRead`), and a Variant without Quirks has no `quirks` key. Every hash, the AI goldens (Easy, Normal, Hard), the AI memory sweep and the Delver goldens pass unchanged.
+- **Dumb**, 3 seeds × 25 s against the attacker (an Attack every 46 Ticks). It stands its ground:
+  - Dumb Expert: 16 of 16 Releases Hit it, on each seed. Nothing Blocked, Chambered or Ducked. Its Defence plan is `None` every time.
+  - The same Expert without the Quirk: 13 or 14 Releases, 0 or 1 Hits; 9 to 12 Blocks and Chambers, and some Ducks.
+  - Full Expert (spacing and offence on): 76 Attacks of its own with Dumb, 63 without. It no longer stops to defend.
+- **Hopper**, against a Balanced AI of the same tier, 16 seeds. Each cell is without → with:
+
+  | | Beginner | Skilled | Expert |
+  |---|---|---|---|
+  | Jumping Attacks, 1 v 1, 60 s | 0 → 14 | 3 → 9 | 3 → 3 |
+  | Hops, 1 v 2, 30 s | 23 → 41 | 25 → 58 | 29 → 48 |
+  | `jumpNav` | 0 → 10 | 20 | 30 |
+
+- **The AI check** (`npm run ai-walk -- --seeds 1-50 --floors 1,5,9 --difficulty Beginner`, then with `--quirks Hopper`): both 150 Floors with 0 problems and 2,551 legs arrived, line for line the same report. That is trivially so, and measured why:
+  - The Hopper's `jumpNav` minimum lets it follow non-shortcut jump Links held 1 to 10 Ticks. There are none on those 150 Floors.
+  - Their jump Links held 1 to 10 Ticks are all shortcuts, which any AI with `jumpNav` 0 or more already takes at any hold. (Seeds 1–6: 53 held 0, 8 held 10, the rest 15 to 25.)
+  - So no route changes, from the start to any target or along a leg.
+  - Where the minimum does reach a Beginner Hopper is its jump escapes (`escapeLink` doesn't exempt shortcuts) and its leaps' holds (up to 10 Ticks, not taps only). Both are in fights, which the AI check doesn't play.
+  - Closest meaningful check: walk a Beginner Hopper across each Floor Link it newly may take. There were none to walk.
+
+**Not checked by hand yet.**
+- Play Dumb and Hopper on a plain AI Seat at each tier (`?dev=1`, the new Quirks select), and on a Troop (`?dev=1`) once the roster pass (Stage 6) gives one Quirks.
+- Things to watch:
+  - whether a Dumb Expert still feels like an Expert, or just a punching bag;
+  - whether a Beginner Hopper's leaps (14 in 16 minutes of Duels, from none) are enough to read as "a Hopper", and whether an Expert Hopper needs more than its chance raised (it leaps no more often).
 
 ### Stage 5: Slow (Simulation)
 - **Mods.** Add `walkSpeed` and `windUp` to the Relic vocabulary (`RELIC_EFFECTS`, `RELIC_GOOD_LOW` for `windUp`, `NO_MODS`).

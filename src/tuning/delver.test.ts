@@ -11,6 +11,7 @@ const NAMES = {
   weapons: Object.keys(tuning.weapons),
   difficulties: Object.keys(tuning.ai.difficulties),
   styles: Object.keys(tuning.ai.styles),
+  quirks: Object.keys(tuning.ai.quirks),
   relics: tuning.relics.map((r) => r.name),
 };
 const parse = (data: unknown) => parseDelver(data, FIELD, tuning.battle, NAMES);
@@ -350,6 +351,10 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['Variant hp 0', withPrefab(0, {}, 0, { hp: 0 }), /^delver\.troops\[0\]\.variants\[0\]\.hp /],
     ['Variant difficulty unknown', withPrefab(0, {}, 0, { difficulty: 'Godlike' }), /^delver\.troops\[0\]\.variants\[0\]\.difficulty /],
     ['Variant style unknown', withPrefab(0, {}, 0, { style: 'random' }), /^delver\.troops\[0\]\.variants\[0\]\.style /],
+    ['Prefab Quirk unknown', withPrefab(0, { quirks: ['Sleepy'] }), /^delver\.troops\[0\]\.quirks\[0\] .*one of the Quirks \(Dumb, Hopper/],
+    ['Prefab Quirks not a list', withPrefab(0, { quirks: 'Dumb' }), /^delver\.troops\[0\]\.quirks /],
+    ['Variant Quirk unknown', withPrefab(0, {}, 0, { quirks: ['Dumb', 'Slow'] }), /^delver\.troops\[0\]\.variants\[0\]\.quirks\[1\] .*one of the Quirks \(Dumb, Hopper/],
+    ['Variant Quirk twice', withPrefab(0, {}, 0, { quirks: ['Dumb', 'Dumb'] }), /^delver\.troops\[0\]\.variants\[0\]\.quirks\[1\] /],
     ['Variant relic unknown', withPrefab(0, {}, 0, { relics: ['Nope'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics\[0\] /],
     ['Variant with too many Relics', withPrefab(0, {}, 0, { relics: ['Whetstone', 'Whetstone', 'Whetstone'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics /],
     ['Variant damage reversed', withPrefab(0, {}, 0, { damage: [5, 2] }), /^delver\.troops\[0\]\.variants\[0\]\.damage /],
@@ -375,6 +380,15 @@ describe('Delver Tuning Data (data/delver.json)', () => {
   it('accepts a template of exactly squad.size Soldiers and a fractional perPlayerSoldiers', () => {
     expect(parse(withGuard([levy(tuning.battle.squad.size)])).warbands[0]!.guard[0]!.troops[0]!.count).toBe(tuning.battle.squad.size);
     expect(parse(withKey({ perPlayerSoldiers: 0.25 })).perPlayerSoldiers).toBe(0.25);
+  });
+
+  it("takes Quirks on a Prefab and a Variant: a Variant's list replaces its Prefab's ([] drops them), and defaults to it; none parses as before", () => {
+    const parsed = parse(withPrefab(1, { quirks: ['Dumb'] }, 1, { quirks: ['Hopper', 'Dumb'] }));
+    const [beginner, skilled, expert] = parsed.troops[1]!.variants;
+    expect([beginner!.quirks, skilled!.quirks, expert!.quirks]).toEqual([['Dumb'], ['Hopper', 'Dumb'], ['Dumb']]);
+    expect(parse(withPrefab(1, { quirks: ['Dumb'] }, 0, { quirks: [] })).troops[1]!.variants[0]).not.toHaveProperty('quirks');
+    // No Quirks anywhere: no key, so the bundled Variants (and the Tuning Data hash) are as before.
+    expect(parse(raw()).troops.flatMap((p) => p.variants).some((v) => 'quirks' in v)).toBe(false);
   });
 
   it('takes its own parsed form back in', () => {

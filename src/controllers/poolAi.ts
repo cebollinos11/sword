@@ -1,7 +1,7 @@
 /**
  * The Pool AI: the Controller of one Fighter Pool slot of a Battle (docs/plans/big-battle.md, Stage 3). The slot keeps it
  * for the whole Battle, while the Bubbles decide which Soldier, if any, stands there (`FighterState.soldier`). Each
- * Promotion starts a soldier's AI (its Troop's difficulty, `battle.troops`, with its Troop's Style when it has one, as a Boss's, else the Battle-only `battle.soldier.style`) from fresh memory on the slot's first Tick bound to that Soldier, as an AI Takeover
+ * Promotion starts a soldier's AI (its Troop's difficulty, `battle.troops`, with its Troop's Style when it has one, as a Boss's, else the Battle-only `battle.soldier.style`, and its Troop's Quirks) from fresh memory on the slot's first Tick bound to that Soldier, as an AI Takeover
  * starts one at its Tick, so every peer's AI decides alike; a Demotion drops it. An unbound slot asks for nothing.
  *
  * Its memory is the binding it plays for (the Soldier and its Promotion Tick) and that AI's memory, so a Rollback across
@@ -16,8 +16,11 @@ import type { Controller } from './controller';
 /** The difficulty a promoted Soldier plays by default (Elites are Later); Tuning Data `battle.troops` says which for each Troop, and `battle.soldier` the Battle-only Style. */
 export const SOLDIER_DIFFICULTY = 'Beginner';
 
-/** A Pool AI's memory: the binding its AI plays for, at which difficulty and in which Style, and that AI's memory, or null while its slot is unbound. */
-type PoolAiMemory = { readonly bound: SoldierBinding; readonly difficulty: string; readonly style: string; readonly memory: unknown } | null;
+/**
+ * A Pool AI's memory: the binding its AI plays for, at which difficulty, in which Style and with which Quirks (absent: none, so a memory
+ * without Quirks is as it was), and that AI's memory, or null while its slot is unbound.
+ */
+type PoolAiMemory = { readonly bound: SoldierBinding; readonly difficulty: string; readonly style: string; readonly quirks?: readonly string[]; readonly memory: unknown } | null;
 
 class PoolAi implements Controller {
   private bound: SoldierBinding | null = null;
@@ -25,28 +28,39 @@ class PoolAi implements Controller {
   private difficulty = '';
   /** The Style the bound Soldier's AI plays: its Troop's name, or '' for the Battle's own. */
   private style = '';
-  /** One AI per (difficulty, Style), made the first time a Troop of it is bound, with its memory as fresh as when it was made: each Promotion starts from it. */
+  /** The Quirks the bound Soldier's AI plays (its Troop's, `ai.quirks` names; [] for none). */
+  private quirks: readonly string[] = [];
+  /** One AI per (difficulty, Style, Quirks), made the first time a Troop of it is bound, with its memory as fresh as when it was made: each Promotion starts from it. */
   private readonly ais = new Map<string, { readonly ai: Controller; readonly fresh: unknown }>();
 
   constructor(private readonly tuning: TuningData) {}
 
-  /** An AI of `difficulty` and Style name `style` ('' for the Battle's own, `battle.soldier.style`) from fresh memory (the same Controller each time for that pair, its memory reset). */
-  private freshAi(difficulty: string, style: string): Controller {
+  /**
+   * An AI of `difficulty`, Style name `style` ('' for the Battle's own, `battle.soldier.style`) and Quirks `quirks` from fresh memory (the
+   * same Controller each time for that triple, its memory reset).
+   */
+  private freshAi(difficulty: string, style: string, quirks: readonly string[]): Controller {
     this.difficulty = difficulty;
     this.style = style;
-    const key = `${difficulty}\n${style}`;
+    this.quirks = quirks;
+    const key = this.key;
     const made = this.ais.get(key);
     if (made) {
       made.ai.load?.(made.fresh);
       return made.ai;
     }
-    const ai = createAiController(this.tuning, difficulty, style === '' ? this.tuning.battle.soldier.style : style);
+    const ai = createAiController(this.tuning, difficulty, style === '' ? this.tuning.battle.soldier.style : style, { quirks });
     this.ais.set(key, { ai, fresh: ai.save?.() });
     return ai;
   }
 
+  /** The bound AI's key in `ais`: its difficulty, Style and Quirks (none: the old (difficulty, Style) key). */
+  private get key(): string {
+    return [this.difficulty, this.style, ...this.quirks].join('\n');
+  }
+
   private get ai(): Controller {
-    return this.ais.get(`${this.difficulty}\n${this.style}`)!.ai;
+    return this.ais.get(this.key)!.ai;
   }
 
   intent(state: SimState, fighter: number): Intent {
@@ -60,19 +74,19 @@ class PoolAi implements Controller {
       // A Floor's Crowd indexes the Floor's Troops (its Bosses' and elites' too): read them under the Floor's Tuning Data.
       const battle = arenaTuning(this.tuning, state.arena).battle;
       const troop = state.crowd ? troopOf(battle, state.crowd, b.index) : undefined;
-      this.freshAi(troop?.difficulty ?? battle.soldier.difficulty, troop?.style ?? '');
+      this.freshAi(troop?.difficulty ?? battle.soldier.difficulty, troop?.style ?? '', troop?.quirks ?? []);
     }
     return this.ai.intent(state, fighter);
   }
 
   save(): PoolAiMemory {
-    return this.bound ? { bound: this.bound, difficulty: this.difficulty, style: this.style, memory: this.ai.save?.() } : null;
+    return this.bound ? { bound: this.bound, difficulty: this.difficulty, style: this.style, ...(this.quirks.length > 0 ? { quirks: this.quirks } : {}), memory: this.ai.save?.() } : null;
   }
 
   load(saved: unknown): void {
     const m = saved as PoolAiMemory;
     this.bound = m?.bound ?? null;
-    if (m) this.freshAi(m.difficulty, m.style).load?.(m.memory);
+    if (m) this.freshAi(m.difficulty, m.style, m.quirks ?? []).load?.(m.memory);
   }
 }
 

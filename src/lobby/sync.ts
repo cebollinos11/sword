@@ -391,7 +391,7 @@ export class GuestLobby extends Base implements Lobby {
     if (!isArenaName(t, s.settings.arena) || (s.matchArena !== null && !isArenaName(t, s.matchArena))) return false;
     if (!s.members.every((m) => t.weapons[m.weapon])) return false;
     return s.teams.flat().every(
-      (seat) => seat.kind !== 'AI' || (t.weapons[seat.weapon] && t.ai.difficulties[seat.difficulty] && (seat.style === undefined || seat.style === RANDOM_PICK || t.ai.styles[seat.style]) && (seat.troop === undefined || knownTroop(t, seat.troop))),
+      (seat) => seat.kind !== 'AI' || (t.weapons[seat.weapon] && t.ai.difficulties[seat.difficulty] && (seat.style === undefined || seat.style === RANDOM_PICK || t.ai.styles[seat.style]) && (seat.quirks === undefined || seat.quirks.every((q) => t.ai.quirks[q])) && (seat.troop === undefined || knownTroop(t, seat.troop))),
     );
   }
 

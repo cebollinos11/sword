@@ -31,7 +31,7 @@ import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate } from './delver';
 export { eliteRelicSets, fieldedIn, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate };
-import { parseRelics, RELIC_GOOD_LOW, type RelicEffects, type RelicTuning } from './relics';
+import { parseRelicEffects, parseRelics, RELIC_GOOD_LOW, type RelicEffects, type RelicTuning } from './relics';
 import { parseConsumables, type ConsumableTuning } from './consumables';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
@@ -505,6 +505,12 @@ export interface AiDifficulty {
    * ally on its nearest enemy, as seen), of those near its own nearest, rather than spread out (a Pack Hunter).
    */
   readonly gangUp?: number;
+  /**
+   * 0..1: the chance, rolled once per enemy Attack, Kick, throw and Whirlwind phase it would answer, that it defends at all
+   * (default 1). On a miss it plans nothing for it and carries on with its own plan. Not a mistake: the mistake roll still runs
+   * when it does defend. Only a Quirk sets it (Dumb, 0); a difficulty never does.
+   */
+  readonly defendRate?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
@@ -534,6 +540,29 @@ export function styleEntry(mul: number, min: number): AiStyleEntry {
   return min === 0 ? mul : { mul, min };
 }
 
+/**
+ * The AI settings a Quirk's `ai` part may name: every optional chance of a difficulty (`AI_DIFFICULTY_EXTRAS`), `defendRate` and
+ * `jumpNav`. Never Reaction Time or the mistake rate.
+ */
+export const AI_QUIRK_KEYS = [...AI_DIFFICULTY_EXTRAS, 'defendRate', 'jumpNav'] as const satisfies readonly (keyof AiDifficulty)[];
+export type AiQuirkKey = (typeof AI_QUIRK_KEYS)[number];
+
+/**
+ * One entry of a Quirk's `ai` part, kept as written: a number sets the setting (a chance 0..1; on `jumpNav` a whole number of Ticks,
+ * -1 or more); `{ mul?, min }` adjusts a chance as a Style entry does (`clamp(max(min, v × mul), 0, 1)`); on `jumpNav` only `{ min }`
+ * (whole Ticks, 0 or more), which gives `max(min, jumpNav)`.
+ */
+export type AiQuirkEntry = AiStyleEntry;
+
+/**
+ * A Quirk (docs/plans/enemy-behaviours.md): a hard rule on top of an AI's difficulty and Style. Its `ai` part changes AI settings after
+ * the Style (so a Quirk always wins); its `body` part is Mods, folded in after a Troop's Relics. Both optional.
+ */
+export interface AiQuirk {
+  readonly ai?: Readonly<Partial<Record<AiQuirkKey, AiQuirkEntry>>>;
+  readonly body?: RelicEffects;
+}
+
 import { DEFAULT_STYLE } from './style';
 export { DEFAULT_STYLE };
 
@@ -561,6 +590,8 @@ export interface AiTuning {
   readonly difficulties: Readonly<Record<string, AiDifficulty>>;
   /** Styles by name, in file order: how an AI fights, chosen apart from its difficulty. DEFAULT_STYLE is the identity. */
   readonly styles: Readonly<Record<string, AiStyle>>;
+  /** Quirks by name, in file order (`ai.quirks`; absent: none): hard rules a Troop or an AI Seat adds on top of its Style. */
+  readonly quirks: Readonly<Record<string, AiQuirk>>;
 }
 
 export interface TuningData {
@@ -837,6 +868,7 @@ function parseAi(raw: unknown): AiTuning {
     }),
   );
   if (!styles[DEFAULT_STYLE] || Object.keys(styles[DEFAULT_STYLE]).length > 0) throw new TuningDataError(`ai.styles.${DEFAULT_STYLE} must be present and empty: it is the default Style, which changes nothing`);
+  const quirks = ai.quirks === undefined ? {} : parseQuirks(ai.quirks);
   return {
     attackRange: positiveNumber(ai, 'attackRange', 'ai'),
     retreatRange: positiveNumber(ai, 'retreatRange', 'ai'),
@@ -849,7 +881,50 @@ function parseAi(raw: unknown): AiTuning {
     ...(ai.spinThreat !== undefined && { spinThreat: fraction(ai, 'spinThreat', 'ai') }),
     difficulties,
     styles,
+    quirks,
   };
+}
+
+/** `ai.quirks`: name → `{ ai?, body? }` (`AiQuirk`). */
+function parseQuirks(raw: unknown): Readonly<Record<string, AiQuirk>> {
+  const q = record(raw, 'ai.quirks');
+  return Object.fromEntries(
+    Object.keys(q).map((name) => {
+      const where = `ai.quirks.${name}`;
+      if (name === RANDOM_PICK) throw new TuningDataError(`${where}: "${RANDOM_PICK}" is not a Quirk name`);
+      const m = record(q[name], where);
+      for (const k of Object.keys(m)) if (k !== 'ai' && k !== 'body') throw new TuningDataError(`${where}.${k}: a Quirk has only an ai part and a body part`);
+      let ai: Partial<Record<AiQuirkKey, AiQuirkEntry>> | undefined;
+      if (m.ai !== undefined) {
+        const at = `${where}.ai`;
+        const a = record(m.ai, at);
+        for (const k of Object.keys(a)) if (!(AI_QUIRK_KEYS as readonly string[]).includes(k)) throw new TuningDataError(`${at}.${k}: a Quirk changes only ${AI_QUIRK_KEYS.join(', ')}`);
+        ai = Object.fromEntries(AI_QUIRK_KEYS.filter((k) => a[k] !== undefined).map((k) => [k, k === 'jumpNav' ? parseQuirkJumpNav(a, at) : parseQuirkChance(a, k, at)]));
+      }
+      const body = m.body === undefined ? undefined : parseRelicEffects(m.body, `${where}.body`);
+      const quirk: AiQuirk = { ...(ai && { ai }), ...(body && { body }) };
+      return [name, quirk];
+    }),
+  );
+}
+
+/** A Quirk's entry on a chance: a number sets it (0..1), `{ mul?, min }` adjusts it as a Style entry does (`parseStyleEntry`). */
+function parseQuirkChance(a: Record<string, unknown>, key: string, where: string): AiQuirkEntry {
+  return typeof a[key] === 'number' ? fraction(a, key, where) : parseStyleEntry(a, key, where);
+}
+
+/** A Quirk's `jumpNav`: a whole number of Ticks, -1 or more, sets it; `{ min }` (whole Ticks, 0 or more) raises it to at least that. */
+function parseQuirkJumpNav(a: Record<string, unknown>, where: string): AiQuirkEntry {
+  const v = a.jumpNav;
+  const at = `${where}.jumpNav`;
+  if (typeof v === 'number') {
+    if (!Number.isInteger(v) || v < -1) throw new TuningDataError(`${at} must be a whole number of Ticks, -1 or more, got ${v}`);
+    return v;
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v) || Object.keys(v).length !== 1 || !('min' in v)) throw new TuningDataError(`${at} must be a whole number of Ticks or { min } (jumpNav takes no multiplier), got ${JSON.stringify(v)}`);
+  const min = (v as { min: unknown }).min;
+  if (typeof min !== 'number' || !Number.isInteger(min) || min < 0) throw new TuningDataError(`${at}.min must be a whole number of Ticks, 0 or more, got ${JSON.stringify(min)}`);
+  return { min };
 }
 
 function parseHearing(au: Record<string, unknown>, where: string): Hearing {
@@ -960,7 +1035,7 @@ export function parseTuningData(raw: unknown): TuningData {
   checkIdleLinks({ weapons, motions, motionOverrides });
   const ai = parseAi(root.ai);
   const battle = parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS);
-  const delver = parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) });
+  const delver = parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), quirks: Object.keys(ai.quirks), relics: relics.map((r) => r.name) });
   // The Dungeon is parsed before the Delver, so the Rarity's per-tier tables are checked against the tier count here.
   const { odds, carried } = dungeon.loot.rarity;
   if (odds.length !== delver.tiers) throw new TuningDataError(`dungeon.loot.rarity.odds must have ${delver.tiers} rows (one per delver tier), got ${odds.length}`);

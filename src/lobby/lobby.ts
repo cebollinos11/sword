@@ -52,9 +52,10 @@ export type Seat =
   | { readonly kind: 'Player'; readonly member: number }
   /**
    * An AI. `troop` (dev mode sets it, docs/plans/enemy-behaviours.md, Stage 0): in Duels it fights as that Delver Troop, and its difficulty,
-   * Style, Weapon and Size are ignored meanwhile (kept, for when the Troop is cleared); a Gauntlet or a Battle ignores it.
+   * Style, Quirks, Weapon and Size are ignored meanwhile (kept, for when the Troop is cleared); a Gauntlet or a Battle ignores it. `quirks`
+   * (dev mode sets it, Stage 4): `ai.quirks` names it plays on top of its Style; absent for none.
    */
-  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string; readonly size?: Size; readonly troop?: TroopRef };
+  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string; readonly quirks?: readonly string[]; readonly size?: Size; readonly troop?: TroopRef };
 
 export type SeatKind = Seat['kind'];
 
@@ -352,7 +353,7 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
     for (const s of row) {
       if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) });
       // A Seat's Troop only fights in Duels (a Gauntlet's Team 0 AIs are the party's allies).
-      else if (s.kind === 'AI' && !battle) lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon, ...(s.size && { size: s.size }), ...(s.troop && !gauntlet ? { troop: s.troop } : {}) });
+      else if (s.kind === 'AI' && !battle) lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }), ...(s.quirks === undefined ? {} : { quirks: s.quirks }) }, weapon: s.weapon, ...(s.size && { size: s.size }), ...(s.troop && !gauntlet ? { troop: s.troop } : {}) });
     }
   });
   return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };

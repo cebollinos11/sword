@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { defaultWeaponName, loadTuningData } from '../tuning';
+import { defaultWeaponName, loadTuningData, type TuningData } from '../tuning';
+import { isPoolAiMemory } from '../net/messages';
 import { arenaOf } from '../sim/arena';
 import { groundOf, soldierHeight } from '../sim/battlefield';
 import { stepBubbles, unboundSlot } from '../sim/bubble';
@@ -12,11 +13,12 @@ import { BOSS, ELITE } from '../sim/warband';
 import { createPoolAi } from './poolAi';
 import { flatFloors } from '../sim/delver/flat.testdata';
 
-const tuning = flatFloors(loadTuningData());
+const plain = flatFloors(loadTuningData());
+const tuning = plain;
 const TIMEOUT = 120_000;
 
 /** Floor `floor` of Run `seed`, its Crowd deployed, and a Duel in which Warband rank `rank`'s first Soldier is promoted beside the Player. */
-function promotedFirstOf(rank: number, seed: number, floor: number) {
+function promotedFirstOf(rank: number, seed: number, floor: number, tuning: TuningData = plain) {
   const name = floorArenaName(seed, floor);
   const built = floorOf(tuning, name)!;
   const t = arenaTuning(tuning, name);
@@ -76,6 +78,31 @@ describe("the Pool AI on a Floor", { timeout: TIMEOUT }, () => {
     b.load!(saved);
     expect(b.save!()).toEqual(a.save!());
     expect(b.intent(boss.state, boss.k)).toEqual(a.intent(boss.state, boss.k));
+  });
+
+  it("plays a promoted Soldier with its Troop's Quirks: in its memory (keyed with them, and valid on the wire) and in its Fighter's Mods", () => {
+    const heavy = { damage: 1.5 };
+    const quirky: TuningData = {
+      ...plain,
+      ai: { ...plain.ai, quirks: { ...plain.ai.quirks, Heavy: { body: heavy } } },
+      delver: { ...plain.delver, troops: plain.delver.troops.map((p) => ({ ...p, variants: p.variants.map((v) => ({ ...v, quirks: ['Dumb', 'Heavy'] })) })) },
+    };
+    const boss = promotedFirstOf(BOSS, 1, 3, quirky);
+    const ai = createPoolAi(quirky);
+    for (let i = 0; i < 5; i++) ai.intent(boss.state, boss.k);
+    const saved = JSON.parse(JSON.stringify(ai.save!()));
+    expect(saved.quirks).toEqual(['Dumb', 'Heavy']);
+    expect(isPoolAiMemory(saved)).toBe(true);
+    const b = createPoolAi(quirky);
+    b.load!(saved);
+    expect(b.intent(boss.state, boss.k)).toEqual(ai.intent(boss.state, boss.k));
+    // The body part is on the promoted Fighter, after its Relics.
+    const without = promotedFirstOf(BOSS, 1, 3);
+    expect(boss.state.fighters[boss.k]!.mods!.damage).toBeCloseTo((without.state.fighters[without.k]!.mods?.damage ?? 1) * 1.5, 12);
+    // Without Quirks the memory has no key, so it is as before.
+    const old = createPoolAi(plain);
+    old.intent(without.state, without.k);
+    expect(old.save!()).not.toHaveProperty('quirks');
   });
 
   it('drops its binding and memory when its slot is unbound', () => {

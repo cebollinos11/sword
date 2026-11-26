@@ -245,6 +245,17 @@ describe("Lobby: an AI Seat's Delver Troop (docs/plans/enemy-behaviours.md, Stag
       expect(parseLobbyMessage({ ...m, state: setSeat(s, at, { ...seat, troop: bad as unknown as typeof troop }) }), JSON.stringify(bad)).toBeNull();
   });
 
+  it("a Seat's Quirks (Stage 4) go into its Pilot in every Lineup it fields, and a lobby message carries them", () => {
+    const quirky = { kind: 'AI' as const, difficulty: 'Skilled', weapon: other, quirks: ['Dumb'] };
+    const s = setSeat(newLobby(options(false)), at, quirky);
+    expect(lobbyLineup(s).lineup[1]).toEqual({ team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', quirks: ['Dumb'] }, weapon: other });
+    expect(() => checkLineup(tuning, lobbyLineup(s).lineup, 1)).not.toThrow();
+    const m = { type: 'lobby', you: 0, ack: 0, state: s };
+    expect(parseLobbyMessage(m)).toEqual(m);
+    for (const bad of [[], ['Dumb', 'Dumb'], 'Dumb', [7]]) expect(parseLobbyMessage({ ...m, state: setSeat(s, at, { ...quirky, quirks: bad as string[] }) }), JSON.stringify(bad)).toBeNull();
+    expect(lobbyLineup(newLobby(options(false))).lineup[1]!.pilot).not.toHaveProperty('quirks');
+  });
+
   it('a Seat without a Troop gives the Lineup it always did', () => {
     expect(lobbyLineup(newLobby(options(false))).lineup[1]).not.toHaveProperty('troop');
   });

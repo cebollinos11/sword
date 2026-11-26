@@ -333,14 +333,14 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
     const troop = seat.troop && !isGauntlet(state) ? seat.troop : undefined;
     if (host) {
       // With a Troop, its own line stands in for the Style, Weapon and build: the Troop sets them.
-      const own = troop ? [] : [styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat), sizeSelect(ctx, at, seat)];
+      const own = troop ? [] : [styleSelect(ctx, at, seat), ...(ctx.dev ? [quirksSelect(ctx, at, seat)] : []), weaponSelect(ctx, at, seat), sizeSelect(ctx, at, seat)];
       const dev = ctx.dev && !isGauntlet(state) ? [troopSelect(ctx, at, seat), troop && troopTierSelect(ctx, at, seat, troop)] : [];
       info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), ...dev.filter((e) => e), ...own));
       if (troop) info.append(h('div', 'seat-sub', troopLine(ctx.tuning, troop)));
     } else if (troop) {
       info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${troopName(ctx.tuning, troop)} AI`)), h('div', 'seat-sub', troopLine(ctx.tuning, troop)));
     } else {
-      info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', `${styleLabel(seat.style)} · ${seat.weapon}`));
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', `${styleLabel(seat.style)}${quirksTag(seat.quirks)} · ${seat.weapon}`));
     }
     row.append(info);
   } else {
@@ -375,10 +375,11 @@ function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat:
   const value = seat.kind === 'AI' ? `AI:${seat.difficulty}` : seat.kind;
   const weapon = seat.kind === 'AI' ? seat.weapon : Object.keys(ctx.tuning.weapons)[0]!;
   const style = seat.kind === 'AI' && seat.style !== undefined ? { style: seat.style } : {};
+  const quirks = seat.kind === 'AI' && seat.quirks !== undefined ? { quirks: seat.quirks } : {};
   const size = seat.kind === 'AI' && seat.size !== undefined ? { size: seat.size } : {};
   const troop = seat.kind === 'AI' && seat.troop !== undefined ? { troop: seat.troop } : {};
   return select('Seat', options, value, (v) => {
-    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style, ...size, ...troop } : { kind: v as 'Open' | 'Closed' };
+    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style, ...quirks, ...size, ...troop } : { kind: v as 'Open' | 'Closed' };
     ctx.lobby.edit((s) => setSeat(s, at, next));
   });
 }
@@ -420,6 +421,39 @@ function styleSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { k
   });
 }
 
+/** An AI's Quirks as a suffix (" + Dumb + Hopper"), nothing for none. */
+const quirksTag = (quirks: readonly string[] | undefined): string => (quirks ?? []).map((q) => ` + ${q}`).join('');
+
+/** The most Quirks `quirkChoices` combines: past it, only one Quirk at a time is offered. */
+const QUIRK_COMBOS_UP_TO = 4;
+
+/**
+ * The Quirk lists a plain AI Seat may play, in dev mode (docs/plans/enemy-behaviours.md, Stage 4): none, then every non-empty combination
+ * of `ai.quirks` in file order (one Quirk at a time when there are more than QUIRK_COMBOS_UP_TO). Each is [select value, label, list].
+ */
+export function quirkChoices(tuning: TuningData): readonly (readonly [string, string, readonly string[]])[] {
+  const names = Object.keys(tuning.ai.quirks);
+  const lists: string[][] = [];
+  if (names.length > QUIRK_COMBOS_UP_TO) lists.push(...names.map((n) => [n]));
+  else for (let mask = 1; mask < 1 << names.length; mask++) lists.push(names.filter((_, k) => mask & (1 << k)));
+  lists.sort((a, b) => a.length - b.length);
+  return [['', 'No Quirks', []], ...lists.map((l) => [l.join('+'), l.join(' + '), l] as const)];
+}
+
+/** Host, dev mode: a plain AI Seat's Quirks (hard rules on top of its Style), or none. */
+function quirksSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>): HTMLSelectElement {
+  const choices = quirkChoices(ctx.tuning);
+  const options: [string, string][] = choices.map(([value, label]) => [value, label]);
+  const value = (seat.quirks ?? []).join('+');
+  // A list the choices lack (another order, or a Quirk this build lacks) still shows, so the select says what the Seat holds.
+  if (!choices.some(([v]) => v === value)) options.push([value, (seat.quirks ?? []).join(' + ')]);
+  return select('AI Quirks', options, value, (v) => {
+    const { quirks: _old, ...rest } = seat;
+    const list = choices.find(([key]) => key === v)?.[2] ?? seat.quirks ?? [];
+    ctx.lobby.edit((s) => setSeat(s, at, list.length > 0 ? { ...rest, quirks: [...list] } : rest));
+  });
+}
+
 /** The Troop select's value for no Troop. */
 export const NO_TROOP = '';
 
@@ -445,7 +479,7 @@ export function troopName(tuning: TuningData, ref: TroopRef): string {
 
 /**
  * What an AI Seat with a Troop fights as, read-only, in place of its own Style, Weapon and build: its Body, Weapon, HP (and the Floor tier it
- * is scaled as, or Boss), AI difficulty and Style, and Relics (`resolveTroop`). A Troop Tuning Data lacks says so instead.
+ * is scaled as, or Boss), AI difficulty, Style and Quirks, and Relics (`resolveTroop`). A Troop Tuning Data lacks says so instead.
  */
 export function troopLine(tuning: TuningData, ref: TroopRef): string {
   let t: ResolvedTroop;
@@ -456,7 +490,7 @@ export function troopLine(tuning: TuningData, ref: TroopRef): string {
   }
   const hp = `${Math.round(t.maxHp)} HP ${t.troop.boss ? '(Boss)' : `(Floor tier ${t.tier})`}`;
   const relics = t.relics.length > 0 ? t.relics.join(', ') : 'no Relics';
-  return `${t.body} · ${t.weapon} · ${hp} · ${t.difficulty} ${t.style} · ${relics}`;
+  return `${t.body} · ${t.weapon} · ${hp} · ${t.difficulty} ${t.style}${quirksTag(t.quirks)} · ${relics}`;
 }
 
 /** Host, dev mode: the Delver Troop an AI Seat fights as, or none (its own settings again). */

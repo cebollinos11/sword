@@ -22,9 +22,10 @@ export type PlayerNumber = 0 | 1 | 2 | 3;
 
 /**
  * What drives a Fighter: a human Player, or the AI at a difficulty preset (Tuning Data `ai.difficulties`) playing a Style
- * (`ai.styles`, or RANDOM_PICK: one picked from the Match seed by `lineupStyle`; absent: DEFAULT_STYLE).
+ * (`ai.styles`, or RANDOM_PICK: one picked from the Match seed by `lineupStyle`; absent: DEFAULT_STYLE), with Quirks (`ai.quirks` names,
+ * applied after the Style, docs/plans/enemy-behaviours.md, Stage 4; absent: none, never an empty list).
  */
-export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string };
+export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string; readonly quirks?: readonly string[] };
 
 /**
  * The difficulty a Gauntlet's Team 1 slots name past its traitors: none of their own, since the Floors' enemies are the Crowd's Warbands
@@ -42,8 +43,8 @@ export interface LineupSlot {
   readonly size?: Size;
   /**
    * A Delver Troop this AI fights as (docs/plans/enemy-behaviours.md, Stage 0; Duels only): its Body, Weapon, HP, Size, Mods, Relics,
-   * difficulty and Style, all from Tuning Data (`resolveTroop`). While set, the Pilot's difficulty and Style and the slot's `weapon` and
-   * `size` are ignored. Absent: a plain AI.
+   * difficulty, Style and Quirks, all from Tuning Data (`resolveTroop`). While set, the Pilot's difficulty, Style and Quirks and the slot's
+   * `weapon` and `size` are ignored. Absent: a plain AI.
    */
   readonly troop?: TroopRef;
 }
@@ -100,12 +101,21 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
     if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);
     if (s.pilot.kind === 'AI' && s.weapon !== undefined && !tuning.weapons[s.weapon]) throw new RangeError(`Unknown Weapon "${s.weapon}"`);
+    if (s.pilot.kind === 'AI') checkQuirks(tuning, s.pilot.quirks);
     if (s.troop !== undefined) {
       if (s.pilot.kind !== 'AI') throw new RangeError('Only an AI slot fights as a Troop');
       if (format !== 'Duels') throw new RangeError('Only Duels field a Delver Troop');
       slotTroop(tuning, s);
     }
   }
+}
+
+/** Throws unless `quirks` is absent or 1 or more distinct `ai.quirks` names (naming the known ones). */
+function checkQuirks(tuning: TuningData, quirks: readonly string[] | undefined): void {
+  if (quirks === undefined) return;
+  if (quirks.length === 0) throw new RangeError('An AI with no Quirks names none (leave quirks out)');
+  if (new Set(quirks).size !== quirks.length) throw new RangeError(`An AI names each Quirk once, got ${quirks.join(', ')}`);
+  for (const q of quirks) if (!tuning.ai.quirks[q]) throw new RangeError(`Unknown AI Quirk "${q}" (have: ${Object.keys(tuning.ai.quirks).join(', ') || 'none'})`);
 }
 
 /** Throws unless a Battle's Lineup is its Players' slots alone (no AI: the Pool's other slots are the Bubbles'), at most MAX_TEAM_SIZE a Team. */
@@ -163,21 +173,22 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
  * Players' (null), then a Pool AI on every other slot (`poolControllers`). In a Gauntlet (a Run, docs/plans/delver.md) the party's entries,
  * each Team 0 AI an Ally AI (walking with the party's Players), then a Pool AI on every Pool slot from the party's size to `bubble.poolSize`:
  * the Lineup's Team 1 slots are dropped (the Floors' enemies are the Crowd's; a traitor plays a Pool slot, which a Pool AI drives once it
- * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`). In Duels, a slot with a Troop gets an AI of
- * its Troop's difficulty and Style.
+ * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`). Each AI plays its Pilot's Quirks. In Duels, a
+ * slot with a Troop gets an AI of its Troop's difficulty, Style and Quirks instead.
  */
 export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed'> = {}): (Controller | null)[] {
   if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
   if (format === 'Gauntlet') {
     const party = lineup.filter((s) => s.team === 0);
     const own = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && s.team === 0 ? [i] : []));
-    const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), own)));
+    const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), own, s.pilot.quirks)));
     return [...ais, ...Array.from({ length: tuning.battle.bubble.poolSize - ais.length }, () => createPoolAi(tuning))];
   }
   return lineup.map((s, i) => {
     if (s.pilot.kind !== 'AI') return null;
-    // A Troop plays its Variant's difficulty and Style (Stage 4 of docs/plans/enemy-behaviours.md adds its Quirks here).
+    // A Troop plays its Variant's difficulty, Style and Quirks; a plain AI its Pilot's.
     const troop = slotTroop(tuning, s);
-    return troop ? createAiController(tuning, troop.difficulty, troop.style) : createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i));
+    if (troop) return createAiController(tuning, troop.difficulty, troop.style, { quirks: troop.quirks });
+    return createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), { quirks: s.pilot.quirks ?? [] });
   });
 }

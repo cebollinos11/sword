@@ -145,6 +145,20 @@ describe('Lobby sync', () => {
     expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, troop });
   });
 
+  it("an AI Seat's Quirks reach the guest; a broken host's unknown Quirk is ignored", () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    const at = { team: 1, index: 1 };
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Slow'] }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, quirks: ['Dumb', 'Hopper'] });
+  });
+
   it('an online Lobby with a Troop Seat starts the same Match on both peers', () => {
     const r = room({ latencyMs: 30, jitterMs: 10 });
     const g = r.connect('Bo');

@@ -3,7 +3,7 @@ import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, runDuel, stepMatch, throwTimings, type Intent, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, runControllers, scriptedController, type Controller, type Lineup } from '../controllers';
 import { resolveTroop } from '../sim/delver';
-import { parseNetMessage, PROTOCOL_VERSION } from './messages';
+import { isPoolAiMemory, isQuirkList, MAX_QUIRKS, parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
 
@@ -716,7 +716,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
   });
 
   it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 39', () => {
-    expect(PROTOCOL_VERSION).toBe(39);
+    expect(PROTOCOL_VERSION).toBe(40);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -838,6 +838,48 @@ describe('Peer message validation: the AI memory of an answered Whirlwind (docs/
     for (const bad of bads) {
       expect(parseNetMessage(resync(matchState(), [null, { ...good, whirlReads: bad }])), JSON.stringify(bad)).toBeNull();
     }
+  });
+});
+
+describe('Peer message validation: Quirks (docs/plans/enemy-behaviours.md, Stage 4)', () => {
+  function memory(): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Skilled');
+    let m = createMatch(tuning, { bestOf: 1, teams: [0, 1], seed: 3 });
+    for (let t = 0; t < 40; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it("an AI memory may hold a None Defence plan and a kickRead (Dumb's rolls), and refuses a malformed kickRead", () => {
+    const good = memory();
+    expect('kickRead' in good).toBe(false);
+    const none = { attacker: 0, attackStart: 12, kind: 'None', direction: 'Left', pressAt: -1 };
+    for (const ok of [{ ...good, defencePlan: none }, { ...good, kickRead: { kicker: 0, defend: false } }, { ...good, kickRead: { kicker: 2, defend: true } }]) {
+      const m = resync(matchState(), [null, ok]);
+      expect(parseNetMessage(m)).toEqual(m);
+    }
+    for (const bad of [null, { kicker: 0 }, { kicker: -1, defend: true }, { kicker: 0, defend: 1 }, true])
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, kickRead: bad }])), JSON.stringify(bad)).toBeNull();
+    expect(parseNetMessage(resync(matchState(), [null, { ...good, defencePlan: { ...none, kind: 'Ignore' } }]))).toBeNull();
+  });
+
+  it("a hello's Lineup carries an AI's Quirks (1 to MAX_QUIRKS names, each once; Tuning Data judges them), and a Pool AI's memory may name them", () => {
+    const hello = (quirks: unknown) => ({
+      type: 'hello',
+      protocol: 1,
+      tuningHash: 'abcd1234',
+      match: { bestOf: 3, seed: 4 },
+      lineup: [{ team: 0, pilot: { kind: 'Player', player: 0 } }, { team: 1, pilot: { kind: 'AI', difficulty: 'Expert', quirks }, weapon: 'Halberd' }],
+      weapons: ['Halberd'],
+      player: 0,
+    });
+    for (const q of [['Dumb'], ['Dumb', 'Hopper'], ['Anything']]) expect(parseNetMessage(hello(q))).toEqual(hello(q));
+    for (const q of [[], 'Dumb', ['Dumb', 'Dumb'], [''], [3], Array.from({ length: MAX_QUIRKS + 1 }, (_, k) => `Q${k}`), ['x'.repeat(33)]]) expect(parseNetMessage(hello(q)), JSON.stringify(q)).toBeNull();
+    expect(isQuirkList(['Dumb'])).toBe(true);
+    const pool = { bound: { index: 3, since: 10, role: 'Attack' }, difficulty: 'Beginner', style: 'Aggressive', memory: memory() };
+    expect(isPoolAiMemory(pool)).toBe(true);
+    expect(isPoolAiMemory({ ...pool, quirks: ['Dumb', 'Hopper'] })).toBe(true);
+    for (const quirks of [[], ['Dumb', 'Dumb'], 'Dumb', null]) expect(isPoolAiMemory({ ...pool, quirks }), JSON.stringify(quirks)).toBe(false);
+    expect(isPoolAiMemory({ ...pool, extra: 1 })).toBe(false);
   });
 });
 

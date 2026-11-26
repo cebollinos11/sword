@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
 import { moveMember, newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
-import { NO_TROOP, troopChoices, troopLine, troopName } from './lobbyView';
+import { NO_TROOP, quirkChoices, troopChoices, troopLine, troopName } from './lobbyView';
 import { addToSide, arenaLabel, joinSeat, removeFromSide, sideCount, traitorSeat, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
@@ -197,5 +197,22 @@ describe('the Lobby view: an AI Seat fighting as a Delver Troop (docs/plans/enem
     expect(troopLine(tuning, { prefab: 'Revenant', variant: 'Wraith Lord' })).toBe('wraith · Longsword · 300 HP (Boss) · Expert Aggressive · Heavy Gauntlet');
     expect(troopLine(tuning, { prefab: 'Uruk', variant: 'Goblin' })).toBe('Unknown Troop Uruk · Goblin');
     expect(troopName(tuning, { prefab: 'Uruk', variant: 'Warden' })).toBe('Uruk · Warden (Boss)');
+  });
+
+  it("lists a Troop's Quirks after its Style (Stage 4)", () => {
+    const quirky = { ...tuning, delver: { ...tuning.delver, troops: tuning.delver.troops.map((p) => (p.name !== 'Uruk' ? p : { ...p, variants: p.variants.map((v) => ({ ...v, quirks: ['Dumb', 'Hopper'] })) })) } };
+    expect(troopLine(quirky, { prefab: 'Uruk', variant: 'Uruk (Beginner)' })).toBe('uruk · Sledge Hammer · 80 HP (Floor tier 2) · Beginner Aggressive + Dumb + Hopper · no Relics');
+  });
+});
+
+describe('the Lobby view: a plain AI Seat\'s Quirks, in dev mode (docs/plans/enemy-behaviours.md, Stage 4)', () => {
+  it('offers no Quirks, then each Quirk, then each combination, every value distinct', () => {
+    const choices = quirkChoices(tuning);
+    expect(choices.map(([value, label, list]) => [value, label, list])).toEqual([
+      ['', 'No Quirks', []],
+      ['Dumb', 'Dumb', ['Dumb']],
+      ['Hopper', 'Hopper', ['Hopper']],
+      ['Dumb+Hopper', 'Dumb + Hopper', ['Dumb', 'Hopper']],
+    ]);
   });
 });

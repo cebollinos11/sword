@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, MAX_SIZE, MIN_SIZE } from '../../tuning';
+import { loadTuningData, MAX_SIZE, MIN_SIZE, type TuningData } from '../../tuning';
 import { delverBattle } from './build';
 import { DUEL_TROOP_TIER, floorLooks, floorPrefabs, floorTroops, floorTuningOf, isBossFloor, resolveTroop, sizeOfHp, soldierHp, tierOf, troopLabel, troopMods } from './troops';
 import { relicMods, relicOf } from '../inventory';
@@ -235,6 +235,31 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
     const scale = 1.25;
     expect(soldierHp(tuning, elite, false, scale, delver.tierHp[2]!)).toBe(elite.hp * scale * delver.tierHp[2]! * (1 + relicMods(tuning, elite.relics!).maxHp));
     expect(troopMods(tuning, elite)).toEqual(foldMods([{ effects: elite.mods }, ...elite.relics!.map((r) => relicOf(tuning, r))]));
+  });
+
+  it("carries its Variant's Quirks (none in the bundled data), and folds their body parts into its Mods after its Relics, as a Floor's promotion does", () => {
+    expect(resolveTroop(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)' }).quirks).toEqual([]);
+    expect(floorTroops(delver).troops.some((t) => 'quirks' in t)).toBe(false);
+    // Every Variant of the Revenant Dumb and Heavy (a body part: more damage, more max HP), elites and the Boss too.
+    const heavy = { damage: 1.5, maxHp: 0.25 };
+    const quirky: TuningData = {
+      ...tuning,
+      ai: { ...tuning.ai, quirks: { ...tuning.ai.quirks, Heavy: { body: heavy } } },
+      delver: { ...delver, troops: delver.troops.map((p) => (p.name !== 'Revenant' ? p : { ...p, variants: p.variants.map((v) => ({ ...v, quirks: ['Dumb', 'Heavy'] })) })) },
+    };
+    const lord = resolveTroop(quirky, { prefab: 'Revenant', variant: 'Wraith Lord' });
+    expect(lord.quirks).toEqual(['Dumb', 'Heavy']);
+    const v = delver.troops[revenant]!.variants.find((x) => x.name === 'Wraith Lord')!;
+    expect(lord.mods).toEqual(foldMods([{ effects: v.mods }, relicOf(tuning, 'Heavy Gauntlet'), { effects: heavy }]));
+    // The Floor's own Troops of it, elites included, carry them too, and their promotion's fold is the same.
+    const revenants = floorTroops(quirky.delver).troops.filter((t) => t.prefab === revenant);
+    expect(revenants.length).toBeGreaterThan(delver.troops[revenant]!.variants.length);
+    for (const t of revenants) {
+      expect(t.quirks).toEqual(['Dumb', 'Heavy']);
+      expect(troopMods(quirky, t)).toEqual(foldMods([{ effects: t.mods }, ...(t.relics ?? []).map((r) => relicOf(tuning, r)), { effects: heavy }]));
+    }
+    // A Quirk Tuning Data lacks is refused, naming the known ones.
+    expect(() => troopMods(tuning, { ...revenants[0]!, quirks: ['Heavy'] })).toThrow(/Unknown Quirk "Heavy" \(have: Dumb, Hopper\)/);
   });
 
   it('refuses a Prefab, a Variant or a tier Tuning Data does not have, naming the known ones', () => {

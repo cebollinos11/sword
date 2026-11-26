@@ -128,9 +128,9 @@ class AllyAi implements Controller {
 }
 
 /**
- * An Ally AI for a Run's Team 0 AI slot: the AI at `difficulty` playing `style`, walking with the party once its Hall is
+ * An Ally AI for a Run's Team 0 AI slot: the AI at `difficulty` playing `style` (with `quirks`, `ai.quirks` names), walking with the party once its Hall is
  * cleared. `players` are the Fighters the human Players drive (`lineupMatch`'s `players`).
  */
-export function createAllyAi(tuning: TuningData, difficulty: string, style: string, players: readonly number[]): Controller {
-  return new AllyAi(tuning, createAiController(tuning, difficulty, style), players);
+export function createAllyAi(tuning: TuningData, difficulty: string, style: string, players: readonly number[], quirks: readonly string[] = []): Controller {
+  return new AllyAi(tuning, createAiController(tuning, difficulty, style, { quirks }), players);
 }

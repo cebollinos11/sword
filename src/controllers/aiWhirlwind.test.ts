@@ -317,6 +317,14 @@ describe('AI Whirlwind: answering it', () => {
     expect(events(blind.run, 'Hit').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
   });
 
+  it('Dumb (defendRate 0, Stage 4 of docs/plans/enemy-behaviours.md) answers no Whirlwind: the same Spin Hits it, read or not', () => {
+    const start = atSpin({ x: 0, z: 3.4 }, 'Left');
+    const dumb = playOn(start, reads({ defendRate: 0 }), 90);
+    expect(events(dumb.run, 'Block').some((e) => e.whirlwind && e.defender === 0)).toBe(false);
+    expect(events(dumb.run, 'Hit').some((e) => e.whirlwind && e.defender === 0)).toBe(true);
+    expect([...dumb.intents.values()].some((i) => i.block)).toBe(false);
+  });
+
   it('seeing a hold in reach where its Attack lands before arming, it attacks and the hold is broken', () => {
     const { run } = play(repo, reads(), [{ x: 0, z: 1.2, team: 1 }], 150, undefined, [], [...heldG('Left'), ...wait(200)]);
     const hit = events(run, 'Hit').find((e) => e.attacker === 0 && e.defender === 1);

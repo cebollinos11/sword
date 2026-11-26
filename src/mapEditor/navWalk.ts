@@ -56,6 +56,8 @@ export interface AiWalkOptions {
   readonly sheathed?: boolean;
   /** Take no jump Link (the Delver pilot online). */
   readonly walkOnly?: boolean;
+  /** The AI's Quirks (`ai.quirks` names, docs/plans/enemy-behaviours.md, Stage 4; default none): a Hopper follows longer jump Links. */
+  readonly quirks?: readonly string[];
 }
 
 /** Tuning Data with `arena` registered under `ARENA`, the Fighter put at `start` and the other Fighter of the Duel at it too (benched). */
@@ -93,7 +95,8 @@ export class AiWalk {
     this.tuning = walkTuning(base, arena, start);
     this.arena = this.tuning.arenas[ARENA]!;
     const skill = this.tuning.ai.difficulties[options.difficulty ?? 'Hard']!;
-    this.ai = createAiController(this.tuning, options.walkOnly ? { ...skill, jumpNav: -1 } : skill);
+    // Its Quirks (a Hopper's `jumpNav` minimum) first; walk-only after them, so it still takes no jump Link.
+    this.ai = createAiController(this.tuning, skill, undefined, { quirks: options.quirks ?? [], walk: options.walkOnly === true });
     const m = createMatch(this.tuning, { format: 'Duels', bestOf: 1, seed: 1, arena: ARENA, teams: [0, 1] });
     // The other Fighter is benched: out of the Duel, in nobody's way.
     this.match = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? f : { ...f, benched: true as const })) } };

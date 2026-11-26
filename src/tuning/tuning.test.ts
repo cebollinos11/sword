@@ -286,6 +286,39 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, styles: undefined } })).toThrow(/ai\.styles/);
   });
 
+  it('loads the Quirks from data/ai.json: Dumb (defendRate 0) and Hopper (its jump chances, and jumpNav at least 10)', () => {
+    const { quirks } = loadTuningData().ai;
+    expect(Object.keys(quirks)).toEqual(['Dumb', 'Hopper']);
+    expect(quirks.Dumb).toEqual({ ai: { defendRate: 0 } });
+    expect(quirks.Hopper).toEqual({ ai: { jumpAttackRate: { mul: 4, min: 0.002 }, jumpStep: { mul: 3, min: 0.3 }, jumpEscapeRate: { mul: 2, min: 0.1 }, landingPunish: { mul: 1.5, min: 0.2 }, jumpNav: { min: 10 } } });
+  });
+
+  it('parses ai.quirks: an ai part (any difficulty extra, defendRate and jumpNav; a number sets, { mul?, min } adjusts) and a body part (Mods), and refuses the rest', () => {
+    const good = goodRaw();
+    const withQuirks = (quirks: unknown) => ({ ...good, ai: { ...good.ai, quirks } });
+    expect(parseTuningData(good).ai.quirks).toEqual({});
+    const q = parseTuningData(withQuirks({ Clumsy: { ai: { defendRate: 0.5, chamberRate: { min: 0.1 }, caution: { mul: 2, min: 0 }, jumpNav: 4 } }, Heavy: { body: { damage: 1.2, maxHp: 0.5 } }, Plain: {} })).ai.quirks;
+    expect(q).toEqual({ Clumsy: { ai: { defendRate: 0.5, chamberRate: { min: 0.1 }, caution: { mul: 2, min: 0 }, jumpNav: 4 } }, Heavy: { body: { damage: 1.2, maxHp: 0.5 } }, Plain: {} });
+    expect(parseTuningData(withQuirks({ Up: { ai: { jumpNav: { min: 10 } } } })).ai.quirks.Up).toEqual({ ai: { jumpNav: { min: 10 } } });
+    const refused: [unknown, RegExp][] = [
+      [{ ai: { reactionTime: 0.1 } }, /ai\.quirks\.Q\.ai\.reactionTime: a Quirk changes only .*defendRate, jumpNav/],
+      [{ ai: { mistakeRate: 0 } }, /ai\.quirks\.Q\.ai\.mistakeRate: a Quirk changes only/],
+      [{ ai: { feintRate: 0 } }, /ai\.quirks\.Q\.ai\.feintRate: a Quirk changes only/],
+      [{ ai: { defendRate: 1.5 } }, /ai\.quirks\.Q\.ai\.defendRate must be between 0 and 1/],
+      [{ ai: { caution: { mul: 2 } } }, /ai\.quirks\.Q\.ai\.caution: an object entry needs a min/],
+      [{ ai: { caution: { min: 2 } } }, /ai\.quirks\.Q\.ai\.caution\.min must be between 0 and 1/],
+      [{ ai: { jumpNav: -2 } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number of Ticks, -1 or more/],
+      [{ ai: { jumpNav: 2.5 } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number/],
+      [{ ai: { jumpNav: { mul: 2, min: 10 } } }, /ai\.quirks\.Q\.ai\.jumpNav must be a whole number of Ticks or \{ min \}/],
+      [{ ai: { jumpNav: { min: -1 } } }, /ai\.quirks\.Q\.ai\.jumpNav\.min must be a whole number of Ticks, 0 or more/],
+      [{ ai: { jumpNav: { min: 1.5 } } }, /ai\.quirks\.Q\.ai\.jumpNav\.min/],
+      [{ body: { luck: 2 } }, /ai\.quirks\.Q\.body: unknown effect "luck"/],
+      [{ mind: {} }, /ai\.quirks\.Q\.mind: a Quirk has only an ai part and a body part/],
+    ];
+    for (const [entry, error] of refused) expect(() => parseTuningData(withQuirks({ Q: entry })), JSON.stringify(entry)).toThrow(error);
+    expect(() => parseTuningData(withQuirks({ random: {} }))).toThrow(/ai\.quirks\.random/);
+  });
+
   it('loads the Gait (stride threshold, step duration, step height, hip bob, hip sway) from data/gait.json', () => {
     const { gait } = loadTuningData();
     expect(gait.strideThreshold).toBeGreaterThan(0);

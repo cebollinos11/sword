@@ -250,6 +250,8 @@ export interface TroopTuning {
   readonly style?: string;
   /** A Delver Floor's Troop only: the Relics (names, data/relics.json) a promoted Soldier of it wears. */
   readonly relics?: readonly string[];
+  /** A Delver Floor's Troop only: its Variant's Quirks (names from `ai.quirks`); absent when it has none. */
+  readonly quirks?: readonly string[];
   /** A Delver Floor's Boss Troop only. */
   readonly boss?: true;
   /** A Delver Floor's Troop only (docs/plans/delver-troops.md): its Prefab (an index into `delver.troops`), whose one look it wears. */

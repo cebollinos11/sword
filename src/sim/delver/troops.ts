@@ -4,7 +4,7 @@
  * object, never state. A Floor's Battle Tuning carries this list as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in
  * it; the Battles' own `battle.troops` are never a Floor's. Which Prefabs a Floor fields is `floorPrefabs`.
  */
-import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type Size, type TroopTuning, type TuningData } from '../../tuning';
+import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type RelicEffects, type Size, type TroopTuning, type TuningData } from '../../tuning';
 import type { DelverFloorTuning, DelverPrefab, DelverVariant } from '../../tuning/delver';
 import { runPick } from '../dungeon';
 import { relicMods, relicOf } from '../inventory';
@@ -66,6 +66,7 @@ function build(delver: DelverTuning): FloorTroops {
       difficulty: v.difficulty,
       style: v.style,
       relics,
+      ...(v.quirks ? { quirks: v.quirks } : {}),
       hp: v.hp,
       damage: v.damage,
       hitChance: v.hitChance,
@@ -162,12 +163,21 @@ export function soldierHp(tuning: Pick<TuningData, 'relics'>, troop: Pick<TroopT
 }
 
 /**
- * A promoted Soldier's Mods from its Troop: its Troop's `mods` and then its Relics, folded (`foldMods`). The one fold a Floor's promotion
- * (`bubble.ts`) and a Duel Troop (`resolveTroop`) both use. Stage 4 of docs/plans/enemy-behaviours.md folds a Troop's Quirks' `body` parts in
- * here too, after its Relics. Throws on a Relic Tuning Data lacks. Pure.
+ * A promoted Soldier's Mods from its Troop: its Troop's `mods`, then its Relics, then its Quirks' `body` parts (`ai.quirks`), folded
+ * (`foldMods`). The one fold a Floor's promotion (`bubble.ts`) and a Duel Troop (`resolveTroop`) both use. Throws on a Relic or a Quirk
+ * Tuning Data lacks. Pure.
  */
-export function troopMods(tuning: Pick<TuningData, 'relics'>, troop: Pick<TroopTuning, 'mods' | 'relics'>): Mods {
-  return foldMods([{ effects: troop.mods }, ...(troop.relics ?? []).map((name) => relicOf(tuning, name))]);
+export function troopMods(tuning: Pick<TuningData, 'relics' | 'ai'>, troop: Pick<TroopTuning, 'mods' | 'relics' | 'quirks'>): Mods {
+  return foldMods([{ effects: troop.mods }, ...(troop.relics ?? []).map((name) => relicOf(tuning, name)), ...quirkBodies(tuning, troop.quirks ?? [])]);
+}
+
+/** The `body` parts of Quirks `names`, as Relic-like effects to fold (a Quirk with none adds nothing). Throws on a Quirk Tuning Data lacks. */
+function quirkBodies(tuning: Pick<TuningData, 'ai'>, names: readonly string[]): { readonly effects: RelicEffects }[] {
+  return names.flatMap((name) => {
+    const q = tuning.ai.quirks[name];
+    if (!q) throw new RangeError(`Unknown Quirk "${name}" (have: ${Object.keys(tuning.ai.quirks).join(', ') || 'none'})`);
+    return q.body ? [{ effects: q.body }] : [];
+  });
 }
 
 /**
@@ -199,12 +209,13 @@ export interface ResolvedTroop {
   /** Its Prefab's Body (render-only) and Weapon. */
   readonly body: string;
   readonly weapon: string;
-  /** Its Variant's AI difficulty and Style. */
+  /** Its Variant's AI difficulty, Style and Quirks (`ai.quirks` names; [] for none). */
   readonly difficulty: string;
   readonly style: string;
+  readonly quirks: readonly string[];
   /** The Relics it wears (its Variant's). */
   readonly relics: readonly string[];
-  /** Its Mods: the Variant's `mods` with its Relics folded in (`troopMods`). */
+  /** Its Mods: the Variant's `mods` with its Relics and its Quirks' `body` parts folded in (`troopMods`). */
   readonly mods: Mods;
   /** Its HP and max HP (`soldierHp`, scaled as on a Floor of `tier`). */
   readonly maxHp: number;
@@ -223,11 +234,10 @@ export function troopLabel(p: Pick<DelverPrefab, 'name'>, v: Pick<DelverVariant,
  * the Floor's own Troop for the Variant (`floorTroops`), its HP (`soldierHp`, a Boss's whole, every other at its tier's `tierHp`: a Duel has
  * no Warband template, so no `hpScale`), its Mods (`troopMods`) and its Size from that HP (`sizeOfHp`). Every peer resolves the same ref to the
  * same numbers. Throws a RangeError naming the known ones for a Prefab, a Variant or a tier Tuning Data does not have. Pure.
- *
- * Stage 4 (Quirks) plugs in here: the Variant's Quirks go beside its Style, for the AI to apply after it, and their `body` parts into `mods`
- * through `troopMods`, the seam a Floor's promotion shares.
+ * Its Quirks go beside its Style, for the AI to apply after it (`lineupAis`), and their `body` parts into `mods` through `troopMods`, the
+ * seam a Floor's promotion shares.
  */
-export function resolveTroop(tuning: Pick<TuningData, 'delver' | 'relics'>, ref: TroopRef): ResolvedTroop {
+export function resolveTroop(tuning: Pick<TuningData, 'delver' | 'relics' | 'ai'>, ref: TroopRef): ResolvedTroop {
   const { delver } = tuning;
   const prefab = delver.troops.findIndex((p) => p.name === ref.prefab);
   if (prefab < 0) throw new RangeError(`Unknown Troop Prefab "${ref.prefab}" (have: ${delver.troops.map((p) => p.name).join(', ')})`);
@@ -248,6 +258,7 @@ export function resolveTroop(tuning: Pick<TuningData, 'delver' | 'relics'>, ref:
     weapon: troop.weapon,
     difficulty: troop.difficulty,
     style: troop.style ?? p.variants[variant]!.style,
+    quirks: troop.quirks ?? [],
     relics: troop.relics ?? [],
     mods: troopMods(tuning, troop),
     maxHp,

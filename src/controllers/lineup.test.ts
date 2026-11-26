@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, RANDOM_PICK } from '../tuning';
+import { loadTuningData, RANDOM_PICK, type TuningData } from '../tuning';
 import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, wait, type SimState } from '../sim';
 import { resolveTroop } from '../sim/delver';
 import { createAiController } from './ai';
@@ -85,6 +85,35 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
     };
     expect(play(withMin)).toBe(play(withMin, createAiController(withMin, 'Skilled', { ...tuning.ai.styles.Counter, chamberRate: { mul: 2, min: 0.5 } })));
     expect(play(withMin)).not.toBe(play(tuning));
+  });
+
+  it("plays its Variant's Quirks (Stage 4): their ai parts in its AI, their body parts in its Mods", () => {
+    const heavy = { damage: 1.5 };
+    const quirky: TuningData = {
+      ...tuning,
+      ai: { ...tuning.ai, quirks: { ...tuning.ai.quirks, Heavy: { body: heavy } } },
+      delver: { ...tuning.delver, troops: tuning.delver.troops.map((p) => (p.name !== 'Uruk' ? p : { ...p, variants: p.variants.map((v) => (v.name === uruk.variant ? { ...v, quirks: ['Dumb', 'Heavy'] } : v)) })) },
+    };
+    const options = lineupMatch(quirky, vsTroop(), ['Longsword'], { bestOf: 1, seed: 5 });
+    expect(options.troops![1]!.mods!.damage).toBeCloseTo(resolveTroop(tuning, uruk).mods.damage * 1.5, 12);
+    const attacks = Array.from({ length: 30 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();
+    const play = (t: TuningData, ai: Controller) => hashValue(runControllers(t, createMatch(t, options).duel, [scriptedController(attacks), ai], 900).final);
+    const troopAi = lineupAis(quirky, vsTroop(), 'Duels', { seed: 5 })[1]!;
+    expect(play(quirky, troopAi)).toBe(play(quirky, createAiController(quirky, 'Beginner', 'Aggressive', { quirks: ['Dumb', 'Heavy'] })));
+    expect(play(quirky, lineupAis(quirky, vsTroop(), 'Duels', { seed: 5 })[1]!)).not.toBe(play(quirky, createAiController(quirky, 'Beginner', 'Aggressive')));
+  });
+
+  it("a plain AI slot plays its Pilot's Quirks; checkLineup refuses an unknown one (naming the known ones), an empty list and a repeat", () => {
+    const withQuirks = (quirks: string[]): Lineup => [vsAi()[0]!, { team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', quirks } }];
+    expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Hopper']), 1)).not.toThrow();
+    expect(() => checkLineup(tuning, withQuirks(['Slow']), 1)).toThrow(/Unknown AI Quirk "Slow" \(have: Dumb, Hopper\)/);
+    expect(() => checkLineup(tuning, withQuirks([]), 1)).toThrow(/names none/);
+    expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Dumb']), 1)).toThrow(/each Quirk once/);
+    const attacks = Array.from({ length: 20 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();
+    const state = createInitialState(tuning, 3, duelPlacements(1.5));
+    const play = (ai: Controller) => hashValue(runControllers(tuning, state, [scriptedController(attacks), ai], 600).final);
+    expect(play(lineupAis(tuning, withQuirks(['Dumb']))[1]!)).toBe(play(createAiController(tuning, 'Skilled', 'Balanced', { quirks: ['Dumb'] })));
+    expect(play(lineupAis(tuning, withQuirks(['Dumb']))[1]!)).not.toBe(play(createAiController(tuning, 'Skilled')));
   });
 
   it('refuses a Troop Tuning Data lacks (naming the known ones), on a Player slot, or outside Duels', () => {
