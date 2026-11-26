@@ -238,9 +238,9 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, duckMaxPitch: 'low' } })).toThrow(/ai\.duckMaxPitch/);
   });
 
-  it('loads the AI Styles from data/ai.json: Balanced (the default, empty) first, then Aggressive, Counter, Tricky and Defensive', () => {
+  it('loads the AI Styles from data/ai.json: Balanced (the default, empty) first, then Aggressive, Counter, Tricky, Defensive, Chambermaster and Reckless', () => {
     const t = loadTuningData();
-    expect(Object.keys(t.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive']);
+    expect(Object.keys(t.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive', 'Chambermaster', 'Reckless']);
     expect(t.ai.styles.Balanced).toEqual({});
   });
 

@@ -345,12 +345,41 @@ Built 2026-11-26, as the Design above.
 - Write the Styles' entries as `{ "mul": 3, "min": 0.06 }`; a minimum alone is `{ "min": 0.5 }`. The bit-for-bit test in `ai.test.ts` names the five old Styles, so adding Styles needs no change to it.
 
 ### Stage 2: The data-only Styles, and the Chamber timing error
+> Done (2026-11-26).
+
 - **Styles.** Add Chambermaster and Reckless to `data/ai.json` with the starting values above. (Hopper is a Quirk now: Stage 4.)
 - **Chamber timing error.** Add it (`CHAMBER_SLOP`, starting at 4 Ticks), rolled only when a Chamber is planned. An AI that never Chambers draws no extra random numbers.
 - **Done:**
   - Duels of each new Style against a Balanced AI of the same tier, on the Editor's flat Arena, count the signature move. Chambers and Chains each come out at least 2× Balanced, at every tier, except Chambers at Beginner (none, by Reaction Time; settled with the user).
   - A Skilled Chambermaster lands fewer of its Chambers than an Expert one, which lands most of them. (A Beginner makes none.)
   - The AI memory sweep and the golden tests pass unchanged for the old Styles.
+
+### Result
+Built 2026-11-26.
+
+**Where it lives.**
+- `data/ai.json`: Chambermaster and Reckless, with the starting values above (Chambermaster's `chamberRate` as `{ "mul": 3, "min": 0.06 }`).
+- `src/controllers/ai.ts`: `CHAMBER_SLOP` (4 Ticks) and `chamberSlop()`. `planDefence` moves a planned Chamber's `pressAt` by `round((2u − 1) × CHAMBER_SLOP × mistakeRate)`, never onto or before the Tick it is planned on. The roll is one draw, after the `chamberRate` roll succeeds, and only when the error can round to a whole Tick (`CHAMBER_SLOP × mistakeRate` > 0.5). The spin read's Chamber (`readSpin`) has no error: it isn't rolled with `chamberRate`.
+- `CONTEXT.md`: the Style entry names the two new Styles.
+- Tests: `src/controllers/aiStyles.slow.test.ts` (new, about 40 s, so in the slow tier): each new Style against Balanced of the same tier on the Editor's flat Arena, 16 seeds × 60 s, nobody dying. `tuning.test.ts` and `tuningSections.test.ts` list the two new Styles.
+
+**Differs from the plan.**
+- **The timing error is part of the human feel.** It applies only with `humanMistakes` > 0, so only Beginner, Skilled and Expert have it. Normal (`chamberRate` 0.08, `mistakeRate` 0.18) Chambers too, and without the gate its AI goldens broke; Easy, Normal and Hard stay exactly as they were (CONTEXT.md). An Expert (`mistakeRate` 0.04, at most 0.16 Ticks) draws nothing for it, so Expert play is unchanged. Skilled Counter and Defensive do change: a Skilled AI's Chamber is now off by a Tick about a third of the time.
+- **Reckless doesn't double its Chains at Expert.** An Expert Balanced already Chains on about half its Recoveries, and a Blocked Attack recoils with no Recovery, so there aren't twice as many to take. The test asks instead that an Expert Reckless Chains on more than 85% of its Recoveries, and over 1.4× Balanced's share.
+
+**Measured** (16 seeds × 60 s each, against Balanced of the same tier):
+
+| | Beginner | Skilled | Expert |
+|---|---|---|---|
+| Chambers, Balanced | 1 (none planned) | 11 | 10 |
+| Chambers, Chambermaster | 2 (none planned) | 26 of 36 planned (72%) | 25 of 31 planned (81%) |
+| Chains, Balanced | 7 | 27 | 86 of 154 Recoveries |
+| Chains, Reckless | 17 | 71 | 133 of 147 Recoveries |
+
+- **The timing error is weak at 4 Ticks.** A Skilled AI's error is at most ±0.72 Ticks, so ±1 at most, and a late press still lands in the 9-Tick Chamber window. Skilled lands 72% with it and 75% without; most of the gap to Expert comes from elsewhere. At 12 Ticks a Skilled Chambermaster lands 64% (21 of 33), with Expert unchanged. That's a tuning call for the hand check; it stays at the plan's 4.
+- **A Beginner Chambermaster plans no Chamber**, as settled. Its stray Chambers are Attacks that happen to meet a Release.
+
+**Not checked by hand yet.** Play Chambermaster and Reckless on a plain AI Seat at each tier (`?dev=1`) to see that they feel as intended, and whether `CHAMBER_SLOP` should rise.
 
 ### Stage 3: Showoff, Skirmisher and Pack Hunter (new AI settings)
 - **Settings.** Add `whirlwindAlone`, `throwStanding`, `kite` and `gangUp` to `AiDifficulty`'s extras. Each defaults to 0, so nothing changes. Each is rolled only where its move is possible, so the existing random draws stay the same.

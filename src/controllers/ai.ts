@@ -32,7 +32,7 @@
  *  - Defence: against an Attack it Blocks in the Direction that meets it; or
  *    Crouches under a Left or Right (`duckRate`: a Crouch lets both pass over);
  *    or tries a Chamber, attacking into it timed off how far along its Wind-up
- *    was (`chamberRate`); or, when its own Wind-up will land first, swings on
+ *    was (`chamberRate`; its press off by up to `CHAMBER_SLOP` × `mistakeRate` Ticks); or, when its own Wind-up will land first, swings on
  *    (`preempt`; and, with `pressAhead`, always when it is clearly ahead). A wrong-Direction Block is the mistake (`mistakeRate`,
  *    rolled once per opponent Attack). An Attack Feint is a new Attack to plan for.
  *  - Footwork (`footwork`): it hovers just outside the longer of the two
@@ -503,6 +503,13 @@ const DISENGAGE_MARGIN = 1.0;
 const JUMP_FROM = 0.2;
 /** A Chamber is pressed this many Ticks into the incoming Release (1 = its first Tick). */
 const CHAMBER_AT = 2;
+/**
+ * The Chamber timing error, part of the human feel (only with `humanMistakes`, so Easy, Normal and Hard play as they did): a
+ * planned Chamber's press moves by up to this many Ticks × `mistakeRate`, either way (rounded to whole Ticks; never onto the
+ * Tick it is planned on or before). Rolled once per Chamber planned, and only when the error can round to a Tick
+ * (`CHAMBER_SLOP × mistakeRate` above 0.5), so an Expert, or an AI that never Chambers, draws nothing for it.
+ */
+const CHAMBER_SLOP = 4;
 /** It aims (pitch) at this height (m) up a standing Fighter: the chest. */
 const AIM_HEIGHT = 1.3;
 /** A Fighter lying in a Knockdown is aimed at this high (m). */
@@ -2975,9 +2982,15 @@ class RuleAi implements AiController {
     if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && canChamber && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
       const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
-      if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);
+      if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, Math.max(state.tick + 1, pressAt + this.chamberSlop()));
     }
     return plan('Block');
+  }
+
+  /** The Chamber timing error (`CHAMBER_SLOP`) for a Chamber just planned, in Ticks: draws only when it can be a whole Tick. */
+  private chamberSlop(): number {
+    const most = this.skill.humanMistakes > 0 ? CHAMBER_SLOP * this.skill.mistakeRate : 0;
+    return most > 0.5 ? Math.round((this.random() * 2 - 1) * most) : 0;
   }
 }
 
