@@ -1,6 +1,6 @@
 # Enemy Behaviours: More Styles, and Quirks
 
-> Status: planned (2026-11-26). Scope agreed with the user the same day: six new Styles (Showoff, Chambermaster, Hopper, Skirmisher, Pack Hunter, Reckless) and two Quirks (Dumb, Slow). Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: planned (2026-11-26). Scope agreed with the user the same day: six new Styles (Showoff, Chambermaster, Hopper, Skirmisher, Pack Hunter, Reckless), two Quirks (Dumb, Slow), and any Delver Troop playable as a Duel opponent in dev mode. Builds on the AI Controller (`src/controllers/ai.ts`, `docs/plans/ai-behaviour.md`), its Styles (`ai.styles`), the Delver Troops (`docs/plans/delver-troops.md`) and the Mods (`src/sim/mods.ts`, `docs/plans/dungeon.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 A Delver enemy is a Prefab (its Body, Weapon, Style and Mods) with one Variant per skill (`data/delver.json`, `delver.troops`). Its Variant sets its HP, its AI difficulty (Beginner, Skilled or Expert) and optionally its Relics or another Style. A Warband names only skills and counts, and each Floor fills them from its own Prefabs.
@@ -25,6 +25,7 @@ The enemies don't feel different enough. There are three reasons:
 - **Two Quirks:** Dumb and Slow.
 - **Out of scope:** Sneaky, Coward, Berserker, Grudge, Warband `role`s and every other idea from the brainstorm. They can be planned later on this groundwork.
 - **The five old Styles stay as they are,** and so does every Troop that uses them. A Balanced Beginner with no Quirks plays bit for bit as today.
+- **Every Troop can be fought in Duels.** With `?dev=1`, a Duel AI Seat can be set to any Delver Prefab and Variant, Boss Variants included. It then fights as that enemy would on a Floor: its Body, Weapon, HP, tier, Style, Quirks, Mods and Relics. This is how the new behaviours get tested by hand, and it's built first (Stage 0) so every later Stage can use it.
 
 ## How a Troop reads in the end
 `data/delver.json`. A Prefab may name `quirks`, and a Variant may replace its Prefab's Style and Quirks:
@@ -112,6 +113,36 @@ Reckless needs no new code. `caution` 0 already stops the backing off after a sw
 
 ## Stages
 
+### Stage 0: Fight a Troop in Duels (dev mode)
+The test bench for the rest of the plan: fight any Delver enemy one on one, without generating a Floor or finding it in a Run.
+
+**Today**, a Duel AI Seat (`Seat` in `src/lobby/lobby.ts`, `LineupSlot` in `src/controllers/lineup.ts`) has a difficulty, a Style, a Weapon and a Size, and nothing else. A Duel Fighter has the standard HP, no Mods and no Relics, and the Seat chooses no Body.
+
+**The change:**
+- **Seat and Lineup.** An AI Seat and its Lineup slot gain an optional `troop`, naming a Prefab and one of its Variants (`{ prefab: "Uruk", variant: "Beginner" }`). A Variant is named by its difficulty, or for a Boss Variant by its name ("Warden").
+- **Resolving a Troop.** Every peer resolves the Troop from Tuning Data at the Match's start, the same way a promoted Soldier is built (`src/sim/delver/troops.ts`, `bubble.ts`):
+  - its Prefab's Body and Weapon;
+  - its Variant's difficulty, Style and (from Stage 4) Quirks;
+  - its Mods, folded with its Relics (`foldMods`);
+  - its HP;
+  - its Size from that HP (`delver.sizeHp`).
+
+  The Seat's own difficulty, Style, Weapon and Size are ignored while a Troop is set.
+- **HP.** By default the Variant's HP is scaled as on a tier 2 Floor (`delver.tierHp`). A **Floor tier** select (1 to 3) beside the Troop picks another tier. A Boss Variant's HP is its whole HP, as on its Floor.
+- **The Match.** It gains a per-Fighter HP, Mods and Body for its Duels. Each is absent for every Fighter without a Troop, so a normal Duel's config and hash are unchanged. HP is restored to the Troop's HP at each Duel's start, as for every Fighter.
+- **Lobby, in dev mode only** (`devMode()`, `?dev=1`):
+  - Each AI Seat's "More options" gets a **Troop** select listing "(none)" and then every Prefab's Variants ("Uruk · Beginner", "Uruk · Warden (Boss)").
+  - With a Troop chosen, the Seat's difficulty, Style, Weapon and Size controls give way to a read-only line: Body, Weapon, HP, tier, Style, Quirks and Relics.
+  - With `dev=1` absent, the select isn't shown. A Seat that already has a Troop still plays it, so a guest without `dev=1` plays what its host set.
+- **Plain Styles and Quirks.** The Style select already lists every `ai.styles` entry, so each new Style is playable on a plain AI Seat as soon as it exists. In dev mode, a **Quirks** select on a plain AI Seat (from Stage 4) adds Quirks without a Troop.
+- **Online.** `troop` is plain data in the Lobby state and the Lineup, so it syncs like `style`. The Lobby and Lineup message validators (`src/net/messages.ts`) accept it. A name a peer's Tuning Data doesn't know is refused, the same way an unknown Style is.
+- **Done:**
+  - In `?dev=1`, a Duel against "Uruk · Beginner" fights a Fighter drawn as the Uruk Body. It has the Sledge Hammer, the Variant's HP at tier 2, its Mods (`damage` 0.6) and a Beginner Aggressive AI.
+  - A Duel against a Boss Variant ("Wraith Lord") wears its Relics, and has its HP and its Size.
+  - The Troop select is absent without `dev=1`.
+  - A Duel with no Troop on any Seat has the same config and hash as before (the existing Match and Lobby tests).
+  - An online Lobby with a Troop Seat starts the same Match on both peers (the Lobby sync tests).
+
 ### Stage 1: Style minimums
 - **Format.** `ai.styles` entries take a number or `{ mul, min }`, both non-negative; `min` is at most 1. The parser (`src/tuning/index.ts`, around `ai.styles`) and the `AiStyle` type follow. `skillOf` applies `clamp(max(min, v × mul), 0, 1)`.
 - **Default Style.** Balanced must still be present and empty.
@@ -153,6 +184,7 @@ Reckless needs no new code. `caution` 0 already stops the backing off after a sw
   - A Dumb Expert takes every blade Hit from a scripted attacker, and still attacks as an Expert.
   - A Troop with no Quirks hashes and plays exactly as before.
   - A Quirk the parser doesn't know is refused, with the list of known ones.
+  - A Duel Troop Seat (Stage 0) plays its Variant's Quirks. In dev mode, a plain AI Seat's Quirks select adds them.
 
 ### Stage 5: Slow (Simulation)
 - **Mods.** Add `walkSpeed` and `windUp` to the Relic vocabulary (`RELIC_EFFECTS`, `RELIC_GOOD_LOW` for `windUp`, `NO_MODS`).
@@ -183,4 +215,5 @@ Give the new behaviours to the Delver's Prefabs in `data/delver.json`, then test
 ## Testing notes
 - **Duels.** The AI tests (`src/controllers/ai.test.ts`, `aiWhirlwind.test.ts`) drive Duels on the Editor's flat Arena. The Style counts in Stages 2 and 3 belong there, seeded, as counts over a few thousand Ticks, not exact sequences.
 - **Determinism.** Every new roll must draw nothing for an AI whose settings leave that move off. The AI memory sweep (`src/net/aiMemorySweep.test.ts`) and the Delver golden tests then show that old Troops are unchanged.
+- **By hand.** Play each new Style and Quirk in a Duel with `?dev=1` (Stage 0): on a plain AI Seat at each tier, then on the Troops of the roster pass. That's the check that it feels as intended, which counts in tests can't show.
 - **Delver.** Test the roster pass in the Map Editor and with the AI check, not by playing a Run (`docs/plans/delver.md`, "Testing the generator").
