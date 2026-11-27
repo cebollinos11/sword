@@ -49,8 +49,19 @@ export interface RunResult {
   readonly seed: number;
   /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
   readonly builds?: readonly RunBuild[];
-  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, kills and deaths, under the builds; absent or empty: none shown. */
+  /** Each Player's stats (`RunState.stats`), a table under the numbers; absent or empty: none shown. */
+  readonly players?: readonly PlayerResult[];
+  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, deaths and Player kills, a table under the Players'; absent or empty: none shown. */
   readonly traitors?: readonly TraitorResult[];
+}
+
+/** One Player's line in a Delver Run's results table. */
+export interface PlayerResult {
+  readonly name: string;
+  readonly kills: number;
+  readonly bosses: number;
+  readonly revived: number;
+  readonly friendlyHits: number;
 }
 
 /** One traitor's line on a Delver Run's results screen. */
@@ -60,8 +71,19 @@ export interface TraitorResult {
   readonly deaths: number;
 }
 
-/** A traitor's results line: its kills and deaths. */
-export const traitorLine = (t: TraitorResult): string => `${t.kills} ${t.kills === 1 ? 'kill' : 'kills'} · ${t.deaths} ${t.deaths === 1 ? 'death' : 'deaths'}`;
+/** The results tables (`resultTables`): a head row of column names, then one row per name. */
+export interface ResultTable {
+  readonly head: readonly string[];
+  readonly rows: readonly (readonly [string, ...number[]])[];
+}
+
+/** A Run's results tables: the Players' (Enemies killed, Bosses killed, Times revived, Friendly hits), then the traitors' (Deaths, Player kills); a table with no rows is left out. */
+export function resultTables(r: Pick<RunResult, 'players' | 'traitors'>): ResultTable[] {
+  const out: ResultTable[] = [];
+  if (r.players?.length) out.push({ head: ['', 'Enemies killed', 'Bosses killed', 'Times revived', 'Friendly hits'], rows: r.players.map((p) => [p.name, p.kills, p.bosses, p.revived, p.friendlyHits] as const) });
+  if (r.traitors?.length) out.push({ head: ['Traitor', 'Deaths', 'Player kills'], rows: r.traitors.map((t) => [t.name, t.deaths, t.kills] as const) });
+  return out;
+}
 
 /**
  * What a watching traitor reads (docs/plans/delver.md, Stage 8a): the seconds until it takes over a Soldier, or that it is looking for one;
@@ -271,8 +293,20 @@ export class Hud {
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, line('Floors reached', `${r.reached} / ${r.floors}`), line('Warbands beaten', String(r.warbands)), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    for (const t of resultTables(r)) {
+      const table = document.createElement('table');
+      table.className = 'hud-results-table';
+      const head = table.createTHead().insertRow();
+      for (const h of t.head) head.append(Object.assign(document.createElement('th'), { textContent: h }));
+      const body = table.createTBody();
+      for (const [name, ...counts] of t.rows) {
+        const row = body.insertRow();
+        row.insertCell().textContent = name;
+        for (const n of counts) row.insertCell().textContent = String(n);
+      }
+      this.results.append(table);
+    }
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
-    for (const t of r.traitors ?? []) this.results.append(line(`Traitor ${t.name}`, traitorLine(t)));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';

@@ -6,7 +6,7 @@ import { flatFloors } from '../sim/delver/flat.testdata';
 import { floorOf } from '../sim/delver';
 import { fullReveal, isRevealed, revealBits } from '../sim/delver/reveal';
 import { delverMapLayout, delverMapStatus, viewReveal } from './floorMap';
-import { traitorLine, traitorWatchLine } from './hud';
+import { resultTables, traitorWatchLine } from './hud';
 
 const base = flatFloors(loadTuningData());
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 2, tierRooms: [7] } };
@@ -40,6 +40,8 @@ describe("a Delver traitor's view", () => {
     expect(traitorWatchLine(m, 0)).toBeNull();
     const late = { ...m, duel: { ...m.duel, tick: next + 5 } };
     expect(traitorWatchLine(late, 2)).toBe('Looking for a Soldier out of sight…');
-    expect(traitorLine({ name: 'T', kills: 1, deaths: 2 })).toBe('1 kill · 2 deaths');
+    expect(resultTables({ traitors: [{ name: 'T', kills: 1, deaths: 2 }] })).toEqual([{ head: ['Traitor', 'Deaths', 'Player kills'], rows: [['T', 2, 1]] }]);
+    expect(resultTables({ players: [{ name: 'A', kills: 12, bosses: 1, revived: 2, friendlyHits: 3 }], traitors: [] })).toEqual([{ head: ['', 'Enemies killed', 'Bosses killed', 'Times revived', 'Friendly hits'], rows: [['A', 12, 1, 2, 3]] }]);
+    expect(resultTables({})).toEqual([]);
   });
 });

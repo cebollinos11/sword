@@ -8,7 +8,7 @@ import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { emptyReveal, fullReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
 import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
 import { pickItemAt } from './pickups';
-import { fireAt, inStairs, REVIVE_MARGIN, STONE_REVIVE } from './delverRun';
+import { countStats, fireAt, inStairs, NO_STATS, REVIVE_MARGIN, STONE_REVIVE } from './delverRun';
 import { hashValue } from './hash';
 import { restore, snapshot } from './snapshot';
 import { runSeed } from './dungeon';
@@ -68,6 +68,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
       pickups: floorPedestals(m), // Stage 4: the Floor's Treasure Halls hold their pedestals from its start.
       revealed: withReveal(emptyReveal(plan), plan.entrance), // Stage 5: the Entrance starts revealed.
       startTick: 0,
+      stats: m.config.teams.map(() => NO_STATS), // Run stats: nothing counted yet.
     });
     expect(m.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: m.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
     expect('hall' in m.duel).toBe(false);
@@ -296,6 +297,15 @@ describe('the Stairs of a Delver Run', { timeout: 60_000 }, () => {
     expect(r2.delver!.stairsTicks).toBe(0);
   });
 
+  it('counts a revive for each Fighter fallen when the party takes the Stairs (Run stats)', () => {
+    let r = withFighters(m, (f, i) => (i === 1 ? fell(f) : f));
+    r = times(put(r, 0, c.x, c.z), NEED + FADE);
+    expect(r.delver!.floor).toBe(2);
+    expect(r.delver!.stats[1]!.revived).toBe(1);
+    expect(r.delver!.stats[0]!.revived).toBe(0);
+    expect(r.delver!.stats[2]!.revived).toBe(0);
+  });
+
   it('counts nothing more while Descending, then enters Floor 2 after the fade', () => {
     let r = times(put(m, 0, c.x, c.z), NEED);
     expect(r.delver!.phase).toBe('Descending');
@@ -413,6 +423,8 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     expect(back.facing).toBe(ally.facing);
     expect(r.events).toContainEqual({ type: 'Revived', fighter: 1, fire: 0 });
     expect(r.delver!.restUsed[0]!.revived).toBe(true);
+    expect(r.delver!.stats[1]).toEqual({ ...NO_STATS, revived: 1 }); // Run stats: a revive.
+    expect(r.delver!.stats[0]).toEqual(NO_STATS);
   });
 
   it('revives a fallen Player at restRevive of max HP, who takes no heal at that fire, while the Player there heals', () => {
@@ -1086,5 +1098,40 @@ describe('a Resurrection Stone and the Inventory beside lava (Stage 7d)', { time
       expect(r.events.some((e) => e.type === 'ItemDropped')).toBe(false);
       expect(r.delver!.pickups).toEqual(start.delver!.pickups);
     }
+  });
+});
+
+describe("a Delver Run's stats (countStats)", () => {
+  const m = delver();
+  const fighters = m.duel.fighters;
+  const enemy = fighters.findIndex((f) => f.team === 1);
+  const stats = m.config.teams.map(() => NO_STATS);
+  const p = { x: 0, y: 0, z: 0 };
+  const hit = (attacker: number, defender: number) => ({ type: 'Hit', attacker, defender, direction: 'Left', zone: 'torso', point: p, bladeSpeed: 1, head: true, heavy: false, damage: 1 }) as const;
+  const death = (fighter: number) => ({ type: 'Death', fighter, cause: 'Hit' }) as const;
+
+  it('counts nothing on a Tick with nothing to count (the same array)', () => {
+    expect(countStats(stats, [], [], fighters, -1)).toBe(stats);
+  });
+
+  it("counts an enemy's fall to a party Fighter's blow as its kill, and as a Boss kill when the enemy was the Boss Soldier", () => {
+    const bound = fighters.map((f, i) => (i === enemy ? { ...f, soldier: { index: 9, since: 0, role: 'Attack' as const } } : f));
+    const out = countStats(stats, [hit(1, enemy), death(enemy)], [], bound, -1);
+    expect(out[1]).toEqual({ ...NO_STATS, kills: 1 });
+    expect(countStats(stats, [hit(1, enemy), death(enemy)], [], bound, 9)[1]).toEqual({ ...NO_STATS, kills: 1, bosses: 1 });
+    // A party Fighter's fall is nobody's kill here (a traitor's are its own record's).
+    expect(countStats(stats, [hit(enemy, 0), death(0)], [], bound, 9)).toBe(stats);
+  });
+
+  it("counts a party Fighter's Hit or Kick on a teammate as a friendly hit, never an enemy's or its own", () => {
+    const kick = { type: 'KickLanded', attacker: 0, defender: 2, outcome: 'Shove', zone: 'torso', point: p, damage: 0 } as const;
+    const out = countStats(stats, [hit(0, 1), kick, hit(enemy, 1), hit(1, enemy)], [], fighters, -1);
+    expect(out[0]).toEqual({ ...NO_STATS, friendlyHits: 2 });
+    expect(out[1]).toEqual(NO_STATS);
+  });
+
+  it("counts each party Fighter's Revived", () => {
+    const out = countStats(stats, [], [{ type: 'Revived', fighter: 2, fire: 0 }, { type: 'Revived', fighter: 2, fire: STONE_REVIVE }], fighters, -1);
+    expect(out[2]).toEqual({ ...NO_STATS, revived: 2 });
   });
 });

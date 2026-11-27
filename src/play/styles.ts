@@ -54,6 +54,10 @@ const CSS = `
 .hud-results-title.defeat { color: #ff7a6a; }
 .hud-results-row { display: flex; justify-content: space-between; gap: 2rem; font-size: 1.4rem; padding: 0.1rem 0; }
 .hud-results-row b { font-variant-numeric: tabular-nums; }
+.hud-results-table { margin-top: 0.7rem; padding-top: 0.5rem; border-top: var(--px) solid #fff3; width: 100%; border-collapse: collapse; font-size: 1.04rem; }
+.hud-results-table th { font-weight: 400; opacity: 0.7; padding: 0 0.4rem; text-align: right; vertical-align: bottom; }
+.hud-results-table td { padding: 0.1rem 0.4rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hud-results-table th:first-child, .hud-results-table td:first-child { text-align: left; font-weight: 400; }
 .hud-build { margin-top: 0.7rem; padding-top: 0.5rem; border-top: var(--px) solid #fff3; }
 .hud-build-who { font-size: 1.04rem; opacity: 0.7; }
 .hud-build-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.2rem 0.8rem; margin-top: 0.2rem; }

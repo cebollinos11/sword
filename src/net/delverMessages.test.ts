@@ -34,8 +34,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 41', () => {
-    expect(PROTOCOL_VERSION).toBe(41);
+  it('is protocol 42', () => {
+    expect(PROTOCOL_VERSION).toBe(42);
   });
 
   it("accepts a Run's start message, and refuses one on a dev start Floor, with no human outside a Run, or a Run on a hand-made Arena", () => {

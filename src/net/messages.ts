@@ -4,7 +4,7 @@ import { runFloorArena } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, PACE_MODS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 41;
+export const PROTOCOL_VERSION = 42;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -693,7 +693,8 @@ function isDelverRun(v: unknown, players: readonly number[]): boolean {
     (v.restUsed as unknown[]).length <= MAX_FIRES &&
     isPickups(v.pickups, players) &&
     isTick(v.startTick) &&
-    (v.away === undefined || (isAway(v.away) && (v.away as number[]).every((i) => players.includes(i))))
+    (v.away === undefined || (isAway(v.away) && (v.away as number[]).every((i) => players.includes(i)))) &&
+    isArrayOf(v.stats, (r) => isObject(r) && Object.keys(r).length === 4 && isTick(r.kills) && isTick(r.bosses) && isTick(r.revived) && isTick(r.friendlyHits) && (r.bosses as number) <= (r.kills as number))
   );
 }
 
@@ -788,7 +789,7 @@ function isMatchState(v: unknown): v is MatchState {
     (config.traitors === undefined || config.format === 'Gauntlet') &&
     v.run === undefined &&
     (config.format === 'Gauntlet'
-      ? isDelverRun(v.delver, runPlayers(config as unknown as MatchConfig)) && isDelverFloor(v.duel as Obj, v.delver as Obj) && config.rematchTicks === null && isFloorOfRun(v, config) && (config.traitors === undefined || isTraitorSeats(config.traitors)) && isTraitorRecords((v.delver as Obj).traitors, config.traitors) && ((v.duel as Obj & { fighters: unknown[] }).fighters.length >= (config.teams as unknown[]).length + ((config.traitors as unknown[] | undefined)?.length ?? 0))
+      ? isDelverRun(v.delver, runPlayers(config as unknown as MatchConfig)) && isDelverFloor(v.duel as Obj, v.delver as Obj) && config.rematchTicks === null && isFloorOfRun(v, config) && (config.traitors === undefined || isTraitorSeats(config.traitors)) && isTraitorRecords((v.delver as Obj).traitors, config.traitors) && ((v.delver as Obj).stats as unknown[]).length === (config.teams as unknown[]).length && ((v.duel as Obj & { fighters: unknown[] }).fighters.length >= (config.teams as unknown[]).length + ((config.traitors as unknown[] | undefined)?.length ?? 0))
       : v.delver === undefined && (v.duel as Obj).delver === undefined) &&
     // A Battle has a Crowd, a Run a Floor's (with Warbands), and no other Match has one.
     (config.format === 'Battle' ? isBattle(config, v.duel as Obj & { fighters: Obj[] }) : config.format === 'Gauntlet' ? isFloorCrowd(config, v.duel as Obj & { fighters: Obj[] }) : (v.duel as Obj).crowd === undefined)
