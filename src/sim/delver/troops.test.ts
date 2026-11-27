@@ -234,11 +234,19 @@ describe('floorTuningOf', () => {
   it('gives each tier its tierRooms (issue #135: a third, a half, then full), the rest of delver.floor as it is', () => {
     expect(delver.tierRooms).toEqual([7, 10, 20]);
     expect([1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => floorTuningOf(delver, f).rooms)).toEqual([7, 7, 7, 10, 10, 10, 20, 20, 20]);
-    expect({ ...floorTuningOf(delver, 1), rooms: delver.floor.rooms }).toEqual(delver.floor);
-    expect(floorTuningOf(delver, 2)).toBe(floorTuningOf(delver, 1));
-    expect(floorTuningOf(delver, 9)).toBe(delver.floor);
-    const { tierRooms: _, ...plain } = delver;
+    expect({ ...floorTuningOf(delver, 2), rooms: delver.floor.rooms }).toEqual(delver.floor);
+    expect(floorTuningOf(delver, 3)).toBe(floorTuningOf(delver, 1));
+    expect(floorTuningOf(delver, 8)).toBe(delver.floor);
+    const { tierRooms: _, restEvery: __, ...plain } = delver;
     expect(floorTuningOf(plain, 1)).toBe(plain.floor);
+  });
+
+  it('puts one campfire on each even Floor and none on an odd one', { timeout: 120_000 }, () => {
+    for (const floor of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      const f = delverFloor(tuning, 5, floor);
+      expect(f.plan.markers.fires.length, `Floor ${floor}`).toBe(floor % 2 === 0 ? 1 : 0);
+      expect(f.judgement.ok, `Floor ${floor}`).toBe(true);
+    }
   });
 
   it('deals each Floor its tier\'s Halls, judged', () => {

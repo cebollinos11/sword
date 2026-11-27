@@ -305,6 +305,11 @@ export interface DelverTuning {
    * (`floorTuningOf`). Absent: every tier's Floors have `floor.rooms`.
    */
   readonly tierRooms?: readonly number[];
+  /**
+   * Only the Floors whose number divides by this (whole, >= 1) have Rest Halls, `floor.rests` of them; the others have none
+   * (`floorTuningOf`). Absent: every Floor has them.
+   */
+  readonly restEvery?: number;
   /** Each tier's Warband templates, one per tier. */
   readonly warbands: readonly DelverTier[];
   /** The Delver's own Troops (docs/plans/delver-troops.md): Prefabs, each one Body and Weapon with its Variants. The Battles' `battle.troops` are never a Floor's. */
@@ -756,6 +761,8 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     if (((n - 1) * maxGap) / 2 + halfSize[1] + 2 > fieldSize / 2) fail(`${w}.${key}`, `small enough that the lattice fits the ${fieldSize} m field`, n);
   }
 
+  const restEvery = root.restEvery === undefined ? undefined : whole(root, 'restEvery', 'delver', 1);
+
   let tierRooms: number[] | undefined;
   if (root.tierRooms !== undefined) {
     const list = array(root.tierRooms, 'delver.tierRooms');
@@ -865,6 +872,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     ...(tierRooms ? { tierRooms } : {}),
+    ...(restEvery !== undefined ? { restEvery } : {}),
     warbands,
     troops,
     prefabsPerFloor,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
+import { everyFloorRests } from '../sim/delver/flat.testdata';
 import { createMatch, IDLE_INTENT, inStairs, MAX_TEAM_SIZE, runSeed, secondsToTicks, type FighterState, type MatchState } from '../sim';
 import { floorArenaName, floorOf } from '../sim/delver';
 import { stepMatchWith, type Controller } from './controller';
@@ -10,7 +11,7 @@ import { lineupAis, type Lineup } from './lineup';
  * The Delver pilot and the Ally AI on levelled Floors (docs/plans/delver.md, Stage 6, Task 3): the default Tuning, empty Floors, a fire or the Stairs
  * off the ground. Each case searches the Run seeds in a fixed order and fails loudly when none of the first `SEARCH` has what it needs.
  */
-const base = loadTuningData();
+const base = everyFloorRests(loadTuningData());
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3, postFill: 0, patrolFill: 0, floor: { ...base.delver.floor, treasures: 0 } } };
 const SEARCH = 60;
 

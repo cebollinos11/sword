@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { descendTicks } from './delverRun';
 import { loadTuningData, type TuningData } from '../tuning';
+import { everyFloorRests } from './delver/flat.testdata';
 import { arenaOf } from './arena';
 import { groundOf, soldierHeight } from './battlefield';
 import { stepCrowd, type CrowdFighter, type CrowdState } from './crowd';
@@ -25,7 +26,7 @@ import { secondsToTicks } from './constants';
  * sloped Passages. Each case searches the Run seeds in a fixed order for a Floor that has what it needs and fails loudly when none of the first
  * `SEARCH` has.
  */
-const base = loadTuningData();
+const base = everyFloorRests(loadTuningData());
 /** A short Run with every guard post filled: its Warbands stand on the Floor's levels. */
 const full: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3, postFill: 100, patrolFill: 100 } };
 /** The same with no Soldiers, for the cases about the party alone. */

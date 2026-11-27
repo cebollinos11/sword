@@ -3,6 +3,7 @@ import type * as THREE from 'three';
 import { createMatch } from '../sim';
 import { BOSS } from '../sim/warband';
 import { floorOf } from '../sim/delver';
+import { everyFloorRests } from '../sim/delver/flat.testdata';
 import { loadTuningData, type TuningData } from '../tuning';
 import { pedestalRings, StairsStandIn } from './delverStandIns';
 import { DelverMarks, fireStates, gateState, type DelverMarksView } from './delverMarks';
@@ -97,7 +98,7 @@ describe('the Delver stand-ins', () => {
 });
 
 describe('the Delver marks on a levelled Floor', () => {
-  const base = loadTuningData();
+  const base = everyFloorRests(loadTuningData());
   const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
   const flat = floorOf(tuning, createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0] }).arena)!.plan;
   const at4 = <T extends { y: number }>(p: T): T => ({ ...p, y: 4 });

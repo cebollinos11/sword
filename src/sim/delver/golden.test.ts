@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors, flatHalls, flatRooms, fullFloors, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
+import { everyFloorRests, flatFloors, flatHalls, flatRooms, fullFloors, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
 import { setPieceOf } from './plan';
 import { delverFloor } from './index';
 
@@ -34,7 +34,8 @@ import { delverFloor } from './index';
  * open. `DelverStep.rails` is gone. Every map hash of a Floor with a Ramp moved (re-pinned on purpose), and a plan hash moved wherever the plan holds a feature step; no attempt
  * count moved and every Floor still passes the judge. Where a comment above says a set of pins equals an earlier Stage's, it did so before this change.
  */
-const tuning = noRooms(loadTuningData());
+// The pins were taken with 1 or 2 Rest Halls on every Floor.
+const tuning = everyFloorRests(noRooms(loadTuningData()));
 
 /**
  * `flatHalls(tuning)` (the 7c knobs off) on the same seeds and Floors: 7b's default pins exactly (the map hashes, the plan hashes and the attempts: a Floor with every 7c knob off is byte

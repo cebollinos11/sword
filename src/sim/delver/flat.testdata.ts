@@ -5,9 +5,15 @@
  */
 import type { TuningData } from '../../tuning';
 
-/** `tuning` without `delver.tierRooms` (issue #135): every Floor of every tier has `delver.floor.rooms` Halls, as before it. */
+/** `tuning` with 1 or 2 Rest Halls on every Floor (no `delver.restEvery`), as before the campfires went to the even Floors. */
+export function everyFloorRests(tuning: TuningData): TuningData {
+  const { restEvery: _, ...delver } = tuning.delver;
+  return { ...tuning, delver: { ...delver, floor: { ...delver.floor, rests: [1, 2] } } };
+}
+
+/** `tuning` without `delver.tierRooms` (issue #135): every Floor of every tier has `delver.floor.rooms` Halls, as before it. With `everyFloorRests`. */
 export function fullFloors(tuning: TuningData): TuningData {
-  const { tierRooms: _, ...delver } = tuning.delver;
+  const { tierRooms: _, ...delver } = everyFloorRests(tuning).delver;
   return { ...tuning, delver };
 }
 
