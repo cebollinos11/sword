@@ -19,6 +19,7 @@
   "tierRooms": [7, 10, 20],
   "traitor": { "minDistance": 20, "respawnSeconds": 8, "respawnStep": 4, "respawnMax": 30 },
   "prefabsPerFloor": 4,
+  "rarityMix": { "common": 2, "uncommon": 1, "rare": 1 },
   "sizeHp": [20, 150],
   "skillTints": { "Easy": "#8e8e8e", "Beginner": "#8e8e8e", "Normal": "#b3261e", "Skilled": "#b3261e", "Hard": "#1c1c1c", "Expert": "#1c1c1c" },
   "troops": [
@@ -104,59 +105,59 @@
   "warbands": [
     {
       "guard": [
-        { "troops": [{ "skill": "Beginner", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 2 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 2 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Beginner", "count": 1, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 2, "rarity": "common" }, { "skill": "Skilled", "count": 1, "rarity": "uncommon" }], "hpScale": 1 }
       ],
       "patrol": [
-        { "troops": [{ "skill": "Beginner", "count": 2 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 3 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Skilled", "count": 2 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 3, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 3, "rarity": "common" }, { "skill": "Skilled", "count": 1, "rarity": "uncommon" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 3, "rarity": "common" }, { "skill": "Skilled", "count": 2, "rarity": "uncommon" }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Whetstone"], "troops": [{ "skill": "Skilled", "count": 1, "rarity": "uncommon" }, { "skill": "Beginner", "count": 2 }], "hpScale": 1.5 }
+        { "relics": ["Whetstone"], "troops": [{ "skill": "Skilled", "count": 1, "rarity": "rare" }, { "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1.5 }
       ],
       "boss": { "troop": "Warden", "guard": [
-        { "troops": [{ "skill": "Beginner", "count": 2 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Beginner", "count": 2, "rarity": "uncommon" }], "hpScale": 1 }
       ] }
     },
     {
       "guard": [
-        { "troops": [{ "skill": "Skilled", "count": 1 }, { "skill": "Expert", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 2 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 1 }, { "skill": "Skilled", "count": 1 }, { "skill": "Expert", "count": 1 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Skilled", "count": 1, "rarity": "common" }, { "skill": "Expert", "count": 1, "rarity": "uncommon" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 2, "rarity": "common" }, { "skill": "Skilled", "count": 1, "rarity": "uncommon" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 1, "rarity": "common" }, { "skill": "Skilled", "count": 1, "rarity": "common" }, { "skill": "Expert", "count": 1, "rarity": "uncommon" }], "hpScale": 1 }
       ],
       "patrol": [
-        { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Expert", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Skilled", "count": 2 }, { "skill": "Beginner", "count": 2 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Skilled", "count": 1 }, { "skill": "Expert", "count": 1 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Beginner", "count": 3, "rarity": "common" }, { "skill": "Expert", "count": 1, "rarity": "uncommon" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Skilled", "count": 2, "rarity": "uncommon" }, { "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Beginner", "count": 3, "rarity": "common" }, { "skill": "Skilled", "count": 1, "rarity": "common" }, { "skill": "Expert", "count": 1, "rarity": "uncommon" }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Whetstone"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Skilled", "count": 1 }], "hpScale": 1.5 },
-        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Beginner", "count": 2 }], "hpScale": 2 }
+        { "relics": ["Whetstone"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Skilled", "count": 1, "rarity": "common" }], "hpScale": 1.5 },
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 2 }
       ],
       "boss": { "troop": "Duelist", "guard": [
-        { "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Expert", "count": 1, "rarity": "uncommon" }, { "skill": "Skilled", "count": 1, "rarity": "uncommon" }], "hpScale": 1 }
       ] }
     },
     {
       "guard": [
-        { "troops": [{ "skill": "Expert", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Beginner", "count": 1 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Expert", "count": 3 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Skilled", "count": 2 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Expert", "count": 1, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Expert", "count": 1, "rarity": "uncommon" }, { "skill": "Beginner", "count": 1, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Expert", "count": 3, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Expert", "count": 1, "rarity": "uncommon" }, { "skill": "Skilled", "count": 2, "rarity": "common" }], "hpScale": 1 }
       ],
       "patrol": [
-        { "troops": [{ "skill": "Expert", "count": 2 }, { "skill": "Beginner", "count": 2 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Skilled", "count": 2 }, { "skill": "Beginner", "count": 2 }], "hpScale": 1 },
-        { "troops": [{ "skill": "Expert", "count": 3 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Expert", "count": 2, "rarity": "uncommon" }, { "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Expert", "count": 1, "rarity": "uncommon" }, { "skill": "Skilled", "count": 2, "rarity": "common" }, { "skill": "Beginner", "count": 2, "rarity": "common" }], "hpScale": 1 },
+        { "troops": [{ "skill": "Expert", "count": 3, "rarity": "common" }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 2, "rarity": "rare" }, { "skill": "Skilled", "count": 1 }], "hpScale": 2 }
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 2, "rarity": "rare" }, { "skill": "Skilled", "count": 1, "rarity": "common" }], "hpScale": 2 }
       ],
       "boss": { "troop": "Wraith Lord", "guard": [
-        { "troops": [{ "skill": "Expert", "count": 2 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 }
+        { "troops": [{ "skill": "Expert", "count": 2, "rarity": "uncommon" }, { "skill": "Skilled", "count": 1, "rarity": "uncommon" }], "hpScale": 1 }
       ] }
     }
   ],

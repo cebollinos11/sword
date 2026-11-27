@@ -311,6 +311,12 @@ export interface DelverTuning {
   readonly troops: readonly DelverPrefab[];
   /** How many Prefabs (whole, >= 1) each Floor fields, all different, picked from the Run seed; a Boss Floor's Boss's Prefab comes on top. */
   readonly prefabsPerFloor: number;
+  /**
+   * How many of a Floor's `prefabsPerFloor` Prefabs are of each Troop Rarity (whole, >= 0; summing to at most `prefabsPerFloor`), so a template
+   * row naming a rarity usually finds one (`floorPrefabs`). A rarity its tier fields too few of is made up from the rest, as are the slots
+   * the mix leaves. Absent: the Floor's Prefabs are drawn whatever their rarity.
+   */
+  readonly rarityMix?: Readonly<Record<TroopRarity, number>>;
   /** A Soldier's Size follows its final HP: the smallest body (MIN_SIZE) at `sizeHp[0]` HP or less, the biggest (MAX_SIZE) at `sizeHp[1]` or more. */
   readonly sizeHp: readonly [number, number];
   /** The colour (0xRRGGBB) of a Soldier's team-coloured part by its skill (its AI difficulty); a difficulty not named wears Team 1's colour. Render-only. */
@@ -678,6 +684,14 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   for (let tier = 1; tier <= tiers; tier++)
     if (!troops.some((p) => fieldedIn(p, tier))) fail('delver.troops', `at least one Prefab with a Variant that is not a Boss's, a minTier of ${tier} or less and a maxTier of ${tier} or more (for tier ${tier})`, root.troops);
   const prefabsPerFloor = whole(root, 'prefabsPerFloor', 'delver', 1);
+  let rarityMix: Record<TroopRarity, number> | undefined;
+  if (root.rarityMix !== undefined) {
+    const m = record(root.rarityMix, 'delver.rarityMix');
+    for (const k of Object.keys(m)) if (!(TROOP_RARITIES as readonly string[]).includes(k)) fail(`delver.rarityMix.${k}`, `absent (the keys are Troop Rarities: ${TROOP_RARITIES.join(', ')})`, m[k]);
+    rarityMix = Object.fromEntries(TROOP_RARITIES.map((r) => [r, m[r] === undefined ? 0 : whole(m, r, 'delver.rarityMix', 0)])) as Record<TroopRarity, number>;
+    const sum = TROOP_RARITIES.reduce((n, r) => n + rarityMix![r], 0);
+    if (sum > prefabsPerFloor) fail('delver.rarityMix', `counts summing to at most prefabsPerFloor (${prefabsPerFloor})`, root.rarityMix);
+  }
   const sizeHp = pair(root.sizeHp, 'delver.sizeHp');
   if (sizeHp[0] <= 0 || sizeHp[1] <= sizeHp[0]) fail('delver.sizeHp', '[min, max] HP with 0 < min < max', root.sizeHp);
   const tintRaw = record(root.skillTints, 'delver.skillTints');
@@ -854,6 +868,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     warbands,
     troops,
     prefabsPerFloor,
+    ...(rarityMix ? { rarityMix } : {}),
     sizeHp,
     skillTints,
     traitor: parseTraitor(root.traitor),

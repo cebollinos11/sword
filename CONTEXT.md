@@ -364,7 +364,7 @@ A kind of Delver enemy (Tuning Data `delver.troops`; docs/plans/delver-troops.md
 _Avoid_: Unit, archetype, class
 
 **Troop Rarity**:
-How often a Prefab is met: common, uncommon or rare (`rarity`, absent: common). A Warband template row may name one, and its Soldiers are then of the Floor's Prefabs of that rarity, else of the nearest rarity the Floor fields (the commoner first, `rarityPrefabs`); a row naming none takes any of the Floor's Prefabs. Not an item's Rarity (Common to Legendary).
+How often a Prefab is met: common, uncommon or rare (`rarity`, absent: common). A Warband template row may name one, and its Soldiers are then of the Floor's Prefabs of that rarity, else of the nearest rarity the Floor fields (the commoner first, `rarityPrefabs`); a row naming none takes any of the Floor's Prefabs. A Floor draws its Prefabs by `delver.rarityMix` (2 common, 1 uncommon, 1 rare). Not an item's Rarity (Common to Legendary).
 _Avoid_: Rarity (alone, for a Prefab), tier
 
 **Variant**:

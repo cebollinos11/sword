@@ -59,11 +59,13 @@ const withFloor = (patch: Record<string, unknown>): Raw => {
 
 describe('Delver Tuning Data (data/delver.json)', () => {
   it('the bundled delver parses to the file values', () => {
-    const { warbands, troops, prefabsPerFloor, sizeHp, skillTints, ...keys } = bundled.delver;
+    const { warbands, troops, prefabsPerFloor, rarityMix: _rarityMix, sizeHp, skillTints, ...keys } = bundled.delver;
     type Row = [string, number] | [string, number, string];
     const template = (...rows: Row[]) => ({ troops: rows.map(([skill, count, rarity]) => ({ skill, count, ...(rarity ? { rarity } : {}) })), hpScale: 1, relics: [] as string[] });
     const elite = (relics: string[], hpScale: number, ...rows: Row[]) => ({ ...template(...rows), hpScale, relics });
-    expect(warbands.map(({ guard, patrol }) => ({ guard, patrol }))).toEqual([
+    // The rows' skills and counts here; their Troop Rarities are pinned below.
+    const unrare = (ts: readonly { troops: readonly { skill: string; count: number }[] }[]) => ts.map((tp) => ({ ...tp, troops: tp.troops.map(({ skill, count }) => ({ skill, count })) }));
+    expect(warbands.map(({ guard, patrol }) => ({ guard: unrare(guard), patrol: unrare(patrol) }))).toEqual([
       {
         guard: [template(['Beginner', 1]), template(['Beginner', 2]), template(['Beginner', 2], ['Skilled', 1])],
         patrol: [template(['Beginner', 2]), template(['Beginner', 3]), template(['Beginner', 3], ['Skilled', 1]), template(['Beginner', 3], ['Skilled', 2])],
@@ -86,8 +88,21 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       'Sellsword: uncommon', 'Bruiser: uncommon', 'Cutthroat: uncommon', 'Acolyte: uncommon', 'Fencer: uncommon', 'Halberdier: uncommon', 'Flagellant: uncommon',
       'Lorekeeper: uncommon', 'Squire: uncommon', 'Revenant: rare', 'Uruk: rare', 'Goblin: common', 'Ork: common', 'Ranger: uncommon', 'Tin Man: rare',
     ]);
-    // The elites' leaders are of an uncommon (tier 1) or a rare (tiers 2 and 3) Prefab.
-    expect(warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map((r) => r.rarity ?? '-').join(' ')))).toEqual([['uncommon -'], ['rare -', 'rare -'], ['rare -']]);
+    // Troop Rarity by role: a template's rank and file common, its leader (its highest-skill row, when it has more than one) uncommon, an
+    // elite's leader rare, and a Boss's guard uncommon. Each Floor draws 2 common, 1 uncommon and 1 rare Prefab.
+    const rarities = (ts: readonly { troops: readonly { rarity?: string }[] }[]) => ts.map((tp) => tp.troops.map((r) => r.rarity ?? '-').join(' '));
+    expect(warbands.map((t) => ({ guard: rarities(t.guard), patrol: rarities(t.patrol), elite: rarities(t.elite ?? []), boss: rarities(t.boss?.guard ?? []) }))).toEqual([
+      { guard: ['common', 'common', 'common uncommon'], patrol: ['common', 'common', 'common uncommon', 'common uncommon'], elite: ['rare common'], boss: ['uncommon'] },
+      {
+        guard: ['common uncommon', 'common uncommon', 'common common uncommon'], patrol: ['common uncommon', 'uncommon common', 'common common uncommon'],
+        elite: ['rare common', 'rare common'], boss: ['uncommon uncommon'],
+      },
+      {
+        guard: ['common', 'uncommon common', 'common', 'uncommon common'], patrol: ['uncommon common', 'uncommon common common', 'common'],
+        elite: ['rare common'], boss: ['uncommon uncommon'],
+      },
+    ]);
+    expect(bundled.delver.rarityMix).toEqual({ common: 2, uncommon: 1, rare: 1 });
     expect(skillTints).toEqual({ Easy: 0x8e8e8e, Beginner: 0x8e8e8e, Normal: 0xb3261e, Skilled: 0xb3261e, Hard: 0x1c1c1c, Expert: 0x1c1c1c });
     expect(troops.map((p) => [p.name, p.body, p.weapon])).toEqual([
       ['Sellsword', 'female', 'Arming Sword'],
@@ -153,9 +168,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
-      [elite(['Whetstone'], 1.5, ['Skilled', 1, 'uncommon'], ['Beginner', 2])],
-      [elite(['Whetstone'], 1.5, ['Expert', 1, 'rare'], ['Skilled', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 1, 'rare'], ['Beginner', 2])],
-      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 2, 'rare'], ['Skilled', 1])],
+      [elite(['Whetstone'], 1.5, ['Skilled', 1, 'rare'], ['Beginner', 2, 'common'])],
+      [elite(['Whetstone'], 1.5, ['Expert', 1, 'rare'], ['Skilled', 1, 'common']), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 1, 'rare'], ['Beginner', 2, 'common'])],
+      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 2, 'rare'], ['Skilled', 1, 'common'])],
     ]);
     const boss = (i: number) => warbands[i]!.boss!;
     expect(warbands.map((t) => t.boss?.troop)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
@@ -166,9 +181,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(variantOf(boss(1))).toMatchObject({ name: 'Duelist', hp: 250, difficulty: 'Expert', style: 'Counter', relics: [] });
     expect(variantOf(boss(2))).toMatchObject({ name: 'Wraith Lord', hp: 300, difficulty: 'Expert', style: 'Aggressive', relics: ['Heavy Gauntlet'] });
     expect(troops[boss(2).prefab]!.body).toBe('wraith');
-    expect(boss(0).guard).toEqual([template(['Beginner', 2])]);
-    expect(boss(1).guard).toEqual([template(['Expert', 1], ['Skilled', 1])]);
-    expect(boss(2).guard).toEqual([template(['Expert', 2], ['Skilled', 1])]);
+    expect(boss(0).guard).toEqual([template(['Beginner', 2, 'uncommon'])]);
+    expect(boss(1).guard).toEqual([template(['Expert', 1, 'uncommon'], ['Skilled', 1, 'uncommon'])]);
+    expect(boss(2).guard).toEqual([template(['Expert', 2, 'uncommon'], ['Skilled', 1, 'uncommon'])]);
   });
 
   const bad: [string, Raw, RegExp][] = [
@@ -544,7 +559,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     const row = (rarity: unknown) => withGuard([{ troops: [{ skill: 'Beginner', count: 2, rarity }], hpScale: 1 }]);
     const d = raw();
     d.troops = (d.troops as Record<string, unknown>[]).map((p, i) => ({ ...p, rarity: i === 0 ? 'rare' : 'common' }));
-    // Tier 1 asks for one rare row (its guard) and no other: its elite's uncommon leader is dropped.
+    // Every bundled row's rarity dropped, then tier 1 asks for one rare row (its guard) and no other.
+    const plain = (ts: unknown) => (ts as { troops: Record<string, unknown>[] }[]).map((tp) => ({ ...tp, troops: tp.troops.map(({ rarity: _r, ...row }) => row) }));
+    d.warbands = (d.warbands as Record<string, unknown>[]).map((t) => ({ ...t, guard: plain(t.guard), patrol: plain(t.patrol), elite: plain(t.elite ?? []), boss: { ...(t.boss as object), guard: plain((t.boss as { guard: unknown }).guard) } }));
     d.warbands = (d.warbands as Record<string, unknown>[]).map((t, i) => (i === 0 ? { ...t, elite: [], guard: [{ troops: [{ skill: 'Beginner', count: 2, rarity: 'rare' }], hpScale: 1 }] } : t));
     const parsed = parse(d);
     expect(parsed.warbands[0]!.guard[0]!.troops[0]).toEqual({ skill: 'Beginner', count: 2, rarity: 'rare' });
@@ -554,6 +571,17 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     // Only Prefab 0 is rare: a tier that no longer fields it may not ask for a rare row.
     d.troops = (d.troops as Record<string, unknown>[]).map((p, i) => (i === 0 ? { ...p, minTier: 2 } : p));
     expect(() => parse(d)).toThrow(/rows of rarity rare only when tier 1 fields a Prefab of it/);
+  });
+
+  it('reads rarityMix (a rarity left out: 0; absent: none), and refuses a bad key or count, or counts over prefabsPerFloor', () => {
+    expect(parse(withKey({ rarityMix: { common: 2, rare: 1 } })).rarityMix).toEqual({ common: 2, uncommon: 0, rare: 1 });
+    expect(parse(withKey({ rarityMix: undefined }))).not.toHaveProperty('rarityMix');
+    const parsed = parse(withKey({ rarityMix: { common: 1, uncommon: 1, rare: 1 } }));
+    expect(parse(parsed as unknown as Raw).rarityMix).toEqual({ common: 1, uncommon: 1, rare: 1 });
+    expect(() => parse(withKey({ rarityMix: { epic: 1 } }))).toThrow(/delver\.rarityMix\.epic must be absent/);
+    expect(() => parse(withKey({ rarityMix: { common: -1 } }))).toThrow(/delver\.rarityMix\.common/);
+    expect(() => parse(withKey({ rarityMix: { common: 1.5 } }))).toThrow(/delver\.rarityMix\.common/);
+    expect(() => parse(withKey({ prefabsPerFloor: 4, rarityMix: { common: 3, rare: 2 } }))).toThrow(/delver\.rarityMix must be counts summing to at most prefabsPerFloor \(4\)/);
   });
 
   it('refuses a tier no Prefab may field', () => {

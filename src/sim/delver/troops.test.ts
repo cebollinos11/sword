@@ -137,6 +137,31 @@ describe('floorPrefabs and floorLooks', () => {
     expect(rarityPrefabs(troops, [2], 'common')).toEqual([2]);
   });
 
+  it('takes rarityMix\'s count of each Troop Rarity first, then fills the slots left from the rest, in the seeded order', () => {
+    const { rarityMix: _mix, ...unmixed } = delver;
+    const mix = delver.rarityMix!;
+    expect(mix).toEqual({ common: 2, uncommon: 1, rare: 1 });
+    const rarityOf = (i: number) => delver.troops[i]!.rarity ?? 'common';
+    for (let seed = 1; seed < 40; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const tier = tierOf(delver, floor);
+        const picked = floorPrefabs(delver, seed, floor);
+        expect(picked).toHaveLength(delver.prefabsPerFloor);
+        expect(new Set(picked).size).toBe(picked.length);
+        for (const rarity of ['common', 'uncommon', 'rare'] as const) {
+          const fielded = delver.troops.filter((p) => fieldedIn(p, tier) && (p.rarity ?? 'common') === rarity).length;
+          // Each rarity gets its count, or every one its tier fields when there are fewer.
+          expect(picked.filter((i) => rarityOf(i) === rarity).length).toBeGreaterThanOrEqual(Math.min(mix[rarity], fielded));
+        }
+      }
+    // Without a mix, the draw is as before: the first prefabsPerFloor in the seeded order whatever their rarity.
+    const counts = { common: 0, uncommon: 0, rare: 0 };
+    for (let seed = 1; seed < 40; seed++) for (const i of floorPrefabs(unmixed, seed, 7)) counts[rarityOf(i)]++;
+    expect(counts.uncommon).toBeGreaterThan(counts.common);
+    // A mix of all zeros fills every slot from the seeded order, as no mix does.
+    expect(floorPrefabs({ ...delver, rarityMix: { common: 0, uncommon: 0, rare: 0 } }, 5, 4)).toEqual(floorPrefabs(unmixed, 5, 4));
+  });
+
   it('fields a Prefab only up to its maxTier', () => {
     const early = delver.troops.flatMap((p, i) => ((p.maxTier ?? delver.tiers) < delver.tiers ? [i] : []));
     expect(early.length).toBeGreaterThan(0);

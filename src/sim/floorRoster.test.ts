@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { defaultWeaponName, loadTuningData, type TuningData } from '../tuning';
+import type { WarbandTemplate } from '../tuning/delver';
 import { createPoolAi } from '../controllers/poolAi';
 import { arenaOf } from './arena';
 import { groundOf, soldierHeight } from './battlefield';
@@ -20,7 +21,20 @@ import { standingFighter } from './step';
 import type { FighterState, SimState } from './state';
 import { flatFloors } from './delver/flat.testdata';
 
-const tuning = flatFloors(loadTuningData());
+/**
+ * Without Troop Rarities (no `rarityMix`, no row naming one): every Prefab may fill any row, so a plain Soldier of each Variant turns up. Under
+ * the bundled rarities a rare Prefab only leads elites, and an uncommon one's Beginners are seldom met.
+ */
+function withoutRarity(t: TuningData): TuningData {
+  const { rarityMix: _mix, ...delver } = t.delver;
+  const strip = (ts: readonly WarbandTemplate[]) => ts.map((tp) => ({ ...tp, troops: tp.troops.map(({ rarity: _r, ...row }) => row) }));
+  const warbands = delver.warbands.map((w) => ({
+    ...w, guard: strip(w.guard), patrol: strip(w.patrol), elite: strip(w.elite ?? []), ...(w.boss ? { boss: { ...w.boss, guard: strip(w.boss.guard) } } : {}),
+  }));
+  return { ...t, delver: { ...delver, warbands } };
+}
+
+const tuning = withoutRarity(flatFloors(loadTuningData()));
 const TIMEOUT = 120_000;
 
 /** The confirmed roster (the user's answers, 2026-11-26): each changed Prefab's plain Variants' Style and Quirks, by tier. */
