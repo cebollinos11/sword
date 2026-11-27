@@ -79,12 +79,12 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ]);
     expect(prefabsPerFloor).toBe(4);
     expect(sizeHp).toEqual([20, 150]);
-    // The heavy Prefabs (Bruiser, Uruk, Tin Man) join from tier 2 on; the Goblin, the weakest, leaves after tier 2.
-    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2], ['Tin Man', 2]]);
+    // The heavy Prefabs (Bruiser, Uruk, Ork, Tin Man) join from tier 2 on; the Goblin, the weakest, leaves after tier 2.
+    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2], ['Ork', 2], ['Tin Man', 2]]);
     expect(troops.filter((p) => p.maxTier !== 3).map((p) => [p.name, p.maxTier])).toEqual([['Goblin', 2]]);
     expect(troops.map((p) => `${p.name}: ${p.rarity}`)).toEqual([
-      'Sellsword: common', 'Bruiser: uncommon', 'Cutthroat: common', 'Acolyte: uncommon', 'Fencer: uncommon', 'Halberdier: common', 'Flagellant: uncommon',
-      'Lorekeeper: uncommon', 'Squire: common', 'Revenant: rare', 'Uruk: rare', 'Goblin: common', 'Ranger: uncommon', 'Tin Man: rare',
+      'Sellsword: uncommon', 'Bruiser: uncommon', 'Cutthroat: uncommon', 'Acolyte: uncommon', 'Fencer: uncommon', 'Halberdier: uncommon', 'Flagellant: uncommon',
+      'Lorekeeper: uncommon', 'Squire: uncommon', 'Revenant: rare', 'Uruk: rare', 'Goblin: common', 'Ork: common', 'Ranger: uncommon', 'Tin Man: rare',
     ]);
     // The elites' leaders are of an uncommon (tier 1) or a rare (tiers 2 and 3) Prefab.
     expect(warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map((r) => r.rarity ?? '-').join(' ')))).toEqual([['uncommon -'], ['rare -', 'rare -'], ['rare -']]);
@@ -101,7 +101,8 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Squire', 'prince', 'Arming Sword'],
       ['Revenant', 'wraith', 'Longsword'],
       ['Uruk', 'uruk', 'Sledge Hammer'],
-      ['Goblin', 'goblin', 'Dagger'],
+      ['Goblin', 'goblin', 'Arming Sword'],
+      ['Ork', 'uruk', 'Arming Sword'],
       ['Ranger', 'ranger', 'Longsword'],
       ['Tin Man', 'tinman', 'Halberd'],
     ]);
@@ -121,6 +122,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Revenant', ['Pack Hunter', 'Pack Hunter', 'Pack Hunter']],
       ['Uruk', ['Reckless + Slow', 'Reckless + Slow', 'Reckless + Slow']],
       ['Goblin', ['Tricky + Dumb', 'Tricky', 'Tricky']],
+      ['Ork', ['Aggressive + Dumb', 'Aggressive', 'Aggressive']],
       ['Ranger', ['Skirmisher', 'Skirmisher', 'Skirmisher']],
       ['Tin Man', ['Defensive + Slow', 'Defensive + Slow', 'Defensive + Slow']],
     ]);
@@ -419,7 +421,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect([beginner!.quirks, skilled!.quirks, expert!.quirks]).toEqual([['Dumb'], ['Hopper', 'Dumb'], ['Dumb']]);
     expect(parse(withPrefab(1, { quirks: ['Dumb'] }, 0, { quirks: [] })).troops[1]!.variants[0]).not.toHaveProperty('quirks');
     // A Variant without Quirks has no key: in the bundled data only the roster pass's (Stage 6) have one, and the Warden's [] drops the Uruk's Slow.
-    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)', 'Goblin (Beginner)', 'Tin Man (Beginner)', 'Tin Man (Skilled)', 'Tin Man (Expert)']);
+    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)', 'Goblin (Beginner)', 'Ork (Beginner)', 'Tin Man (Beginner)', 'Tin Man (Skilled)', 'Tin Man (Expert)']);
   });
 
   it('takes its own parsed form back in', () => {

@@ -274,7 +274,7 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
     expect(resolveTroop(tuning, { prefab: 'Uruk', variant: 'Warden' }).quirks).toEqual([]);
     expect(resolveTroop(tuning, { prefab: 'Revenant', variant: 'Revenant (Expert)' }).quirks).toEqual([]);
     // Only the roster pass's Variants carry Quirks, their elites too; no Boss does.
-    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow', 'Goblin (Beginner): Dumb', 'Tin Man (Beginner): Slow', 'Tin Man (Skilled): Slow', 'Tin Man (Expert): Slow']);
+    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow', 'Goblin (Beginner): Dumb', 'Ork (Beginner): Dumb', 'Tin Man (Beginner): Slow', 'Tin Man (Skilled): Slow', 'Tin Man (Expert): Slow']);
     // Every Variant of the Revenant Dumb and Heavy (a body part: more damage, more max HP), elites and the Boss too.
     const heavy = { damage: 1.5, maxHp: 0.25 };
     const quirky: TuningData = {

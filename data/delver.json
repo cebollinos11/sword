@@ -22,7 +22,7 @@
   "sizeHp": [20, 150],
   "skillTints": { "Easy": "#8e8e8e", "Beginner": "#8e8e8e", "Normal": "#b3261e", "Skilled": "#b3261e", "Hard": "#1c1c1c", "Expert": "#1c1c1c" },
   "troops": [
-    { "name": "Sellsword", "body": "female", "weapon": "Arming Sword", "rarity": "common", "style": "Balanced", "variants": [
+    { "name": "Sellsword", "body": "female", "weapon": "Arming Sword", "rarity": "uncommon", "style": "Balanced", "variants": [
       { "difficulty": "Beginner", "hp": 40 },
       { "difficulty": "Skilled", "hp": 50 },
       { "difficulty": "Expert", "hp": 60 }
@@ -32,7 +32,7 @@
       { "difficulty": "Skilled", "hp": 75 },
       { "difficulty": "Expert", "hp": 90 }
     ] },
-    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "rarity": "common", "style": "Skirmisher", "mods": { "damage": 0.45 }, "variants": [
+    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "rarity": "uncommon", "style": "Skirmisher", "mods": { "damage": 0.45 }, "variants": [
       { "difficulty": "Beginner", "hp": 30 },
       { "difficulty": "Skilled", "hp": 36 },
       { "difficulty": "Expert", "hp": 42, "relics": ["Honed Daggers"] }
@@ -48,7 +48,7 @@
       { "difficulty": "Expert", "hp": 60 },
       { "name": "Duelist", "boss": true, "mods": {}, "difficulty": "Expert", "style": "Counter", "hp": 250 }
     ] },
-    { "name": "Halberdier", "body": "asturian", "weapon": "Halberd", "rarity": "common", "style": "Balanced", "engageReach": 2.2, "variants": [
+    { "name": "Halberdier", "body": "asturian", "weapon": "Halberd", "rarity": "uncommon", "style": "Balanced", "engageReach": 2.2, "variants": [
       { "difficulty": "Beginner", "hp": 50 },
       { "difficulty": "Skilled", "hp": 60 },
       { "difficulty": "Expert", "hp": 70 }
@@ -63,7 +63,7 @@
       { "difficulty": "Skilled", "hp": 45 },
       { "difficulty": "Expert", "hp": 55 }
     ] },
-    { "name": "Squire", "body": "prince", "weapon": "Arming Sword", "rarity": "common", "style": "Defensive", "variants": [
+    { "name": "Squire", "body": "prince", "weapon": "Arming Sword", "rarity": "uncommon", "style": "Defensive", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
       { "difficulty": "Skilled", "hp": 55, "quirks": ["Hopper"] },
       { "difficulty": "Expert", "hp": 65, "quirks": ["Hopper"], "relics": ["Iron Plate"] }
@@ -80,10 +80,15 @@
       { "difficulty": "Expert", "hp": 110 },
       { "name": "Warden", "boss": true, "mods": {}, "difficulty": "Skilled", "style": "Aggressive", "quirks": [], "hp": 250 }
     ] },
-    { "name": "Goblin", "body": "goblin", "weapon": "Dagger", "rarity": "common", "maxTier": 2, "style": "Tricky", "mods": { "damage": 0.45 }, "variants": [
+    { "name": "Goblin", "body": "goblin", "weapon": "Arming Sword", "rarity": "common", "maxTier": 2, "style": "Tricky", "variants": [
       { "difficulty": "Beginner", "hp": 25, "quirks": ["Dumb"] },
       { "difficulty": "Skilled", "hp": 32 },
       { "difficulty": "Expert", "hp": 38 }
+    ] },
+    { "name": "Ork", "body": "uruk", "weapon": "Arming Sword", "rarity": "common", "minTier": 2, "style": "Aggressive", "variants": [
+      { "difficulty": "Beginner", "hp": 55, "quirks": ["Dumb"] },
+      { "difficulty": "Skilled", "hp": 70 },
+      { "difficulty": "Expert", "hp": 85 }
     ] },
     { "name": "Ranger", "body": "ranger", "weapon": "Longsword", "rarity": "uncommon", "style": "Skirmisher", "variants": [
       { "difficulty": "Beginner", "hp": 40 },
