@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
+import { everyFloorRests } from '../sim/delver/flat.testdata';
 import { createMatch, inDuel, MAX_TEAM_SIZE, runSeed, secondsToTicks, stepMatch, type FighterState, type MatchEvent, type MatchState } from '../sim';
 import { floorArenaName, floorOf } from '../sim/delver';
 import { controllerIntents, type Controller } from './controller';
@@ -11,7 +12,7 @@ import { lineupAis, type Lineup } from './lineup';
  * walk three Floors to Victory. At each Floor's start the Player is put at half HP and ally 1 is felled, so the run must show a Rest heal, a
  * revive, and the party gathering at the Stairs on every Floor. Prints the Floors' build times and each Floor's numbers.
  */
-const base = loadTuningData();
+const base = everyFloorRests(loadTuningData());
 const SEED_NAME = 'gen:greybox:4242';
 const FLOORS = 3;
 /** A Floor's build may not take longer (ms): `delverFloor` is about 0.25 s here, 0.75 s on a laptop. */

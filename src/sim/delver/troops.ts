@@ -31,20 +31,23 @@ export function tierOf(delver: DelverTuning, floor: number): number {
   return Math.min(delver.tiers, Math.max(1, Math.ceil(floor / delver.floorsPerTier)));
 }
 
-const floorCache = new WeakMap<DelverTuning, DelverFloorTuning[]>();
+const floorCache = new WeakMap<DelverTuning, Map<string, DelverFloorTuning>>();
 
 /**
  * The Floor generator's tuning for Floor `floor`: `delver.floor` with `rooms` the Floor's tier's `delver.tierRooms` (issue #135: a Run's first
- * tier's Floors a third as long as a full one, the second's half, the last full). Without `tierRooms` it is `delver.floor` itself. Cached per
- * (delver, tier), so the same Floor gets the same object.
+ * tier's Floors a third as long as a full one, the second's half, the last full), and no `rests` on a Floor `delver.restEvery` leaves out.
+ * Where neither changes anything it is `delver.floor` itself. Cached per delver, so Floors alike get the same object.
  */
 export function floorTuningOf(delver: DelverTuning, floor: number): DelverFloorTuning {
-  const rooms = delver.tierRooms;
-  if (!rooms) return delver.floor;
-  const tier = tierOf(delver, floor);
-  let list = floorCache.get(delver);
-  if (!list) floorCache.set(delver, (list = []));
-  return (list[tier - 1] ??= rooms[tier - 1] === delver.floor.rooms ? delver.floor : { ...delver.floor, rooms: rooms[tier - 1]! });
+  const rooms = delver.tierRooms?.[tierOf(delver, floor) - 1] ?? delver.floor.rooms;
+  const bare = delver.restEvery !== undefined && floor % delver.restEvery !== 0;
+  if (rooms === delver.floor.rooms && !bare) return delver.floor;
+  let cached = floorCache.get(delver);
+  if (!cached) floorCache.set(delver, (cached = new Map()));
+  const key = `${rooms} ${bare}`;
+  let t = cached.get(key);
+  if (!t) cached.set(key, (t = { ...delver.floor, rooms, ...(bare ? { rests: [0, 0] as const } : {}) }));
+  return t;
 }
 
 /** Whether Floor `floor` is a Boss Floor: the last of its tier, and its tier has a Boss. */

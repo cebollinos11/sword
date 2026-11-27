@@ -315,7 +315,7 @@ describe('the Floor generator soak', () => {
     lines.push(`  Halls by kind (total over ${floors.length} Floors / Floors with one): ${KINDS.map((k) => `${k} ${kindTotal.get(k) ?? 0} / ${kindFloors.get(k) ?? 0}`).join(', ')}`);
     const restCount = (p: (typeof floors)[number]) => p.halls.filter((h) => h.kind === 'Rest').length;
     const withRests = (n: number) => floors.filter((p) => restCount(p) === n).length;
-    lines.push(`  Floors with 1 Rest: ${withRests(1)}, with 2 Rests: ${withRests(2)}, with a Treasure: ${kindFloors.get('Treasure') ?? 0}`);
+    lines.push(`  Floors with no Rest: ${withRests(0)}, with 1 Rest: ${withRests(1)}, with a Treasure: ${kindFloors.get('Treasure') ?? 0}`);
     const passages = floors.flatMap((p) => p.passages);
     const loops = passages.filter((p) => p.loop).length;
     const far = floors.reduce((n, p) => n + p.passages.filter((q) => isFar(p, q)).length, 0);
@@ -491,8 +491,7 @@ describe('the Floor generator soak', () => {
     }
     for (const kind of KINDS) expect(kindFloors.get(kind) ?? 0, `no ${kind} Hall on any Floor`).toBeGreaterThan(0);
     expect(kindFloors.get('Treasure') ?? 0, 'Treasure on fewer than half the Floors').toBeGreaterThanOrEqual(floors.length / 2);
-    expect(withRests(1), 'no Floor with 1 Rest').toBeGreaterThan(0);
-    expect(withRests(2), 'no Floor with 2 Rests').toBeGreaterThan(0);
+    for (const p of floors) expect(restCount(p), `Floor ${p.floor}: its Rests`).toBe(p.floor % 2 === 0 ? 1 : 0);
     expect(far, 'no far Passage').toBeGreaterThan(0);
     expect(loops, 'no loop Passage').toBeGreaterThan(0);
     expect(floors.length - patrolFloors[0]!, 'no Floor with a patrol loop').toBeGreaterThan(0);
