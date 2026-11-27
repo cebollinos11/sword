@@ -3,7 +3,7 @@
  * (a Squad of Team 1 Soldiers from a tier's template) deployed on each filled one. Pure, from (Run seed, Floor, humans): every peer deals
  * the same Crowd with nothing sent. The homes the brain walks back to are derived from the plan and cached, never stored in the Simulation.
  */
-import { MAX_SQUAD_PLACES, type DelverTuning, type TuningData } from '../../tuning';
+import { MAX_SQUAD_PLACES, rarityPrefabs, type DelverTuning, type TuningData, type WarbandRow } from '../../tuning';
 import type { WarbandTemplate } from '../../tuning/delver';
 import { groundOf, type Battlefield } from '../battlefield';
 import type { CrowdState } from '../crowd';
@@ -179,10 +179,10 @@ interface Planned {
   readonly patrol: number;
   readonly leg: number;
   readonly rank: number;
-  /** Each Soldier's skill (an AI difficulty, its template row's) in place order, before the party's extras; a Boss Warband's Boss Soldier comes before them. */
-  readonly skills: readonly string[];
-  /** The skill the party's extras are of: the template's first row's. */
-  readonly extra: string;
+  /** Each Soldier's row (its skill, an AI difficulty, and its Troop Rarity, if any) in place order, before the party's extras; a Boss Warband's Boss Soldier comes before them. */
+  readonly skills: readonly WarbandRow[];
+  /** The row the party's extras are of: the template's first. */
+  readonly extra: WarbandRow;
   /** An elite's Relic set (an index into `floorTroops`' `elite`), or -1. */
   readonly eliteSet: number;
 }
@@ -202,7 +202,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
   const home = warbandHomes(plan);
   const indices = floorTroops(delver);
   const prefabs = floorPrefabs(delver, seed, floor);
-  const rows = (template: WarbandTemplate): string[] => template.troops.flatMap((row) => Array<string>(row.count).fill(row.skill));
+  const rows = (template: WarbandTemplate): WarbandRow[] => template.troops.flatMap((row) => Array<WarbandRow>(row.count).fill(row));
 
   // The deepest filled posts (their Hall's `depth`, the lower post on a tie) hold the elites, when the tier has any.
   const guards = filled(seed, floor, posts.length, delver.postFill, WARBAND_SALT.postOrder);
@@ -220,12 +220,12 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       const encounter = runPick(seed, floor, k, WARBAND_SALT.elitePick, elitePool.length);
       const template = elitePool[encounter]!;
       const eliteSet = indices.eliteSet[tier - 1]![encounter]!;
-      planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: ELITE, skills: rows(template), extra: template.troops[0]!.skill, eliteSet });
+      planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: ELITE, skills: rows(template), extra: template.troops[0]!, eliteSet });
       continue;
     }
     const encounter = runPick(seed, floor, k, WARBAND_SALT.guardPick, pools.guard.length);
     const template = pools.guard[encounter]!;
-    planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: PLAIN, skills: rows(template), extra: template.troops[0]!.skill, eliteSet: -1 });
+    planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: PLAIN, skills: rows(template), extra: template.troops[0]!, eliteSet: -1 });
   }
   for (const k of filled(seed, floor, patrols.length, delver.patrolFill, WARBAND_SALT.patrolOrder)) {
     const encounter = runPick(seed, floor, k, WARBAND_SALT.patrolPick, pools.patrol.length);
@@ -237,7 +237,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     const leg = (start + 1) % points.length;
     const at = points[start]!;
     const template = pools.patrol[encounter]!;
-    planned.push({ x: at.x, y: at.y, z: at.z, facing: facingToward(at, points[leg]!), template, encounter, post: -1, patrol: k, leg, rank: PLAIN, skills: rows(template), extra: template.troops[0]!.skill, eliteSet: -1 });
+    planned.push({ x: at.x, y: at.y, z: at.z, facing: facingToward(at, points[leg]!), template, encounter, post: -1, patrol: k, leg, rank: PLAIN, skills: rows(template), extra: template.troops[0]!, eliteSet: -1 });
   }
   // The Boss Warband, last: the Boss Soldier first, then its guard's rows; the extras are of the guard's first row's skill, never another Boss.
   const boss = pools.boss;
@@ -247,7 +247,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     const at = home.posts[posts.length]!;
     planned.push({
       x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: posts.length, patrol: -1, leg: 0, rank: BOSS,
-      skills: rows(template), extra: template.troops[0]!.skill, eliteSet: -1,
+      skills: rows(template), extra: template.troops[0]!, eliteSet: -1,
     });
   }
 
@@ -271,11 +271,20 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
   };
   const warbands = { mode: [] as number[], post: [] as number[], patrol: [] as number[], leg: [] as number[], chased: [] as number[], seen: [] as number[], size: [] as number[], encounter: [] as number[], rank: [] as number[] };
 
-  // A Soldier's Troop: a Variant of its skill of one of the Floor's Prefabs (an elite's wearing its set's Relics), each picked from the seed by
-  // its Warband and place, so one Warband's size never moves another's picks.
-  const troopFor = (skill: string, eliteSet: number, q: number, p: number): number => {
+  // The Floor's Prefabs a row of each Troop Rarity (or none) is filled from.
+  const byRarity = new Map<WarbandRow['rarity'], number[]>();
+  const prefabsFor = (row: WarbandRow): number[] => {
+    let list = byRarity.get(row.rarity);
+    if (!list) byRarity.set(row.rarity, (list = rarityPrefabs(delver.troops, prefabs, row.rarity)));
+    return list;
+  };
+  // A Soldier's Troop: a Variant of its row's skill of one of the Floor's Prefabs of its row's rarity (an elite's wearing its set's Relics), each
+  // picked from the seed by its Warband and place, so one Warband's size never moves another's picks.
+  const troopFor = (row: WarbandRow, eliteSet: number, q: number, p: number): number => {
+    const { skill } = row;
     const slot = q * PICK_PLACES + p;
-    const prefab = prefabs[runPick(seed, floor, slot, WARBAND_SALT.prefab, prefabs.length)]!;
+    const from = prefabsFor(row);
+    const prefab = from[runPick(seed, floor, slot, WARBAND_SALT.prefab, from.length)]!;
     const variants = delver.troops[prefab]!.variants.flatMap((v, k) => (!v.boss && v.difficulty === skill ? [k] : []));
     const k = variants[runPick(seed, floor, slot, WARBAND_SALT.variant, variants.length)]!;
     return eliteSet >= 0 ? indices.elite[eliteSet]![prefab]![k]! : indices.plain[prefab]![k]!;

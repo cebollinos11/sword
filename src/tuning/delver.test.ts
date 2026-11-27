@@ -60,8 +60,9 @@ const withFloor = (patch: Record<string, unknown>): Raw => {
 describe('Delver Tuning Data (data/delver.json)', () => {
   it('the bundled delver parses to the file values', () => {
     const { warbands, troops, prefabsPerFloor, sizeHp, skillTints, ...keys } = bundled.delver;
-    const template = (...rows: [string, number][]) => ({ troops: rows.map(([skill, count]) => ({ skill, count })), hpScale: 1, relics: [] as string[] });
-    const elite = (relics: string[], hpScale: number, ...rows: [string, number][]) => ({ ...template(...rows), hpScale, relics });
+    type Row = [string, number] | [string, number, string];
+    const template = (...rows: Row[]) => ({ troops: rows.map(([skill, count, rarity]) => ({ skill, count, ...(rarity ? { rarity } : {}) })), hpScale: 1, relics: [] as string[] });
+    const elite = (relics: string[], hpScale: number, ...rows: Row[]) => ({ ...template(...rows), hpScale, relics });
     expect(warbands.map(({ guard, patrol }) => ({ guard, patrol }))).toEqual([
       {
         guard: [template(['Beginner', 1]), template(['Beginner', 2]), template(['Beginner', 2], ['Skilled', 1])],
@@ -78,8 +79,15 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ]);
     expect(prefabsPerFloor).toBe(4);
     expect(sizeHp).toEqual([20, 150]);
-    // The heavy Prefabs (Bruiser, Uruk) join from tier 2 on.
-    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2]]);
+    // The heavy Prefabs (Bruiser, Uruk, Tin Man) join from tier 2 on; the Goblin, the weakest, leaves after tier 2.
+    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2], ['Tin Man', 2]]);
+    expect(troops.filter((p) => p.maxTier !== 3).map((p) => [p.name, p.maxTier])).toEqual([['Goblin', 2]]);
+    expect(troops.map((p) => `${p.name}: ${p.rarity}`)).toEqual([
+      'Sellsword: common', 'Bruiser: uncommon', 'Cutthroat: common', 'Acolyte: uncommon', 'Fencer: uncommon', 'Halberdier: common', 'Flagellant: uncommon',
+      'Lorekeeper: uncommon', 'Squire: common', 'Revenant: rare', 'Uruk: rare', 'Goblin: common', 'Ranger: uncommon', 'Tin Man: rare',
+    ]);
+    // The elites' leaders are of an uncommon (tier 1) or a rare (tiers 2 and 3) Prefab.
+    expect(warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map((r) => r.rarity ?? '-').join(' ')))).toEqual([['uncommon -'], ['rare -', 'rare -'], ['rare -']]);
     expect(skillTints).toEqual({ Easy: 0x8e8e8e, Beginner: 0x8e8e8e, Normal: 0xb3261e, Skilled: 0xb3261e, Hard: 0x1c1c1c, Expert: 0x1c1c1c });
     expect(troops.map((p) => [p.name, p.body, p.weapon])).toEqual([
       ['Sellsword', 'female', 'Arming Sword'],
@@ -93,6 +101,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Squire', 'prince', 'Arming Sword'],
       ['Revenant', 'wraith', 'Longsword'],
       ['Uruk', 'uruk', 'Sledge Hammer'],
+      ['Goblin', 'goblin', 'Dagger'],
+      ['Ranger', 'ranger', 'Longsword'],
+      ['Tin Man', 'tinman', 'Halberd'],
     ]);
     // A Variant left unnamed is named for its Prefab and skill, and takes its Prefab's Style and Mods, else the generic soldier's.
     expect(troops[1]!.variants[0]).toEqual({ name: 'Bruiser (Beginner)', hp: 60, difficulty: 'Beginner', style: 'Reckless', quirks: ['Dumb'], relics: [], mods: { damage: 0.6 }, damage: tuning.battle.crowd.damage, hitChance: tuning.battle.crowd.hitChance, engageReach: tuning.battle.crowd.engageReach });
@@ -109,6 +120,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Squire', ['Defensive', 'Defensive + Hopper', 'Defensive + Hopper']],
       ['Revenant', ['Pack Hunter', 'Pack Hunter', 'Pack Hunter']],
       ['Uruk', ['Reckless + Slow', 'Reckless + Slow', 'Reckless + Slow']],
+      ['Goblin', ['Tricky + Dumb', 'Tricky', 'Tricky']],
+      ['Ranger', ['Skirmisher', 'Skirmisher', 'Skirmisher']],
+      ['Tin Man', ['Defensive + Slow', 'Defensive + Slow', 'Defensive + Slow']],
     ]);
     expect(troops[0]!.variants[0]!.mods).toBe(tuning.battle.soldier.mods);
     expect(troops[5]!.variants[2]!.engageReach).toBe(2.2);
@@ -137,9 +151,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
-      [elite(['Whetstone'], 1.5, ['Skilled', 1], ['Beginner', 2])],
-      [elite(['Whetstone'], 1.5, ['Expert', 1], ['Skilled', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 1], ['Beginner', 2])],
-      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 2], ['Skilled', 1])],
+      [elite(['Whetstone'], 1.5, ['Skilled', 1, 'uncommon'], ['Beginner', 2])],
+      [elite(['Whetstone'], 1.5, ['Expert', 1, 'rare'], ['Skilled', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 1, 'rare'], ['Beginner', 2])],
+      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 2, 'rare'], ['Skilled', 1])],
     ]);
     const boss = (i: number) => warbands[i]!.boss!;
     expect(warbands.map((t) => t.boss?.troop)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
@@ -405,7 +419,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect([beginner!.quirks, skilled!.quirks, expert!.quirks]).toEqual([['Dumb'], ['Hopper', 'Dumb'], ['Dumb']]);
     expect(parse(withPrefab(1, { quirks: ['Dumb'] }, 0, { quirks: [] })).troops[1]!.variants[0]).not.toHaveProperty('quirks');
     // A Variant without Quirks has no key: in the bundled data only the roster pass's (Stage 6) have one, and the Warden's [] drops the Uruk's Slow.
-    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)']);
+    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)', 'Goblin (Beginner)', 'Tin Man (Beginner)', 'Tin Man (Skilled)', 'Tin Man (Expert)']);
   });
 
   it('takes its own parsed form back in', () => {
@@ -501,10 +515,49 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(() => parse(withPrefab(0, { minTier: 1.5 }))).toThrow(/minTier/);
   });
 
+  it('reads a Prefab\'s maxTier (absent: tiers), and refuses one below its minTier or above tiers', () => {
+    const parsed = parse(withPrefab(0, { maxTier: 2 }));
+    expect(parsed.troops[0]!.maxTier).toBe(2);
+    expect(parse(withPrefab(0, { maxTier: undefined })).troops[0]!.maxTier).toBe(3);
+    expect(parse(parsed as unknown as Raw).troops[0]!.maxTier).toBe(2);
+    expect(parse(withPrefab(0, { minTier: 2, maxTier: 2 })).troops[0]!).toMatchObject({ minTier: 2, maxTier: 2 });
+    expect(() => parse(withPrefab(0, { minTier: 2, maxTier: 1 }))).toThrow(/delver\.troops\[0\]\.maxTier must be a tier from its minTier \(2\) to 3/);
+    expect(() => parse(withPrefab(0, { maxTier: 4 }))).toThrow(/delver\.troops\[0\]\.maxTier/);
+    expect(() => parse(withPrefab(0, { maxTier: 0 }))).toThrow(/delver\.troops\[0\]\.maxTier/);
+  });
+
+  it('refuses a tier every Prefab has left by its maxTier', () => {
+    const d = raw();
+    d.troops = (d.troops as Record<string, unknown>[]).map((p) => ({ ...p, minTier: 1, maxTier: 2 }));
+    expect(() => parse(d)).toThrow(/a maxTier of 3 or more \(for tier 3\)/);
+  });
+
+  it('reads a Prefab\'s rarity (absent: common), and refuses one not a Troop Rarity', () => {
+    expect(parse(withPrefab(0, { rarity: 'rare' })).troops[0]!.rarity).toBe('rare');
+    expect(parse(withPrefab(0, { rarity: undefined })).troops[0]!.rarity).toBe('common');
+    expect(() => parse(withPrefab(0, { rarity: 'Legendary' }))).toThrow(/delver\.troops\[0\]\.rarity must be a Troop Rarity \(common, uncommon, rare\)/);
+  });
+
+  it('reads a template row\'s rarity (absent: none), and refuses a bad one or one its tier fields no Prefab of', () => {
+    const row = (rarity: unknown) => withGuard([{ troops: [{ skill: 'Beginner', count: 2, rarity }], hpScale: 1 }]);
+    const d = raw();
+    d.troops = (d.troops as Record<string, unknown>[]).map((p, i) => ({ ...p, rarity: i === 0 ? 'rare' : 'common' }));
+    // Tier 1 asks for one rare row (its guard) and no other: its elite's uncommon leader is dropped.
+    d.warbands = (d.warbands as Record<string, unknown>[]).map((t, i) => (i === 0 ? { ...t, elite: [], guard: [{ troops: [{ skill: 'Beginner', count: 2, rarity: 'rare' }], hpScale: 1 }] } : t));
+    const parsed = parse(d);
+    expect(parsed.warbands[0]!.guard[0]!.troops[0]).toEqual({ skill: 'Beginner', count: 2, rarity: 'rare' });
+    expect(parse(parsed as unknown as Raw).warbands[0]!.guard[0]!.troops[0]!.rarity).toBe('rare');
+    expect(parse(withGuard([levy(1)])).warbands[0]!.guard[0]!.troops[0]).toEqual({ skill: 'Beginner', count: 1 });
+    expect(() => parse(row('epic'))).toThrow(/delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.rarity must be a Troop Rarity/);
+    // Only Prefab 0 is rare: a tier that no longer fields it may not ask for a rare row.
+    d.troops = (d.troops as Record<string, unknown>[]).map((p, i) => (i === 0 ? { ...p, minTier: 2 } : p));
+    expect(() => parse(d)).toThrow(/rows of rarity rare only when tier 1 fields a Prefab of it/);
+  });
+
   it('refuses a tier no Prefab may field', () => {
     const d = raw();
-    d.troops = (d.troops as Record<string, unknown>[]).map((p) => ({ ...p, minTier: 2 }));
-    expect(() => parse(d)).toThrow(/a minTier of 1 or less \(for tier 1\)/);
+    d.troops = (d.troops as Record<string, unknown>[]).map((p) => ({ ...p, minTier: 2, maxTier: undefined }));
+    expect(() => parse(d)).toThrow(/a minTier of 1 or less and a maxTier of 1 or more \(for tier 1\)/);
   });
 
   it('accepts a Prefab whose Variants are only a Boss\'s (it fills no row), and a tint left out', () => {

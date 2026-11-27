@@ -157,14 +157,28 @@ export interface DelverGalleriesTuning {
   readonly stairPercent: number;
 }
 
+/** A Troop Rarity (docs/plans/delver-troops.md): how often a Delver Prefab is met, commonest first. Not an item's Rarity (`RARITIES`). */
+export const TROOP_RARITIES = ['common', 'uncommon', 'rare'] as const;
+export type TroopRarity = (typeof TROOP_RARITIES)[number];
+
+/** A Warband template's row: `count` Soldiers of `skill`, of a Prefab of `rarity` when it names one. */
+export interface WarbandRow {
+  readonly skill: string;
+  readonly count: number;
+  readonly rarity?: TroopRarity;
+}
+
 /**
  * A Warband template (docs/plans/delver.md, Stage 3; its rows by skill since docs/plans/delver-troops.md): the Soldiers a Warband deploys
  * with, in list order (the first its rank and file), and its HP scale. Each row names an AI difficulty (its skill) and a count; each of its
  * Soldiers is a Variant of that skill of one of its Floor's Prefabs (`floorPrefabs`), picked from the Run seed.
  */
 export interface WarbandTemplate {
-  /** Each row's skill (a name from `ai.difficulties`) and how many Soldiers of it. */
-  readonly troops: readonly { readonly skill: string; readonly count: number }[];
+  /**
+   * Each row's skill (a name from `ai.difficulties`), how many Soldiers of it, and the Troop Rarity its Soldiers' Prefabs are of (absent:
+   * any of the Floor's Prefabs; see `rarityPrefabs`).
+   */
+  readonly troops: readonly WarbandRow[];
   /** Multiplies each Soldier's HP (on top of its tier's `tierHp`); positive. */
   readonly hpScale: number;
   /** The Relics its Soldiers' promoted Fighters wear (1 or 2 names, an elite template's), on top of their Variant's own; `[]` for a guard, patrol or Boss guard template. */
@@ -210,6 +224,10 @@ export interface DelverPrefab {
   readonly weapon: string;
   /** The first tier (1 to `tiers`) whose Floors may field it in template rows (absent: 1, every tier). Its Boss Variants are a tier's Boss whatever this says. */
   readonly minTier?: number;
+  /** The last tier (`minTier` to `tiers`) whose Floors may field it in template rows (absent: `tiers`, every tier from `minTier` on). Its Boss Variants are a tier's Boss whatever this says. */
+  readonly maxTier?: number;
+  /** Its Troop Rarity (absent: common): a template row naming a rarity is filled only with Prefabs of it (`rarityPrefabs`). */
+  readonly rarity?: TroopRarity;
   readonly variants: readonly DelverVariant[];
 }
 
@@ -447,7 +465,8 @@ function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'squad
       if (typeof skill !== 'string' || !names.difficulties.includes(skill)) fail(`${w}.skill`, `one of the AI difficulties (${names.difficulties.join(', ')})`, skill);
       const count = whole(row, 'count', w, 1);
       total += count;
-      return { skill, count };
+      if (row.rarity === undefined) return { skill, count };
+      return { skill, count, rarity: oneOf(row, 'rarity', w, TROOP_RARITIES, 'a Troop Rarity') as TroopRarity };
     });
     if (total > room) fail(`${where}.troops`, `1 to ${room} Soldiers in all (battle.squad.size ${battle.squad.size}${opts.reserve ? ` less the Boss's ${opts.reserve}` : ''})`, total);
     let relics: string[] = [];
@@ -534,6 +553,9 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
     const weapon = oneOf(p, 'weapon', where, names.weapons, 'one of the Weapons');
     const minTier = p.minTier === undefined ? 1 : whole(p, 'minTier', where, 1);
     if (minTier > tiers) fail(`${where}.minTier`, `a tier from 1 to ${tiers}`, minTier);
+    const maxTier = p.maxTier === undefined ? tiers : whole(p, 'maxTier', where, 1);
+    if (maxTier < minTier || maxTier > tiers) fail(`${where}.maxTier`, `a tier from its minTier (${minTier}) to ${tiers}`, maxTier);
+    const rarity = oneOf(p, 'rarity', where, TROOP_RARITIES, 'a Troop Rarity', 'common') as TroopRarity;
     // A Prefab is its look: two with the same Body and Weapon would be one atlas, so they are one Prefab with more Variants.
     const look = `${body}\n${weapon}`;
     if (looks.has(look)) fail(where, `a Body and Weapon no other Prefab has (${body} with ${weapon})`, { body, weapon });
@@ -573,15 +595,30 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
         ...(boss ? { boss: true as const } : {}),
       };
     });
-    return { name, body, weapon, minTier, variants };
+    return { name, body, weapon, minTier, maxTier, rarity, variants };
   });
 }
 
 /** Whether Prefab `p` fills template rows: it has a Variant that is not a Boss's. */
 export const regularPrefab = (p: DelverPrefab): boolean => p.variants.some((v) => !v.boss);
 
-/** Whether Prefab `p` fills template rows on tier `tier`'s Floors: it is a `regularPrefab` and its `minTier` has come. */
-export const fieldedIn = (p: DelverPrefab, tier: number): boolean => regularPrefab(p) && (p.minTier ?? 1) <= tier;
+/** Whether Prefab `p` fills template rows on tier `tier`'s Floors: it is a `regularPrefab`, its `minTier` has come and its `maxTier` has not passed. */
+export const fieldedIn = (p: DelverPrefab, tier: number): boolean => regularPrefab(p) && (p.minTier ?? 1) <= tier && tier <= (p.maxTier ?? Infinity);
+
+/**
+ * The Prefabs of `prefabs` (indices into `troops`, a Floor's `floorPrefabs`) that fill a template row of `rarity`: every one when the row names
+ * none; else those of the rarity nearest it (its own, else the one a step away, the commoner first), so a row is always filled whichever Prefabs
+ * a Floor draws. In `prefabs`' order. Pure.
+ */
+export function rarityPrefabs(troops: readonly Pick<DelverPrefab, 'rarity'>[], prefabs: readonly number[], rarity: TroopRarity | undefined): number[] {
+  if (rarity === undefined) return prefabs.slice();
+  const want = TROOP_RARITIES.indexOf(rarity);
+  const rank = (i: number): number => TROOP_RARITIES.indexOf(troops[i]!.rarity ?? 'common');
+  // Distance to the wanted rarity, a commoner one winning a tie (a rare row with no rare Prefab takes uncommon before nothing better).
+  const cost = (i: number): number => 2 * Math.abs(rank(i) - want) + (rank(i) > want ? 1 : 0);
+  const best = Math.min(...prefabs.map(cost));
+  return prefabs.filter((i) => cost(i) === best);
+}
 
 /** The distinct Relic sets of every tier's elite templates, in the order first met (tier by tier, template by template), each as its key (`relics.join('\n')`). */
 export function eliteRelicSets(delver: Pick<DelverTuning, 'warbands'>): string[] {
@@ -639,7 +676,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const troops = parsePrefabs(root.troops, battle, names, tiers);
   // Every tier's template rows need a Prefab to fill them.
   for (let tier = 1; tier <= tiers; tier++)
-    if (!troops.some((p) => fieldedIn(p, tier))) fail('delver.troops', `at least one Prefab with a Variant that is not a Boss's and a minTier of ${tier} or less (for tier ${tier})`, root.troops);
+    if (!troops.some((p) => fieldedIn(p, tier))) fail('delver.troops', `at least one Prefab with a Variant that is not a Boss's, a minTier of ${tier} or less and a maxTier of ${tier} or more (for tier ${tier})`, root.troops);
   const prefabsPerFloor = whole(root, 'prefabsPerFloor', 'delver', 1);
   const sizeHp = pair(root.sizeHp, 'delver.sizeHp');
   if (sizeHp[0] <= 0 || sizeHp[1] <= sizeHp[0]) fail('delver.sizeHp', '[min, max] HP with 0 < min < max', root.sizeHp);
@@ -658,6 +695,13 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     const patrol = parsePool(tier.patrol, `${where}.patrol`, battle, names);
     const elite = tier.elite === undefined ? [] : parsePool(tier.elite, `${where}.elite`, battle, names, { elite: true });
     return { guard, patrol, elite, ...(tier.boss === undefined ? {} : { boss: parseBoss(tier.boss, `${where}.boss`, battle, names, troops) }) };
+  });
+  // A row naming a Troop Rarity must be able to meet it: its tier fields at least one Prefab of that rarity (a Floor that draws none falls back, `rarityPrefabs`).
+  warbands.forEach((t, i) => {
+    const rows = [...t.guard, ...t.patrol, ...(t.elite ?? []), ...(t.boss?.guard ?? [])].flatMap((tp) => tp.troops);
+    for (const rarity of new Set(rows.flatMap((r) => (r.rarity ? [r.rarity] : []))))
+      if (!troops.some((p) => fieldedIn(p, i + 1) && (p.rarity ?? 'common') === rarity))
+        fail(`delver.warbands[${i}]`, `rows of rarity ${rarity} only when tier ${i + 1} fields a Prefab of it`, rarity);
   });
   // Every template row must be fillable on any Floor: each Prefab that fills rows has a non-Boss Variant of every skill a row names.
   const skills = [...new Set(warbands.flatMap((t) => [...t.guard, ...t.patrol, ...(t.elite ?? []), ...(t.boss?.guard ?? [])].flatMap((tp) => tp.troops.map((r) => r.skill))))];

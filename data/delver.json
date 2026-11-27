@@ -22,63 +22,78 @@
   "sizeHp": [20, 150],
   "skillTints": { "Easy": "#8e8e8e", "Beginner": "#8e8e8e", "Normal": "#b3261e", "Skilled": "#b3261e", "Hard": "#1c1c1c", "Expert": "#1c1c1c" },
   "troops": [
-    { "name": "Sellsword", "body": "female", "weapon": "Arming Sword", "style": "Balanced", "variants": [
+    { "name": "Sellsword", "body": "female", "weapon": "Arming Sword", "rarity": "common", "style": "Balanced", "variants": [
       { "difficulty": "Beginner", "hp": 40 },
       { "difficulty": "Skilled", "hp": 50 },
       { "difficulty": "Expert", "hp": 60 }
     ] },
-    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "minTier": 2, "style": "Reckless", "mods": { "damage": 0.6 }, "variants": [
+    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "rarity": "uncommon", "minTier": 2, "style": "Reckless", "mods": { "damage": 0.6 }, "variants": [
       { "difficulty": "Beginner", "hp": 60, "quirks": ["Dumb"] },
       { "difficulty": "Skilled", "hp": 75 },
       { "difficulty": "Expert", "hp": 90 }
     ] },
-    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "style": "Skirmisher", "mods": { "damage": 0.45 }, "variants": [
+    { "name": "Cutthroat", "body": "snake", "weapon": "Dagger", "rarity": "common", "style": "Skirmisher", "mods": { "damage": 0.45 }, "variants": [
       { "difficulty": "Beginner", "hp": 30 },
       { "difficulty": "Skilled", "hp": 36 },
       { "difficulty": "Expert", "hp": 42, "relics": ["Honed Daggers"] }
     ] },
-    { "name": "Acolyte", "body": "monk", "weapon": "Quarterstaff", "style": "Defensive", "variants": [
+    { "name": "Acolyte", "body": "monk", "weapon": "Quarterstaff", "rarity": "uncommon", "style": "Defensive", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
       { "difficulty": "Skilled", "hp": 55 },
       { "difficulty": "Expert", "hp": 65, "relics": ["Buckler Rim"] }
     ] },
-    { "name": "Fencer", "body": "duelist", "weapon": "Longsword", "style": "Counter", "variants": [
+    { "name": "Fencer", "body": "duelist", "weapon": "Longsword", "rarity": "uncommon", "style": "Counter", "variants": [
       { "difficulty": "Beginner", "hp": 40 },
       { "difficulty": "Skilled", "hp": 50 },
       { "difficulty": "Expert", "hp": 60 },
       { "name": "Duelist", "boss": true, "mods": {}, "difficulty": "Expert", "style": "Counter", "hp": 250 }
     ] },
-    { "name": "Halberdier", "body": "asturian", "weapon": "Halberd", "style": "Balanced", "engageReach": 2.2, "variants": [
+    { "name": "Halberdier", "body": "asturian", "weapon": "Halberd", "rarity": "common", "style": "Balanced", "engageReach": 2.2, "variants": [
       { "difficulty": "Beginner", "hp": 50 },
       { "difficulty": "Skilled", "hp": 60 },
       { "difficulty": "Expert", "hp": 70 }
     ] },
-    { "name": "Flagellant", "body": "templar", "weapon": "Flail", "style": "Aggressive", "variants": [
+    { "name": "Flagellant", "body": "templar", "weapon": "Flail", "rarity": "uncommon", "style": "Aggressive", "variants": [
       { "difficulty": "Beginner", "hp": 50 },
       { "difficulty": "Skilled", "hp": 60 },
       { "difficulty": "Expert", "hp": 70, "relics": ["Berserker Mask"] }
     ] },
-    { "name": "Lorekeeper", "body": "librarian", "weapon": "Quarterstaff", "style": "Chambermaster", "variants": [
+    { "name": "Lorekeeper", "body": "librarian", "weapon": "Quarterstaff", "rarity": "uncommon", "style": "Chambermaster", "variants": [
       { "difficulty": "Beginner", "hp": 35 },
       { "difficulty": "Skilled", "hp": 45 },
       { "difficulty": "Expert", "hp": 55 }
     ] },
-    { "name": "Squire", "body": "prince", "weapon": "Arming Sword", "style": "Defensive", "variants": [
+    { "name": "Squire", "body": "prince", "weapon": "Arming Sword", "rarity": "common", "style": "Defensive", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
       { "difficulty": "Skilled", "hp": 55, "quirks": ["Hopper"] },
       { "difficulty": "Expert", "hp": 65, "quirks": ["Hopper"], "relics": ["Iron Plate"] }
     ] },
-    { "name": "Revenant", "body": "wraith", "weapon": "Longsword", "style": "Pack Hunter", "variants": [
+    { "name": "Revenant", "body": "wraith", "weapon": "Longsword", "rarity": "rare", "style": "Pack Hunter", "variants": [
       { "difficulty": "Beginner", "hp": 45 },
       { "difficulty": "Skilled", "hp": 55 },
       { "difficulty": "Expert", "hp": 70 },
       { "name": "Wraith Lord", "boss": true, "mods": {}, "difficulty": "Expert", "style": "Aggressive", "hp": 300, "relics": ["Heavy Gauntlet"] }
     ] },
-    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "minTier": 2, "style": "Reckless", "quirks": ["Slow"], "mods": { "damage": 0.6 }, "variants": [
+    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "rarity": "rare", "minTier": 2, "style": "Reckless", "quirks": ["Slow"], "mods": { "damage": 0.6 }, "variants": [
       { "difficulty": "Beginner", "hp": 80 },
       { "difficulty": "Skilled", "hp": 95 },
       { "difficulty": "Expert", "hp": 110 },
       { "name": "Warden", "boss": true, "mods": {}, "difficulty": "Skilled", "style": "Aggressive", "quirks": [], "hp": 250 }
+    ] },
+    { "name": "Goblin", "body": "goblin", "weapon": "Dagger", "rarity": "common", "maxTier": 2, "style": "Tricky", "mods": { "damage": 0.45 }, "variants": [
+      { "difficulty": "Beginner", "hp": 25, "quirks": ["Dumb"] },
+      { "difficulty": "Skilled", "hp": 32 },
+      { "difficulty": "Expert", "hp": 38 }
+    ] },
+    { "name": "Ranger", "body": "ranger", "weapon": "Longsword", "rarity": "uncommon", "style": "Skirmisher", "variants": [
+      { "difficulty": "Beginner", "hp": 40 },
+      { "difficulty": "Skilled", "hp": 50 },
+      { "difficulty": "Expert", "hp": 60, "relics": ["Honed Daggers"] }
+    ] },
+    { "name": "Tin Man", "body": "tinman", "weapon": "Halberd", "rarity": "rare", "minTier": 2, "style": "Defensive", "quirks": ["Slow"], "engageReach": 2.2, "variants": [
+      { "difficulty": "Beginner", "hp": 70 },
+      { "difficulty": "Skilled", "hp": 85 },
+      { "difficulty": "Expert", "hp": 100, "relics": ["Iron Plate"] }
     ] }
   ],
   "warbands": [
@@ -95,7 +110,7 @@
         { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Skilled", "count": 2 }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Whetstone"], "troops": [{ "skill": "Skilled", "count": 1 }, { "skill": "Beginner", "count": 2 }], "hpScale": 1.5 }
+        { "relics": ["Whetstone"], "troops": [{ "skill": "Skilled", "count": 1, "rarity": "uncommon" }, { "skill": "Beginner", "count": 2 }], "hpScale": 1.5 }
       ],
       "boss": { "troop": "Warden", "guard": [
         { "troops": [{ "skill": "Beginner", "count": 2 }], "hpScale": 1 }
@@ -113,8 +128,8 @@
         { "troops": [{ "skill": "Beginner", "count": 3 }, { "skill": "Skilled", "count": 1 }, { "skill": "Expert", "count": 1 }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Whetstone"], "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1.5 },
-        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Beginner", "count": 2 }], "hpScale": 2 }
+        { "relics": ["Whetstone"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Skilled", "count": 1 }], "hpScale": 1.5 },
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 1, "rarity": "rare" }, { "skill": "Beginner", "count": 2 }], "hpScale": 2 }
       ],
       "boss": { "troop": "Duelist", "guard": [
         { "troops": [{ "skill": "Expert", "count": 1 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 }
@@ -133,7 +148,7 @@
         { "troops": [{ "skill": "Expert", "count": 3 }], "hpScale": 1 }
       ],
       "elite": [
-        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 2 }, { "skill": "Skilled", "count": 1 }], "hpScale": 2 }
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "skill": "Expert", "count": 2, "rarity": "rare" }, { "skill": "Skilled", "count": 1 }], "hpScale": 2 }
       ],
       "boss": { "troop": "Wraith Lord", "guard": [
         { "troops": [{ "skill": "Expert", "count": 2 }, { "skill": "Skilled", "count": 1 }], "hpScale": 1 }

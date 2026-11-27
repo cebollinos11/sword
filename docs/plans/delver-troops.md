@@ -19,6 +19,7 @@ A Run baked 10 atlases at its start. Four of them were Team 0 looks (templar and
 - **Tint follows skill** (the AI difficulty): grey for Beginner, red for Skilled, black for Expert (`delver.skillTints`). It is worn on the team-coloured part, by the impostor and by the promoted full model alike.
 - **Mixed pool, a few per Floor.** Each Floor fields `delver.prefabsPerFloor` (4) Prefabs, all different, picked from the Run seed and the Floor. A Prefab may come back on the next Floor. A Boss Floor's Boss's Prefab comes on top.
 - **Low Floors are weaker** (2026-11-17, after review): `delver.tierHp` is `[0.6, 1, 1.5]`, so tier 1's Soldiers have 60% of their Variant's HP. A Prefab may name a `minTier` (default 1): it is fielded in template rows only from that tier on. Bruiser and Uruk, the heaviest, have `minTier` 2. A Prefab's Boss Variant is its tier's Boss whatever its `minTier` (the Warden is an Uruk on tier 1).
+- **Troop Rarity and `maxTier`** (2026-11-27): a Prefab may name a `maxTier` (default `tiers`): it is fielded in template rows only up to that tier, so weak enemies leave the deep Floors. A Prefab has a Troop Rarity (`rarity`: `common`, `uncommon` or `rare`; default common). A template row may name one (`{ skill, count, rarity }`): its Soldiers are then of the Floor's Prefabs of that rarity, else of the nearest rarity the Floor drew (a step away, the commoner first: a rare row with no rare Prefab takes uncommon, then common), so a row is always filled (`rarityPrefabs`). A row naming none takes any of the Floor's Prefabs, as before. Which Prefabs a Floor draws (`floorPrefabs`) does not look at rarity. The parser refuses a row of a rarity its tier fields no Prefab of. The bundled elites' leaders are uncommon (tier 1) or rare (tiers 2 and 3). The Goblin, Ranger and Tin Man join the roster (below).
 - **Templates name skills.** A Warband template row is `{ skill, count }`, not a Troop. Each Soldier is a Variant of that skill of one of the Floor's Prefabs.
 - **Chromebooks matter, phones do not.**
 - **`delver.troops` is the Delver's own list.** The Bosses and the elites are in it too: a Boss is a Variant flagged `boss` that its tier names, and an elite is an ordinary Variant wearing the elite template's Relics too.
@@ -40,6 +41,11 @@ Eleven Prefabs, one per Body. Each has a Beginner, a Skilled and an Expert Varia
 | Squire | prince | Arming Sword | Defensive | 45/55/65 | Skilled and Expert are Hoppers; Expert has Iron Plate |
 | Revenant | wraith | Longsword | Pack Hunter | 45/55/70 | **Wraith Lord** (Boss, 300 HP, Expert Aggressive, Heavy Gauntlet) |
 | Uruk | uruk | Sledge Hammer | Reckless | 80/95/110 | damage ×0.6; Slow; **Warden** (Boss, 250 HP, Skilled Aggressive, not Slow) |
+| Goblin | goblin | Dagger | Tricky | 25/32/38 | damage ×0.45; Beginner is Dumb; `maxTier` 2 |
+| Ranger | ranger | Longsword | Skirmisher | 40/50/60 | Expert has Honed Daggers |
+| Tin Man | tinman | Halberd | Defensive | 70/85/100 | Slow; engage reach 2.2; Expert has Iron Plate; `minTier` 2 |
+
+Troop Rarity (2026-11-27): common are Sellsword, Cutthroat, Halberdier, Squire and Goblin; uncommon are Bruiser, Acolyte, Fencer, Flagellant, Lorekeeper and Ranger; rare are Revenant, Uruk and Tin Man.
 
 The Styles and Quirks (Dumb, Slow, Hopper) are the roster pass of docs/plans/enemy-behaviours.md (Stage 6, 2026-11-26); the Bosses keep their own Style and no Quirks.
 
@@ -54,7 +60,7 @@ Every Weapon is used: Arming Sword, Dagger, Flail, Halberd, Longsword, Quarterst
 - **Floor Troops** (`src/sim/delver/troops.ts`):
   - `floorTroops(delver)` lists every Variant, Prefab by Prefab. Then, for each distinct elite Relic set, it lists every non-Boss Variant again wearing that set too.
   - The list replaces `battle.troops` in a Floor's Battle Tuning, as before. A Troop carries its `prefab` and `tint`.
-  - `MAX_FLOOR_TROOPS` is now 256 (the bundled data needs 102: 36 Variants, and 33 non-Boss Variants for each of 2 elite Relic sets).
+  - `MAX_FLOOR_TROOPS` is now 256 (the bundled data needed 102 at first: 36 Variants, and 33 non-Boss Variants for each of 2 elite Relic sets; 129 with the 2026-11-27 Prefabs).
   - `floorPrefabs` and `floorLooks` say which Prefabs a Floor fields and draws, and `sizeOfHp` gives a Soldier's Size.
 - **Deploying** (`src/sim/delver/warbands.ts`):
   - Each Soldier's Prefab and Variant are picked by its Warband and place (`runPick` slot `q × 256 + p`), so an elite Warband of another size never moves the next Warband's picks.

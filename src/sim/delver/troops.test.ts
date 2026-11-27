@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, MAX_SIZE, MIN_SIZE, type TuningData } from '../../tuning';
+import { fieldedIn, loadTuningData, MAX_SIZE, MIN_SIZE, rarityPrefabs, type TuningData } from '../../tuning';
 import { delverBattle } from './build';
 import { DUEL_TROOP_TIER, floorLooks, floorPrefabs, floorTroops, floorTuningOf, isBossFloor, resolveTroop, sizeOfHp, soldierHp, tierOf, troopLabel, troopMods } from './troops';
 import { relicMods, relicOf } from '../inventory';
@@ -118,8 +118,39 @@ describe('floorPrefabs and floorLooks', () => {
     expect(repeated).toBeGreaterThan(0);
   });
 
-  it('fields every Prefab when there are no more than prefabsPerFloor', () => {
-    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, delver.tiers * delver.floorsPerTier)).toEqual(delver.troops.map((_, i) => i));
+  it('fields every Prefab of its tier when there are no more than prefabsPerFloor', () => {
+    const last = delver.tiers * delver.floorsPerTier;
+    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, last)).toEqual(delver.troops.flatMap((p, i) => (fieldedIn(p, delver.tiers) ? [i] : [])));
+  });
+
+  it('fills a row of a Troop Rarity from the Floor\'s Prefabs of it, else of the nearest rarity (the commoner first), and a row of none from all', () => {
+    const troops = [{ rarity: 'common' as const }, { rarity: 'uncommon' as const }, { rarity: 'rare' as const }, {}];
+    expect(rarityPrefabs(troops, [0, 1, 2, 3], undefined)).toEqual([0, 1, 2, 3]);
+    // Absent counts as common.
+    expect(rarityPrefabs(troops, [0, 1, 2, 3], 'common')).toEqual([0, 3]);
+    expect(rarityPrefabs(troops, [0, 1, 2, 3], 'rare')).toEqual([2]);
+    expect(rarityPrefabs(troops, [0, 1], 'rare')).toEqual([1]);
+    expect(rarityPrefabs(troops, [0, 3], 'rare')).toEqual([0, 3]);
+    // An uncommon row with none: common before rare.
+    expect(rarityPrefabs(troops, [0, 2], 'uncommon')).toEqual([0]);
+    expect(rarityPrefabs(troops, [2], 'uncommon')).toEqual([2]);
+    expect(rarityPrefabs(troops, [2], 'common')).toEqual([2]);
+  });
+
+  it('fields a Prefab only up to its maxTier', () => {
+    const early = delver.troops.flatMap((p, i) => ((p.maxTier ?? delver.tiers) < delver.tiers ? [i] : []));
+    expect(early.length).toBeGreaterThan(0);
+    for (let seed = 1; seed < 30; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const tier = tierOf(delver, floor);
+        for (const p of floorPrefabs(delver, seed, floor)) expect(delver.troops[p]!.maxTier ?? delver.tiers).toBeGreaterThanOrEqual(tier);
+      }
+    // It is fielded up to that tier, and not after.
+    for (const i of early) {
+      const max = delver.troops[i]!.maxTier!;
+      expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, (max - 1) * delver.floorsPerTier + 1)).toContain(i);
+      expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, max * delver.floorsPerTier + 1)).not.toContain(i);
+    }
   });
 
   it('fields a Prefab only from its minTier on', () => {
@@ -243,7 +274,7 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
     expect(resolveTroop(tuning, { prefab: 'Uruk', variant: 'Warden' }).quirks).toEqual([]);
     expect(resolveTroop(tuning, { prefab: 'Revenant', variant: 'Revenant (Expert)' }).quirks).toEqual([]);
     // Only the roster pass's Variants carry Quirks, their elites too; no Boss does.
-    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow']);
+    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow', 'Goblin (Beginner): Dumb', 'Tin Man (Beginner): Slow', 'Tin Man (Skilled): Slow', 'Tin Man (Expert): Slow']);
     // Every Variant of the Revenant Dumb and Heavy (a body part: more damage, more max HP), elites and the Boss too.
     const heavy = { damage: 1.5, maxHp: 0.25 };
     const quirky: TuningData = {
@@ -267,7 +298,7 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
   });
 
   it('refuses a Prefab, a Variant or a tier Tuning Data does not have, naming the known ones', () => {
-    expect(() => resolveTroop(tuning, { prefab: 'Goblin', variant: 'Goblin (Beginner)' })).toThrow(/Unknown Troop Prefab "Goblin" \(have: Sellsword, .*Uruk\)/);
+    expect(() => resolveTroop(tuning, { prefab: 'Hobgoblin', variant: 'Hobgoblin (Beginner)' })).toThrow(/Unknown Troop Prefab "Hobgoblin" \(have: Sellsword, .*Tin Man\)/);
     expect(() => resolveTroop(tuning, { prefab: 'Uruk', variant: 'Beginner' })).toThrow(/Unknown Variant "Beginner" of Troop Prefab "Uruk" \(have: Uruk \(Beginner\), Uruk \(Skilled\), Uruk \(Expert\), Warden\)/);
     // A Variant of another Prefab is not this one's.
     expect(() => resolveTroop(tuning, { prefab: 'Uruk', variant: 'Wraith Lord' })).toThrow(/Unknown Variant "Wraith Lord"/);
