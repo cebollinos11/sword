@@ -69,6 +69,55 @@ export function preloadBody(body: BodyModelName): Promise<void> {
   return template(body).then(() => undefined);
 }
 
+/** A model material at least this metallic is drawn as polished metal rather than matte Lambert. */
+const METAL = 0.5;
+
+let sheen: THREE.Texture | undefined;
+
+/**
+ * A small made-up surround for metal to mirror: bright sky above, a pale band at the
+ * horizon, dark ground below. Not the arena itself, just enough to make plate read as metal.
+ */
+function sheenMap(): THREE.Texture {
+  if (sheen) return sheen;
+  const canvas = document.createElement('canvas');
+  canvas.width = 8;
+  canvas.height = 128;
+  const g = canvas.getContext('2d')!;
+  const grad = g.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, '#c8d2de');
+  grad.addColorStop(0.42, '#7d8794');
+  grad.addColorStop(0.5, '#f2f0ea');
+  grad.addColorStop(0.56, '#4a4640');
+  grad.addColorStop(1, '#141210');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  sheen = new THREE.CanvasTexture(canvas);
+  sheen.mapping = THREE.EquirectangularReflectionMapping;
+  sheen.colorSpace = THREE.SRGBColorSpace;
+  return sheen;
+}
+
+/**
+ * Polished metal: a darker diffuse, highlights tinted by the metal's own colour and
+ * as tight as its roughness says, and a reflection of the sheen surround.
+ */
+function metalMaterial(from: THREE.MeshStandardMaterial): THREE.MeshPhongMaterial {
+  const m = from.metalness;
+  const smooth = 1 - from.roughness;
+  return new THREE.MeshPhongMaterial({
+    name: from.name,
+    color: from.color.clone().multiplyScalar(1 - 0.5 * m),
+    specular: new THREE.Color(1, 1, 1).lerp(from.color, 0.35).multiplyScalar(0.4 + 0.8 * m * smooth),
+    shininess: THREE.MathUtils.clamp(2 / Math.max(from.roughness, 0.05) ** 4 - 2, 12, 140),
+    map: from.map,
+    side: from.side,
+    envMap: sheenMap(),
+    combine: THREE.MixOperation,
+    reflectivity: 0.15 + 0.35 * m * smooth,
+  });
+}
+
 /** A Fighter's own copy of a Body model, posed through its rig. */
 export interface BodyModel {
   readonly root: THREE.Object3D;
@@ -77,7 +126,7 @@ export interface BodyModel {
 
 /**
  * Load a Body model for one Fighter: Lambert materials like the rest of the
- * scene, keeping any texture, with its Team-coloured part (the material named
+ * scene (polished Phong for its metal parts), keeping any texture, with its Team-coloured part (the material named
  * `*_Skirt`) in `colour` (multiplied with its texture, if it has one).
  */
 export async function loadBodyModel(body: BodyModelName, colour: number, skeleton: SkeletonTuning): Promise<BodyModel> {
@@ -87,12 +136,14 @@ export async function loadBodyModel(body: BodyModelName, colour: number, skeleto
     // The model is placed in world space by its bones, far from where its bind-pose bounds say.
     o.frustumCulled = false;
     const from = o.material as THREE.MeshStandardMaterial;
-    o.material = new THREE.MeshLambertMaterial({
-      name: from.name,
-      color: from.name.endsWith('_Skirt') ? colour : from.color,
-      map: from.map,
-      side: from.side,
-    });
+    o.material = from.metalness >= METAL
+      ? metalMaterial(from)
+      : new THREE.MeshLambertMaterial({
+          name: from.name,
+          color: from.name.endsWith('_Skirt') ? colour : from.color,
+          map: from.map,
+          side: from.side,
+        });
   });
   return { root, rig: new BodyRig(root, skeleton) };
 }
