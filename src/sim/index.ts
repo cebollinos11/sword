@@ -192,7 +192,7 @@ export {
   type StairsTakenEvent,
   type RunEndEvent,
 } from './match';
-export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type RunState, type RestUse } from './delverRun';
+export { descendTicks, enterFloor, fireAt, floorDuel, inStairs, stepDelver, type RunState, type RestUse } from './delverRun';
 export { freshTraitors, traitorCandidates, traitorOf, traitorPick, traitorSlot, type TraitorState } from './delverTraitors';
 export { PICKUP_RADIUS, pickupVisibleTo, rollRarity, takePickups, type LootSource, type Pickup, type PickupAt, type Taken } from './pickups';
 export { runPick, runSeed } from './dungeon';

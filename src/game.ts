@@ -31,7 +31,7 @@ import { gateState, type DelverMarksView } from './render/delverMarks';
 import { bossesBeaten } from './sim/delverRun';
 import { floorOf } from './sim/delver';
 import { playerName, runBuilds } from './play/runBuilds';
-import { Hud, runResultLine, traitorWatchLine, type RunResult } from './play/hud';
+import { Hud, playerResults, runResultLine, traitorWatchLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { floorBodies, floorBodyOf } from './play/floorBodies';
@@ -950,6 +950,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
+          // Each Player's stats (the party's human slots, in order).
+          players: playerResults(match, (f) => playerName(driver?.lineup ?? null, names, f)),
           // Each traitor's kills and deaths (docs/plans/delver.md, Stage 8a): traitor j plays slot `teams.length + j`.
           ...(delver.traitors ? { traitors: delver.traitors.map((t, j) => ({ name: playerName(driver?.lineup ?? null, names, match.config.teams.length + j), kills: t.kills, deaths: t.deaths })) } : {}),
         };

@@ -1,4 +1,4 @@
-import { inDuel, secondsToTicks, TICK_SECONDS, traitorOf, type Item, type MatchState } from '../sim';
+import { descendTicks, inDuel, runPlayers, secondsToTicks, TICK_SECONDS, traitorOf, type Item, type MatchState } from '../sim';
 import { floorOf } from '../sim/delver';
 import { isBossFloor, tierOf } from '../sim/delver/troops';
 import { RARITIES, type DelverTuning, type TuningData } from '../tuning';
@@ -12,7 +12,7 @@ import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { itemIconId, relicIcon, weaponIcon } from './icons';
 import { pickupInfoLines } from './inventoryView';
-import { daggerCapacity, type RunBuild } from './runBuilds';
+import { daggerCapacity, playerName, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
 
 /** What the HUD needs to know about whose eyes it shows the Match through. */
@@ -49,8 +49,19 @@ export interface RunResult {
   readonly seed: number;
   /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
   readonly builds?: readonly RunBuild[];
-  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, kills and deaths, under the builds; absent or empty: none shown. */
+  /** Each Player's stats (`RunState.stats`), a table under the numbers; absent or empty: none shown. */
+  readonly players?: readonly PlayerResult[];
+  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, deaths and Player kills, a table under the Players'; absent or empty: none shown. */
   readonly traitors?: readonly TraitorResult[];
+}
+
+/** One Player's line in a Delver Run's results table. */
+export interface PlayerResult {
+  readonly name: string;
+  readonly kills: number;
+  readonly bosses: number;
+  readonly revived: number;
+  readonly friendlyHits: number;
 }
 
 /** One traitor's line on a Delver Run's results screen. */
@@ -60,8 +71,43 @@ export interface TraitorResult {
   readonly deaths: number;
 }
 
-/** A traitor's results line: its kills and deaths. */
-export const traitorLine = (t: TraitorResult): string => `${t.kills} ${t.kills === 1 ? 'kill' : 'kills'} · ${t.deaths} ${t.deaths === 1 ? 'death' : 'deaths'}`;
+/** Each Player's stats so far (`RunState.stats`), in Player order, named by `nameOf`; empty outside a Delver Run. */
+export function playerResults(match: MatchState, nameOf: (fighter: number) => string): PlayerResult[] {
+  const stats = match.delver?.stats;
+  if (!stats) return [];
+  return [...runPlayers(match.config)]
+    .sort((a, b) => a - b)
+    .flatMap((i) => (stats[i] ? [{ name: nameOf(i), ...stats[i]! }] : []));
+}
+
+/** A results table as a `<table>` (`hud-results-table`). */
+function tableEl(t: ResultTable): HTMLTableElement {
+  const table = document.createElement('table');
+  table.className = 'hud-results-table';
+  const head = table.createTHead().insertRow();
+  for (const h of t.head) head.append(Object.assign(document.createElement('th'), { textContent: h }));
+  const body = table.createTBody();
+  for (const [name, ...counts] of t.rows) {
+    const row = body.insertRow();
+    row.insertCell().textContent = name;
+    for (const n of counts) row.insertCell().textContent = String(n);
+  }
+  return table;
+}
+
+/** The results tables (`resultTables`): a head row of column names, then one row per name. */
+export interface ResultTable {
+  readonly head: readonly string[];
+  readonly rows: readonly (readonly [string, ...number[]])[];
+}
+
+/** A Run's results tables: the Players' (Enemies killed, Bosses killed, Times revived, Friendly hits), then the traitors' (Deaths, Player kills); a table with no rows is left out. */
+export function resultTables(r: Pick<RunResult, 'players' | 'traitors'>): ResultTable[] {
+  const out: ResultTable[] = [];
+  if (r.players?.length) out.push({ head: ['', 'Enemies killed', 'Bosses killed', 'Times revived', 'Friendly hits'], rows: r.players.map((p) => [p.name, p.kills, p.bosses, p.revived, p.friendlyHits] as const) });
+  if (r.traitors?.length) out.push({ head: ['Traitor', 'Deaths', 'Player kills'], rows: r.traitors.map((t) => [t.name, t.deaths, t.kills] as const) });
+  return out;
+}
 
 /**
  * What a watching traitor reads (docs/plans/delver.md, Stage 8a): the seconds until it takes over a Soldier, or that it is looking for one;
@@ -115,14 +161,14 @@ export function runResultLine(r: RunResult): string {
 }
 
 /**
- * How dark the screen is for the fade between Floors, 0 to 1: rising over `dungeon.fadeSeconds` once the Stairs are taken (`nextDuelTick`,
- * fully dark on the fade's last Tick), then falling over as long as the next Floor starts. 0 in Duels and on the Floor a Run starts on.
+ * How dark the screen is for the fade between Floors, 0 to 1: rising over `dungeon.fadeSeconds` once the Stairs are taken (`nextDuelTick` less
+ * `descendTicks`), fully dark from the fade's last Tick through `delver.descendSeconds` (the Run's stats show), then falling over as long as the next Floor starts. 0 in Duels and on the Floor a Run starts on.
  */
 export function floorFade(match: MatchState, tuning: TuningData): number {
   const first = match.delver?.startTick;
   if (first === undefined) return 0;
   const ticks = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
-  if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (ticks - (match.nextDuelTick - match.tick) + 1) / ticks));
+  if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (descendTicks(tuning) - (match.nextDuelTick - match.tick) + 1) / ticks));
   // The Run's first Floor (Floor 1, or a dev start's deeper one) began on the Run's start Tick: no fade before it.
   if (match.tick - match.duel.tick <= first) return 0;
   return Math.max(0, 1 - match.duel.tick / ticks);
@@ -171,10 +217,14 @@ export class Hud {
   readonly map = new FloorMapView();
   private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
+  /** The card on the dark screen between Floors: the Floor cleared, the Run's stats so far and a bar to the next Floor. */
+  private readonly descent = document.createElement('div');
+  private readonly descentBody = document.createElement('div');
+  private readonly descentFill = document.createElement('div');
+  private descentKey = '';
   /** A Delver Run's minimap (revealed Halls only), drawn in a corner; hidden outside a Delver Run. */
   private readonly delverMap = document.createElement('div');
   private minimap: Minimap | null = null;
-  private wasDescending = false;
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
@@ -225,11 +275,18 @@ export class Hud {
     this.results.hidden = true;
     this.pickupLayer.className = 'hud-doors';
     this.fade.className = 'hud-fade';
+    this.descent.className = 'hud-descent';
+    this.descent.hidden = true;
+    const track = document.createElement('div');
+    track.className = 'hud-descent-track';
+    this.descentFill.className = 'hud-descent-fill';
+    track.append(this.descentFill);
+    this.descent.append(this.descentBody, track);
     this.delverMap.className = 'hud-delver-map';
     this.delverMap.hidden = true;
     // The fade between Floors goes over the letterbox, the HP bars and the crosshair (the next Floor's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.pickupLayer, ...bars, this.top, this.delverMap, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
+    this.root.append(this.pickupLayer, ...bars, this.top, this.delverMap, this.stats, this.crosshair, this.map.el, this.fade, this.descent, this.banner, this.menu, this.mapButton, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -271,8 +328,8 @@ export class Hud {
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, line('Floors reached', `${r.reached} / ${r.floors}`), line('Warbands beaten', String(r.warbands)), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    for (const t of resultTables(r)) this.results.append(tableEl(t));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
-    for (const t of r.traitors ?? []) this.results.append(line(`Traitor ${t.name}`, traitorLine(t)));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -356,7 +413,9 @@ export class Hud {
     this.map.update(match, tuning);
     this.updateDelverMap(match, me, tuning);
     this.updatePickups(match, view);
-    this.fade.style.opacity = String(floorFade(match, this.matchTuning ?? this.tuning));
+    const fade = floorFade(match, tuning);
+    this.fade.style.opacity = String(fade);
+    this.updateDescent(match, view, tuning, fade);
     this.frames++;
     const now = performance.now();
     if (now - this.statsAt >= 500) {
@@ -371,13 +430,36 @@ export class Hud {
     }
   }
 
-  /** A Delver Run's minimap in its corner (drawn from the Reveal), and the "Descending…" banner as the fade to the next Floor begins. */
+  /**
+   * The card between Floors (docs/plans/delver.md, Run stats): while the party descends, "Floor N cleared", each Player's stats so far and a bar
+   * filling until the next Floor starts, as opaque as the fade. Hidden otherwise.
+   */
+  private updateDescent(match: MatchState, view: HudView, tuning: TuningData, fade: number): void {
+    const run = match.delver;
+    const on = run?.phase === 'Descending' && match.nextDuelTick !== null && match.status.status !== 'Over';
+    this.descent.hidden = !on;
+    if (!on) return;
+    const players = playerResults(match, (f) => playerName(view.lineup, view.names, f));
+    const key = JSON.stringify([run.floor, players]);
+    if (key !== this.descentKey) {
+      this.descentKey = key;
+      const title = document.createElement('div');
+      title.className = 'hud-results-title victory';
+      title.textContent = `Floor ${run.floor} cleared`;
+      const next = document.createElement('div');
+      next.className = 'hud-descent-next';
+      next.textContent = `Descending to Floor ${run.floor + 1} of ${run.floors}…`;
+      this.descentBody.replaceChildren(title, ...resultTables({ players }).map(tableEl), next);
+    }
+    const total = descendTicks(tuning);
+    this.descentFill.style.width = `${Math.round(100 * Math.min(1, Math.max(0, 1 - (match.nextDuelTick! - match.tick) / total)))}%`;
+    this.descent.style.opacity = String(fade);
+  }
+
+  /** A Delver Run's minimap in its corner (drawn from the Reveal). */
   private updateDelverMap(match: MatchState, me: number, tuning: TuningData): void {
     const run = match.delver;
     this.delverMap.hidden = !run || match.status.status === 'Over';
-    const descending = run?.phase === 'Descending';
-    if (descending && !this.wasDescending) this.announce('Descending…', Math.max(1, tuning.dungeon.fadeSeconds));
-    this.wasDescending = descending;
     if (!run || this.delverMap.hidden) return;
     const plan = floorOf(tuning, match.duel.arena)?.plan;
     if (!plan) return;
