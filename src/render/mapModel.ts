@@ -16,7 +16,7 @@ import { surfaceHeight, surfacesAt } from '../sim';
 import { brushLook, groundOf, HAZARD_LOOKS, MAP_MODEL_ROOT, MATERIAL_LOOKS, materialOf, type MaterialLook } from '../mapEditor/look';
 import { enclosureTop, type Brush, type EnclosureBrush, type MapSource, type RampBrush } from '../mapEditor/source';
 import type { Vec2 } from '../sim';
-import type { WallSegment } from '../tuning';
+import { stairCount, STEP_RISE, type WallSegment } from '../tuning';
 import { MeshBuckets } from './meshBuckets';
 import { placeProps } from './mapProps';
 import { seamShade, type ShadedWall } from './seamShade';
@@ -275,7 +275,8 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     const owner = brushes.get(draft.surfaceBrush[i]!);
     const look = w.lava ? HAZARD_LOOKS.lava : w.water ? HAZARD_LOOKS.water : w.abyss ? HAZARD_LOOKS.abyss : lookOf(draft.surfaceBrush[i]!);
     const slab = !!owner && isSlab(owner, w.points[0]!.y);
-    if (!(slab && w.roof)) buckets.polygon(look, w.points);
+    // A Ramp's slope is drawn as stairs below, not as a plane.
+    if (!(slab && w.roof) && owner?.kind !== 'ramp') buckets.polygon(look, w.points);
     if (!slab) return;
     if (w.roof) {
       // A roof: its slab stands over it, its underside (the ceiling seen from inside) on the Walk Surface itself.
@@ -400,9 +401,29 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     // down to it, as the compiler's skirt and foot face are (which are not drawn: this wedge stands in their place).
     const { foot, head } = rampCorners(b);
     const down = (p: THREE.Vector3, y: number) => new THREE.Vector3(p.x, y, p.z);
-    for (const k of [0, 1] as const) {
-      const y = wedgeBottom(draft, b, foot[k], head[k]);
-      buckets.quad(look, down(foot[k], y), down(head[k], y), head[k], foot[k]);
+    // Drawn as stairs (the walk surface stays a slope for collision and pathing): each step's tread, its riser, and its side from the wedge's bottom.
+    const steps = stairCount(b.lo, b.hi, STEP_RISE);
+    const at = (k: 0 | 1, t: number, y: number) => new THREE.Vector3(foot[k].x + (head[k].x - foot[k].x) * t, y, foot[k].z + (head[k].z - foot[k].z) * t);
+    const yb = [0, 1].map((k) => wedgeBottom(draft, b, foot[k]!, head[k]!)) as [number, number];
+    const run = new THREE.Vector3().subVectors(head[0], foot[0]).setY(0).normalize();
+    const across = new THREE.Vector3().subVectors(foot[1], foot[0]).setY(0).normalize();
+    // A quad a-b-c-d, wound to face `n`.
+    const facing = (a: THREE.Vector3, bb: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, n: THREE.Vector3) => {
+      const normal = new THREE.Vector3().subVectors(bb, a).cross(new THREE.Vector3().subVectors(c, a));
+      if (normal.dot(n) >= 0) buckets.quad(look, a, bb, c, d);
+      else buckets.quad(look, d, c, bb, a);
+    };
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let n = 0; n < steps; n++) {
+      const [t0, t1] = [n / steps, (n + 1) / steps];
+      const top = b.lo + ((n + 1) / steps) * (b.hi - b.lo);
+      const prev = b.lo + (n / steps) * (b.hi - b.lo);
+      facing(at(0, t0, top), at(1, t0, top), at(1, t1, top), at(0, t1, top), up);
+      facing(at(0, t0, prev), at(1, t0, prev), at(1, t0, top), at(0, t0, top), run.clone().negate());
+      for (const k of [0, 1] as const) {
+        const out = across.clone().multiplyScalar(k === 0 ? -1 : 1);
+        facing(at(k, t0, yb[k]), at(k, t1, yb[k]), at(k, t1, top), at(k, t0, top), out);
+      }
     }
     const yh = wedgeBottom(draft, b, head[0], head[1]);
     buckets.quad(look, down(head[0], yh), down(head[1], yh), head[1], head[0]);

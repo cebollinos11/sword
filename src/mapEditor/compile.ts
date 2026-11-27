@@ -30,7 +30,7 @@
  * Pure and deterministic: no trig, no `Math.random`, every tie broken by Brush order then row-major cell order, so the same source always
  * compiles to the same bytes, and every id comes from a Brush id, so a small edit gives a small diff.
  */
-import { LOBBY_KEYS, parseBattleMap, type ArenaGeometry, type ArenaPoint, type BattleMapTuning, type BattleTuning, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
+import { LOBBY_KEYS, parseBattleMap, STEP_RISE, type ArenaGeometry, type ArenaPoint, type BattleMapTuning, type BattleTuning, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import { blockWalls } from '../sim/battlefield';
 import { walkCheck, type WalkReach } from '../sim/levels';
@@ -345,7 +345,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     if (b.kind === 'ramp') {
       const { x0, z0, x1, z1 } = b.rect;
       const corner = (x: number, z: number): ArenaPoint => ({ x, y: rampCorner(b, x, z), z });
-      walk.push({ id: `WALK_${b.id}`, points: [corner(x0, z0), corner(x1, z0), corner(x1, z1), corner(x0, z1)] });
+      walk.push({ id: `WALK_${b.id}`, points: [corner(x0, z0), corner(x1, z0), corner(x1, z1), corner(x0, z1)], stairs: STEP_RISE });
       surfaceBrush.push(b.id);
       return;
     }

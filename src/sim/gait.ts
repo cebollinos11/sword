@@ -56,8 +56,8 @@
  * under the Motion's target: taken over away from it (mid-stride), it closes the gap at a step's pace
  * rather than snapping there. Once released it is where it was left, so it glides or steps home from there.
  *
- * Feet stand on the Walk Surface under them (a foot on a ramp or a step sits at
- * that height). While the body is airborne the feet take no steps: they follow
+ * Feet stand on the Walk Surface under them (a foot on a ramp stands on the step under it,
+ * a step's tread; on a step, at its height). While the body is airborne the feet take no steps: they follow
  * their home under the body, and plant there again on landing.
  *
  * The hips bob and sway with each step (hipShift), swaying toward wherever the
@@ -66,7 +66,7 @@
  * the forward foot (the shoulders turn back half as far); the hands and blade still
  * come from the Motion, so walking never changes a Blade Sweep.
  */
-import type { ArenaGeometry, TuningData } from '../tuning';
+import { stairHeight, type ArenaGeometry, type TuningData } from '../tuning';
 import { groundBelow } from './arena';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import type { Emit } from './events';
@@ -181,7 +181,8 @@ export function initialGait(tuning: TuningData, weapon: string, motion: MotionPl
 /** The height of the ground a foot at `p` stands on, for a body standing at `bodyY`: the Walk Surface there within a step, else the body's own level. */
 export function footGround(arena: ArenaGeometry, p: Vec2, bodyY: number, tuning: TuningData): number {
   const g = groundBelow(arena, p.x, p.z, bodyY + tuning.fall.stepUp);
-  return g && g.y >= bodyY - tuning.fall.snapDown ? g.y : bodyY;
+  // A foot on a Ramp stands on the step under it, as the Ramp is drawn (the body keeps to the slope).
+  return g && g.y >= bodyY - tuning.fall.snapDown ? stairHeight(arena.walk[g.surface]!, g.y) : bodyY;
 }
 
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);

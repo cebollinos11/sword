@@ -35,7 +35,29 @@ export interface WalkSurface {
    * out, and no Soldier is put down on it nor any Objective or Base stood on it. Never deadly.
    */
   readonly roof?: boolean;
+  /**
+   * Stairs: a sloped floor drawn as steps each rising at most this far (m). Bodies still walk its slope; only the feet stand on the
+   * treads (`stairHeight`).
+   */
+  readonly stairs?: number;
 }
+
+/** The tread a foot stands on over a stairs surface (`WalkSurface.stairs`) whose slope is at height `h` there: steps rise from its lowest to its highest corner, the first tread one rise above the foot. */
+export function stairHeight(s: WalkSurface, h: number): number {
+  if (!s.stairs) return h;
+  const ys = s.points.map((p) => p.y);
+  const [lo, hi] = [Math.min(...ys), Math.max(...ys)];
+  if (hi - lo < 1e-9) return h;
+  const count = stairCount(lo, hi, s.stairs);
+  const n = Math.min(count - 1, Math.max(0, Math.floor(((h - lo) / (hi - lo)) * count + 1e-9)));
+  return lo + ((n + 1) / count) * (hi - lo);
+}
+
+/** How far (m) a Ramp's stairs rise per step, at most. */
+export const STEP_RISE = 0.25;
+
+/** How many steps a flight from `lo` to `hi` has when each rises at most `rise`. */
+export const stairCount = (lo: number, hi: number, rise: number): number => Math.max(1, Math.ceil((hi - lo) / rise - 0.05));
 
 /** A vertical wall segment from `a` to `b` (ground plane), solid between heights `bottom` and `top`. */
 export interface WallSegment {
@@ -176,7 +198,9 @@ export function parseArena(raw: unknown, where: string): ArenaGeometry {
     const points = array(o.points, `${at}.points`).map((p, k) => triple(p, `${at}.points[${k}]`));
     if (o.roof !== undefined && o.roof !== true) throw new TuningDataError(`${at}.roof must be true or left out`);
     if (o.roof && kinds[0]) throw new TuningDataError(`${at}: a roof is never ${kinds[0]}`);
-    const surface: WalkSurface = kinds[0] ? { id, points, [kinds[0]]: true } : o.roof ? { id, points, roof: true } : { id, points };
+    if (o.stairs !== undefined && !(typeof o.stairs === 'number' && o.stairs > 0)) throw new TuningDataError(`${at}.stairs must be a rise above 0 or left out`);
+    const base: WalkSurface = kinds[0] ? { id, points, [kinds[0]]: true } : o.roof ? { id, points, roof: true } : { id, points };
+    const surface: WalkSurface = o.stairs === undefined ? base : { ...base, stairs: o.stairs as number };
     checkSurface(surface, at);
     return surface;
   });
