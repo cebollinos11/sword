@@ -54,6 +54,11 @@ const CSS = `
 .hud-results-title.defeat { color: #ff7a6a; }
 .hud-results-row { display: flex; justify-content: space-between; gap: 2rem; font-size: 1.4rem; padding: 0.1rem 0; }
 .hud-results-row b { font-variant-numeric: tabular-nums; }
+.hud-descent { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 20rem; max-width: 92vw; box-sizing: border-box; padding: 1.2rem 1.6rem; color: #f3e6c8; text-align: center; }
+.hud-descent[hidden] { display: none; }
+.hud-descent-next { margin-top: 0.9rem; font-size: 1.04rem; opacity: 0.7; }
+.hud-descent-track { margin: 0.4rem auto 0; width: min(360px, 70vw); height: 14px; background: #000; border: 2px solid #f3e6c8; overflow: hidden; }
+.hud-descent-fill { width: 0%; height: 100%; background: repeating-linear-gradient(90deg, #f2b632 0 6px, #0d0a14 6px 8px); }
 .hud-results-table { margin-top: 0.7rem; padding-top: 0.5rem; border-top: var(--px) solid #fff3; width: 100%; border-collapse: collapse; font-size: 1.04rem; }
 .hud-results-table th { font-weight: 400; opacity: 0.7; padding: 0 0.4rem; text-align: right; vertical-align: bottom; }
 .hud-results-table td { padding: 0.1rem 0.4rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }

@@ -43,6 +43,9 @@ export interface RestUse {
   readonly healed: readonly number[];
 }
 
+/** The Ticks from taking the Stairs to the next Floor's start: the fade to black (`dungeon.fadeSeconds`, at least 1 Tick), then `delver.descendSeconds` dark while the Run's stats show. */
+export const descendTicks = (tuning: Pick<TuningData, 'dungeon' | 'delver'>): number => Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds)) + secondsToTicks(tuning.delver.descendSeconds);
+
 /** One party Fighter's numbers over the whole Run, for the results screen (docs/plans/delver.md, Run stats). */
 export interface RunStats {
   /** Enemy Fighters (Soldiers, traitors) that fell to its blow (`killerOf`: a Hit, Kick, Throwing Dagger or the Chain Knockdown it started). */
@@ -392,6 +395,12 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
     return { ...match, tick, arena: duel.arena, duelNumber, duel: started.duel, nextDuelTick: null, events, delver: started.run };
   }
 
+  // Fully dark between Floors (`delver.descendSeconds`, the Run's stats on screen): the Floor stands still, so nobody is struck unseen.
+  if (match.nextDuelTick !== null && match.nextDuelTick - tick < secondsToTicks(tuning.delver.descendSeconds)) {
+    // (Its last Tick's events are not this Tick's: they go, so nothing plays them again.)
+    return { ...match, tick, events, duel: match.duel.events.length > 0 ? { ...match.duel, events: [] } : match.duel };
+  }
+
   // The Floor as a Battle steps: the Bubbles promote and demote (every party Fighter has one), the Fighters' Duel, then the Crowd under its Warband
   // brain. No kill count and no Tickets: a Floor has neither.
   const t0 = arenaTuning(tuning, match.duel.arena);
@@ -554,7 +563,7 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
         win();
       } else {
         next = { ...next, phase: 'Descending' };
-        nextDuelTick = tick + Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
+        nextDuelTick = tick + descendTicks(tuning);
         score = score.map((s, i) => (i === 0 ? s + 1 : s));
         events.push({ type: 'StairsTaken', floor: next.floor });
       }

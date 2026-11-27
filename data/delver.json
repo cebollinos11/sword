@@ -3,6 +3,7 @@
   "floorsPerTier": 3,
   "flowCell": 2,
   "fireRadius": 3,
+  "descendSeconds": 4,
   "sight": 16,
   "leash": 45,
   "forgetSeconds": 8,

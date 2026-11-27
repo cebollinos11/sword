@@ -256,6 +256,8 @@ export interface DelverTuning {
   readonly flowCell: number;
   /** How far (m, across the ground) from a fire a Fighter takes its heal and revive, and may change its Inventory (positive). */
   readonly fireRadius: number;
+  /** How long (s) the screen stays dark between Floors, after the fade (`dungeon.fadeSeconds`), while the Run's stats show (not negative). */
+  readonly descendSeconds: number;
   /** How far (m) a Warband's Soldier sees a party Fighter (positive). */
   readonly sight: number;
   /** The Leash: how far (m, by walking) from its home a chasing Warband follows before it returns (positive). */
@@ -605,6 +607,8 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   if (flowCell !== 2) fail('delver.flowCell', 'exactly 2 (the Floor generator keeps Walls off a 2 m field cell\'s centres)', flowCell);
   const fireRadius = finiteNumber(root, 'fireRadius', 'delver');
   if (fireRadius <= 0) fail('delver.fireRadius', 'a positive number', fireRadius);
+  const descendSeconds = finiteNumber(root, 'descendSeconds', 'delver');
+  if (descendSeconds < 0) fail('delver.descendSeconds', 'a number of seconds, not negative', descendSeconds);
   const tiers = whole(root, 'tiers', 'delver', 1);
   const floorsPerTier = whole(root, 'floorsPerTier', 'delver', 1);
   const sight = positive(root, 'sight', 'delver');
@@ -789,6 +793,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     floorsPerTier,
     flowCell,
     fireRadius,
+    descendSeconds,
     sight,
     leash,
     forgetSeconds,

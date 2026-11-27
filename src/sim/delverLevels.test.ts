@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { descendTicks } from './delverRun';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { groundOf, soldierHeight } from './battlefield';
@@ -296,7 +297,7 @@ describe('Warbands on levelled Floors', { timeout: 120_000 }, () => {
 });
 
 describe('a Delver Run on levelled Floors: deterministic, and Rollback across a Floor change', () => {
-  const FADE = secondsToTicks(full.dungeon.fadeSeconds);
+  const FADE = descendTicks(full); // the fade and the dark between Floors
   /** A scripted Run on levelled Floors with their Warbands: the Player starts in the Stairs, takes them, and walks about on Floor 2 for 40 Ticks. */
   function play(arena: string): { states: MatchState[]; intents: Intent[][] } {
     const first = start(full, arena, 3);

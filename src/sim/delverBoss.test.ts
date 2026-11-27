@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { secondsToTicks } from './constants';
+import { descendTicks } from './delverRun';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { isBossFloor } from './delver/troops';
@@ -153,7 +153,7 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
   });
 
   it('counts the Warbands beaten over every Floor: the earlier Floors\' carried in `beaten`', () => {
-    const FADE = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
+    const FADE = descendTicks(tuning); // the fade and the dark between Floors
     let r = tick(slain(atStairs(delver())));
     expect(r.delver!.beaten).toBe(0);
     r = times(r, NEED + 1);

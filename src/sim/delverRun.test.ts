@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { descendTicks } from './delverRun';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { storedMods } from './mods';
@@ -238,7 +239,7 @@ const centre = (plan: ReturnType<typeof planOf>) => {
 const away = (plan: ReturnType<typeof planOf>) => ({ x: plan.markers.spawns[0]!.x, z: plan.markers.spawns[0]!.z });
 const ZONE_Y = 2;
 const NEED = stairsTicksNeeded(tuning);
-const FADE = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
+const FADE = descendTicks(tuning); // the fade and the dark between Floors
 const RADIUS = tuning.delver.fireRadius;
 const RESTED = tuning.dungeon.restHeal;
 
@@ -295,6 +296,23 @@ describe('the Stairs of a Delver Run', { timeout: 60_000 }, () => {
     let r2 = withFighters(m, (f, i) => (i === 0 ? fell(f) : f));
     r2 = times(put(put(r2, 1, c.x, c.z), 2, away(plan).x, away(plan).z), NEED + 2);
     expect(r2.delver!.stairsTicks).toBe(0);
+  });
+
+  it('stands the Floor still once the screen is fully dark (delver.descendSeconds), until the next Floor', () => {
+    let r = times(put(m, 0, c.x, c.z), NEED);
+    const fade = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
+    expect(r.nextDuelTick).toBe(r.tick + fade + secondsToTicks(tuning.delver.descendSeconds));
+    r = times(r, fade);
+    const dark = r.duel;
+    const walk = (x: MatchState): Intent[] => x.duel.fighters.map((_, i) => (i === 0 ? { ...IDLE_INTENT, move: { x: 1, z: 0 } } : IDLE_INTENT));
+    while (r.nextDuelTick !== null && r.tick + 1 < r.nextDuelTick) {
+      r = stepMatch(r, walk(r), tuning);
+      expect(r.duel.tick).toBe(dark.tick);
+      expect(r.duel.fighters).toBe(dark.fighters);
+      expect(r.duel.crowd).toBe(dark.crowd);
+    }
+    r = tick(r);
+    expect(r.delver!.floor).toBe(2);
   });
 
   it('counts a revive for each Fighter fallen when the party takes the Stairs (Run stats)', () => {

@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, hashValue, inDuel, isArenaName, parseGeneratedName, runPlayers, runSeed, secondsToTicks, TICK_SECONDS, traitorOf, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, hashValue, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, traitorOf, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, storedSize, type BattleKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -31,7 +31,7 @@ import { gateState, type DelverMarksView } from './render/delverMarks';
 import { bossesBeaten } from './sim/delverRun';
 import { floorOf } from './sim/delver';
 import { playerName, runBuilds } from './play/runBuilds';
-import { Hud, runResultLine, traitorWatchLine, type RunResult } from './play/hud';
+import { Hud, playerResults, runResultLine, traitorWatchLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { floorBodies, floorBodyOf } from './play/floorBodies';
@@ -951,9 +951,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
           // Each Player's stats (the party's human slots, in order).
-          players: [...runPlayers(match.config)]
-            .sort((a, b) => a - b)
-            .flatMap((i) => (delver.stats[i] ? [{ name: playerName(driver?.lineup ?? null, names, i), ...delver.stats[i]! }] : [])),
+          players: playerResults(match, (f) => playerName(driver?.lineup ?? null, names, f)),
           // Each traitor's kills and deaths (docs/plans/delver.md, Stage 8a): traitor j plays slot `teams.length + j`.
           ...(delver.traitors ? { traitors: delver.traitors.map((t, j) => ({ name: playerName(driver?.lineup ?? null, names, match.config.teams.length + j), kills: t.kills, deaths: t.deaths })) } : {}),
         };
