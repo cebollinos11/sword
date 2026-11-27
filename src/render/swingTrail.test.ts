@@ -18,6 +18,17 @@ describe('trailing', () => {
     expect(phases.some((p) => p.phase === 'Wind-up' && p.trails)).toBe(false);
   });
 
+  it('a Flail trails through its Wind-up (the whirl) as well as its Release', () => {
+    const { states } = runDuel(tuning, { distance: 3, weapons: ['Flail', 'Arming Sword'], a: attack('Right'), b: [] });
+    const phases = states.slice(1).map((s, k) => {
+      const a = s.fighters[0]!.action;
+      return { phase: a.kind === 'Attack' ? a.phase : a.kind, trails: trailing(states[k]!, s, 0) };
+    });
+    expect(phases.filter((p) => p.phase === 'Wind-up').length).toBeGreaterThan(0);
+    expect(phases.filter((p) => p.phase === 'Wind-up').every((p) => p.trails)).toBe(true);
+    expect(phases.some((p) => p.phase === 'Release' && p.trails)).toBe(true);
+  });
+
   it('a held Block never trails', () => {
     const { states } = runDuel(tuning, { distance: 3, a: hold(60, { block: true, direction: 'Left' }), b: [] });
     expect(states.slice(1).some((s, k) => trailing(states[k]!, s, 0))).toBe(false);

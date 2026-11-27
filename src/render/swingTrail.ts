@@ -18,10 +18,12 @@ const COLOUR = new THREE.Color(0xf4f8ff);
 /**
  * Fighter `i`'s blade trails between Tick `prev` and `curr`: it is Attacking and in Release at `curr`, or was at `prev`
  * (so the last stretch of the Release, up to its end pose, still trails). The follow-through in Recovery cannot hit and leaves none.
+ * A Spin-up (the Flail's whirl, which has a `charge`) trails through its Wind-up too: the ball is already sweeping round.
  */
 export function trailing(prev: Pick<SimState, 'fighters'>, curr: Pick<SimState, 'fighters'>, i: number): boolean {
   const now = curr.fighters[i]?.action;
   if (now?.kind !== 'Attack') return false;
+  if (now.phase === 'Wind-up' && now.charge !== undefined) return true;
   const before = prev.fighters[i]?.action;
   return now.phase === 'Release' || (before?.kind === 'Attack' && before.phase === 'Release');
 }
