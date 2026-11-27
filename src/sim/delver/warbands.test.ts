@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type TuningData } from '../../tuning';
+import { loadTuningData, rarityPrefabs, type TuningData } from '../../tuning';
 import { groundOf } from '../battlefield';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN } from '../warband';
 import type { DelverPassage, FloorPlan } from './plan';
@@ -394,6 +394,31 @@ describe('elite Warbands', { timeout: TIMEOUT }, () => {
         }
       }
     }
+  });
+
+  it('fills a row naming a Troop Rarity only from the Floor\'s Prefabs of the nearest rarity (rarityPrefabs), and a row naming none from any', () => {
+    let rare = 0;
+    for (const seed of SEEDS) {
+      for (const floor of [1, 4, 7]) {
+        const { crowd, t } = deal(seed, floor);
+        const w = crowd.warbands!;
+        const prefabs = floorPrefabs(t.delver, seed, floor);
+        const tier = t.delver.warbands[Math.ceil(floor / t.delver.floorsPerTier) - 1]!;
+        for (let q = 0; q < w.mode.length; q++) {
+          if (w.rank[q] !== ELITE && w.rank[q] !== PLAIN) continue;
+          const template = w.rank[q] === ELITE ? tier.elite![w.encounter[q]!]! : (w.mode[q] === GUARD ? tier.guard : tier.patrol)[w.encounter[q]!]!;
+          const rows = template.troops.flatMap((r) => new Array<typeof r>(r.count).fill(r));
+          members(crowd, q).forEach((i, p) => {
+            const row = rows[p]!;
+            const prefab = t.battle.troops[crowd.troop[i]!]!.prefab!;
+            expect(rarityPrefabs(t.delver.troops, prefabs, row.rarity)).toContain(prefab);
+            if (row.rarity === 'rare' && t.delver.troops[prefab]!.rarity === 'rare') rare++;
+          });
+        }
+      }
+    }
+    // The bundled elites' rare leaders do meet rare Prefabs.
+    expect(rare).toBeGreaterThan(0);
   });
 
   it('takes the elite pick from the elite pool, and gives an elite\'s Soldiers its Relics\' max HP share on top of template and tier', () => {

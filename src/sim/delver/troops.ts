@@ -4,7 +4,7 @@
  * object, never state. A Floor's Battle Tuning carries this list as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in
  * it; the Battles' own `battle.troops` are never a Floor's. Which Prefabs a Floor fields is `floorPrefabs`.
  */
-import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type RelicEffects, type Size, type TroopTuning, type TuningData } from '../../tuning';
+import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, TROOP_RARITIES, type DelverTuning, type RelicEffects, type Size, type TroopTuning, type TuningData } from '../../tuning';
 import type { DelverFloorTuning, DelverPrefab, DelverVariant } from '../../tuning/delver';
 import { runPick } from '../dungeon';
 import { relicMods, relicOf } from '../inventory';
@@ -109,8 +109,10 @@ export function floorTroops(delver: DelverTuning): FloorTroops {
 
 /**
  * The Prefabs (indices into `delver.troops`) Floor `floor` of the Run of `seed` fields (docs/plans/delver-troops.md): `delver.prefabsPerFloor`
- * of those that fill template rows on its tier (`fieldedIn`: a `regularPrefab` whose `minTier` has come), all different, in a seeded order and then ascending; every one of them when there are
- * no more. The next Floor draws afresh, so a Prefab may come back on it. Pure.
+ * of those that fill template rows on its tier (`fieldedIn`: a `regularPrefab` whose `minTier` has come and whose `maxTier` has not passed),
+ * all different, in a seeded order and then ascending; every one of them when there are no more. With a `rarityMix`, each Troop Rarity's
+ * count is taken first from that rarity's Prefabs in the seeded order, and the slots left (the mix's spare ones, and any a rarity the tier
+ * fields too few of leaves) from the rest in that order. The next Floor draws afresh, so a Prefab may come back on it. Pure.
  */
 export function floorPrefabs(delver: DelverTuning, seed: number, floor: number): number[] {
   const order: { i: number; key: number }[] = [];
@@ -119,10 +121,13 @@ export function floorPrefabs(delver: DelverTuning, seed: number, floor: number):
     if (fieldedIn(p, tier)) order.push({ i, key: runPick(seed, floor, i, PREFAB_SALT, 0x1_0000_0000) });
   });
   order.sort((a, b) => a.key - b.key || a.i - b.i);
-  return order
-    .slice(0, delver.prefabsPerFloor)
-    .map((o) => o.i)
-    .sort((a, b) => a - b);
+  const picked: number[] = [];
+  const mix = delver.rarityMix;
+  if (mix)
+    for (const rarity of TROOP_RARITIES)
+      picked.push(...order.filter((o) => (delver.troops[o.i]!.rarity ?? 'common') === rarity).slice(0, mix[rarity]).map((o) => o.i));
+  for (const o of order) if (picked.length < delver.prefabsPerFloor && !picked.includes(o.i)) picked.push(o.i);
+  return picked.sort((a, b) => a - b);
 }
 
 /** Every Prefab drawn on Floor `floor` of the Run of `seed`: its `floorPrefabs`, and on a Boss Floor its Boss's Prefab too (ascending, each once). Pure. */

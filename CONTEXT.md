@@ -360,8 +360,12 @@ A kind of Soldier a Battle's armies field (Tuning Data `battle.troops`, at most 
 _Avoid_: Unit type, class
 
 **Prefab**:
-A kind of Delver enemy (Tuning Data `delver.troops`; docs/plans/delver-troops.md): one Body and one Weapon, so one impostor atlas, and its Variants. No two Prefabs share a Body and Weapon. Each Floor fields `delver.prefabsPerFloor` of them (4), all different, picked from the Run seed and the Floor (`floorPrefabs`) among those whose `minTier` its tier has reached; a Boss Floor's Boss's Prefab comes on top (`floorLooks`). The next Floor picks afresh, so a Prefab may come back. Only a Floor's Prefabs are baked, the next Floor's in the background while it is played.
+A kind of Delver enemy (Tuning Data `delver.troops`; docs/plans/delver-troops.md): one Body and one Weapon, so one impostor atlas, and its Variants. No two Prefabs share a Body and Weapon. Each Floor fields `delver.prefabsPerFloor` of them (4), all different, picked from the Run seed and the Floor (`floorPrefabs`) among those whose `minTier` its tier has reached and whose `maxTier` it has not passed; a Boss Floor's Boss's Prefab comes on top (`floorLooks`). The next Floor picks afresh, so a Prefab may come back. Only a Floor's Prefabs are baked, the next Floor's in the background while it is played. It has a Troop Rarity.
 _Avoid_: Unit, archetype, class
+
+**Troop Rarity**:
+How often a Prefab is met: common, uncommon or rare (`rarity`, absent: common). A Warband template row may name one, and its Soldiers are then of the Floor's Prefabs of that rarity, else of the nearest rarity the Floor fields (the commoner first, `rarityPrefabs`); a row naming none takes any of the Floor's Prefabs. A Floor draws its Prefabs by `delver.rarityMix` (2 common, 1 uncommon, 1 rare). Not an item's Rarity (Common to Legendary).
+_Avoid_: Rarity (alone, for a Prefab), tier
 
 **Variant**:
 One version of a Prefab: everything about a Delver Soldier that is not drawn (its HP, its AI difficulty, which is its skill, its Style, Quirks, Relics, Mods and Crowd stats). A Warband template names skills, not Variants: each of its Soldiers is a Variant of that skill of one of the Floor's Prefabs, picked by its Warband and place. A Boss Variant (`boss`) is only ever its tier's Boss, named by the tier. Its Size follows its HP and its tint its skill, so neither is its own.

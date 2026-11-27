@@ -120,7 +120,7 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
   it('refuses a Troop Tuning Data lacks (naming the known ones), on a Player slot, or outside Duels', () => {
     expect(() => checkLineup(tuning, vsTroop(), 1)).not.toThrow();
     expect(() => checkLineup(tuning, vsTroop({ prefab: 'Uruk', variant: 'Beginner' }), 1)).toThrow(/Unknown Variant "Beginner" of Troop Prefab "Uruk" \(have: /);
-    expect(() => checkLineup(tuning, vsTroop({ prefab: 'Goblin', variant: 'x' }), 1)).toThrow(/Unknown Troop Prefab "Goblin" \(have: /);
+    expect(() => checkLineup(tuning, vsTroop({ prefab: 'Hobgoblin', variant: 'x' }), 1)).toThrow(/Unknown Troop Prefab "Hobgoblin" \(have: /);
     const player: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 }, troop: uruk }, { team: 1, pilot: { kind: 'AI', difficulty: 'Skilled' } }];
     expect(() => checkLineup(tuning, player, 1)).toThrow(/Only an AI slot fights as a Troop/);
     const run: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, { team: 0, pilot: { kind: 'AI', difficulty: 'Skilled' }, troop: uruk }, ...Array.from({ length: 4 }, () => ({ team: 1, pilot: { kind: 'AI' as const, difficulty: 'Floor' } }))];
