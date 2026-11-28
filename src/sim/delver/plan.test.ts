@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, noLava, noRooms, noSetPieces, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, noLava, noRooms, noRoutes, noSetPieces, plainHalls } from './flat.testdata';
 import { FIXTURE_ROOM, FIXTURE_ROOM_RAW, withFixtureRoom } from './rooms.testdata';
 import { framedRoom, frameHalf, parseRoom, ROOM_FRAMES } from '../../tuning/delverRooms';
 import { SHORTCUT_RISE } from '../nav';
@@ -2048,8 +2048,8 @@ describe('set pieces (Stage 7f)', () => {
   it('has the constants and salts the Design fixes, and ships set pieces on', () => {
     expect([UPHILL_FOOT, UPHILL_TOP, LEDGE_WIDE, SPIRAL_FOOT, SPIRAL_HALF, CROSS_HALF]).toEqual([6, 10, 4, 4, 9, 11]);
     expect([SALT.setPiece, SALT.setPieceKind, SALT.uphillAxis, SALT.uphillEnd, SALT.spiralBase, SALT.spiralTurn]).toEqual([78, 79, 80, 81, 82, 83]);
-    // Stage 7g's roomPick 84 and roomFrame 85 come after them.
-    expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83, 84, 85]);
+    // Stage 7g's roomPick 84 and roomFrame 85 come after them, then the out-and-back patrol route 86.
+    expect(Object.values(SALT).filter((v) => v >= 78).sort((a, b) => a - b)).toEqual([78, 79, 80, 81, 82, 83, 84, 85, 86]);
     expect([doorSpan(0), doorSpan(1), doorSpan(-4)]).toEqual([[-3, 3], [-1, 3], [-7, -1]]);
     // The shipped values (Stage 7f's switch): tuned so about 1 Hall in 10 holds a set piece on every tier (7 to 13 %), the three weighted alike.
     expect(loadTuningData().delver.floor.setPieces).toEqual({ percent: [60, 60, 50], weights: { cross: 1, uphill: 1, spiral: 1, room: 1 } });
@@ -2380,6 +2380,54 @@ describe('drawn rooms (Stage 7g)', () => {
       } finally {
         Object.assign(salts, saved);
       }
+    }
+  });
+});
+
+describe('out-and-back patrol routes', () => {
+  const planOf = (on: typeof bundled, seed: number, floor: number) =>
+    planFloor(floorTuningOf(on.delver, floor), seed, floor, 0, isBossFloor(on.delver, floor), tierOf(on.delver, floor));
+  const pairs = Array.from({ length: 60 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+  const isLoop = (halls: readonly number[]) => new Set(halls).size === halls.length;
+
+  it('fills only the slots no loop fills, with a tree path of routeHalls Halls walked there and back, apart from the other patrols', () => {
+    const [lo, hi] = bundled.delver.floor.routeHalls!;
+    let routes = 0;
+    for (const { seed, floor } of pairs) {
+      const p = planOf(bundled, seed, floor);
+      const loopsOnly = planOf(noRoutes(bundled), seed, floor);
+      const loops = p.markers.patrols.filter((pt) => isLoop(pt.halls));
+      // The loops are the plan's without routes, first; every other patrol is a route.
+      expect(loops).toEqual(loopsOnly.markers.patrols);
+      expect(p.markers.patrols.slice(0, loops.length)).toEqual(loops);
+      expect(p.markers.patrols.length).toBeLessThanOrEqual(bundled.delver.floor.patrols);
+      for (const pt of p.markers.patrols.slice(loops.length)) {
+        routes++;
+        const half = pt.halls.length / 2 + 1;
+        const path = pt.halls.slice(0, half);
+        expect(half).toBeGreaterThanOrEqual(lo);
+        expect(half).toBeLessThanOrEqual(hi);
+        expect(isLoop(path)).toBe(true);
+        expect(pt.halls).toEqual([...path, ...path.slice(1, -1).reverse()]);
+        // Along tree Passages only, never through the Entrance or an in-line Hall.
+        for (let k = 0; k + 1 < path.length; k++) expect(p.passages.some((q) => !q.loop && ((q.a === path[k] && q.b === path[k + 1]) || (q.b === path[k] && q.a === path[k + 1])))).toBe(true);
+        for (const h of path) {
+          expect(h).not.toBe(p.entrance);
+          expect(p.inLine.includes(h)).toBe(false);
+        }
+        const others = p.markers.patrols.filter((o) => o !== pt).flatMap((o) => o.halls);
+        expect(path.some((h) => others.includes(h))).toBe(false);
+        pt.halls.forEach((h, k) => expect([pt.points[k]!.x, pt.points[k]!.z]).toEqual([p.halls[h]!.cx, p.halls[h]!.cz]));
+      }
+    }
+    expect(routes).toBeGreaterThan(0);
+  });
+
+  it('leaves the plan as it was with no routeHalls', () => {
+    for (const { seed, floor } of pairs.slice(0, 20)) {
+      const off = noRoutes(bundled);
+      const p = planOf(off, seed, floor);
+      expect(p.markers.patrols.every((pt) => isLoop(pt.halls))).toBe(true);
     }
   });
 });

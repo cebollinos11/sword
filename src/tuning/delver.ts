@@ -38,6 +38,11 @@ export interface DelverFloorTuning {
   readonly emptyPercent: number;
   /** Patrol loops at most. */
   readonly patrols: number;
+  /**
+   * [min, max] Halls of an out-and-back patrol route: a patrol slot no loop fills takes the tree path between two Halls, walked there and back.
+   * Absent (or max 0): no routes, only loops. min >= 2.
+   */
+  readonly routeHalls?: readonly [number, number];
   /** The judge's Passage slack: a field distance along a Passage may be up to this times its length (>= 1). */
   readonly follow: number;
   /** The most layouts tried for one (seed, Floor) (whole, >= 1). */
@@ -810,6 +815,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const treasures = whole(f, 'treasures', w, 0);
   const emptyPercent = percent(f, 'emptyPercent', w);
   const patrols = whole(f, 'patrols', w, 0);
+  const routeHalls = f.routeHalls === undefined ? undefined : range(f, 'routeHalls', w, 2);
   const follow = finiteNumber(f, 'follow', w);
   if (follow < 1) fail(`${w}.follow`, 'a number >= 1', follow);
   const maxAttempts = whole(f, 'maxAttempts', w, 1);
@@ -912,6 +918,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     skillTints,
     traitor: parseTraitor(root.traitor),
     wander: parseWander(root.wander),
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, ...(routeHalls ? { routeHalls } : {}), follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
   };
 }

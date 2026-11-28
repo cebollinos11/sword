@@ -17,9 +17,15 @@ export function fullFloors(tuning: TuningData): TuningData {
   return { ...tuning, delver };
 }
 
+/** `tuning` without `delver.floor.routeHalls`: patrols only on loops, as before the out-and-back routes, so a Floor is the one before them byte for byte. */
+export function noRoutes(tuning: TuningData): TuningData {
+  const { routeHalls: _, ...floor } = tuning.delver.floor;
+  return { ...tuning, delver: { ...tuning.delver, floor } };
+}
+
 /** `tuning` with `delver.floor.setPieces.weights.room` 0 and no drawn rooms (docs/plans/delver.md, Stage 7g), the rest unchanged: no room is picked, so a Floor is 7f's byte for byte whatever room files are committed. */
 export function noRooms(tuning: TuningData): TuningData {
-  const f = tuning.delver.floor;
+  const f = noRoutes(tuning).delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, setPieces: { ...f.setPieces, weights: { ...f.setPieces.weights, room: 0 } }, drawnRooms: [] } } };
 }
 
