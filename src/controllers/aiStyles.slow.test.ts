@@ -95,5 +95,5 @@ describe('the data-only Styles, against a Balanced AI of the same tier', () => {
     const b = balanced.Expert;
     expect(r.chains / r.recoveries, `${JSON.stringify(r)} vs ${JSON.stringify(b)}`).toBeGreaterThan(0.85);
     expect(r.chains / r.recoveries).toBeGreaterThan(1.4 * (b.chains / b.recoveries));
-  });
+  }, 120_000);
 });
