@@ -2941,6 +2941,7 @@ Task 6's `ai-walk` and Task 7's soak case are the evidence. If an ally, the pilo
   - each kind compiles and passes `walkCheck`;
   - a Soldier `trace` up an Uphill and round a Spiral is allowed, and one off L5 is refused (6 m > `levels.drop`);
   - no navmesh jump Link lands above L1.
+  - Removed 2026-11-28 (the user's call): its six fixed Floors stopped walking an Uphill's Ramp and a Spiral's L5 once the NoDaggers Quirk changed the Ork's fights, and a fixed-route check like it breaks on any gameplay change. The AI check and `judge.test.ts` still cover the set pieces.
 
   On `noSetPieces` the source equals today's.
 - **Task 4** (`judge.test.ts`):
