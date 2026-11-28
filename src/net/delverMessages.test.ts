@@ -9,7 +9,7 @@ import { FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../contro
 import { floorArenaName } from '../sim/delver/world';
 import { arenaTuning, floorOf, warbandPools, warbandsFit } from '../sim/delver';
 import type { CrowdState } from '../sim';
-import { PATROL } from '../sim/warband';
+import { PATROL, WANDER_SPOTS } from '../sim/warband';
 import { MAX_FLOOR_TROOPS, parseNetMessage, PROTOCOL_VERSION } from './messages';
 import { fullFloors } from '../sim/delver/flat.testdata';
 
@@ -336,7 +336,8 @@ describe("a Floor's Warbands against its plan (a resync's check)", () => {
     expect(fits(warband('patrol', patrol, plan.markers.patrols.length))).toBe(false);
     expect(fits(warband('leg', patrol, points(patrol)))).toBe(false);
     expect(fits(warband('leg', patrol, -1))).toBe(false);
-    expect(fits(warband('leg', guard, 1))).toBe(false);
+    expect(fits(warband('leg', guard, WANDER_SPOTS))).toBe(true);
+    expect(fits(warband('leg', guard, WANDER_SPOTS + 1))).toBe(false);
     expect(fits(warband('mode', guard, PATROL))).toBe(false);
     expect(fits(warband('mode', patrol, 4))).toBe(false);
     expect(fits(warband('chased', patrol, party))).toBe(false);

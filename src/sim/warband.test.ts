@@ -178,7 +178,8 @@ describe('the Warband brain', { timeout: TIMEOUT }, () => {
     // Seeds 1 to 3 of Floor 1 have such a spot (14 to 16 m from a post, in the next Hall or a Passage's far end) for most guards.
     let checked = 0;
     for (const seed of [1, 2, 3]) {
-      const s = scene(seed);
+      // No wander: the guard holds still at its post, so it is plainly not chasing.
+      const s = scene(seed, 1, 1, { wander: { ...tuning.delver.wander, radius: 0 } });
       for (let q = 0; q < s.crowd.warbands!.mode.length && checked < 4; q++) {
         if (s.crowd.warbands!.mode[q] !== GUARD) continue;
         const ax = s.crowd.squads.x[q]!;
@@ -617,5 +618,45 @@ describe('the brain as a SquadBrain', { timeout: TIMEOUT }, () => {
     const led = advance({ ...s, brain: (...args) => ({ ...s.brain(...args), lead: (k: number) => (k === q ? other : null) }) }, crowd, 1, 10 * 60);
     expect(left(led.crowd, other)).toBeLessThan(left(crowd, other) - 4);
     expect(left(led.crowd)).toBeGreaterThan(left(run.crowd) + 4);
+  });
+});
+
+describe('wandering guards', { timeout: TIMEOUT }, () => {
+  /** Each posted guard's farthest stray (m, flat) from its post over `seconds` with no one in sight, and whether it ever left its post's level or guarding. */
+  function strays(s: Scene, seconds: number) {
+    const w = s.crowd.warbands!;
+    const guards = w.post.flatMap((k, q) => (k >= 0 && w.mode[q] === GUARD ? [q] : []));
+    const far = new Map(guards.map((q) => [q, 0]));
+    let left = false;
+    advance(s, s.crowd, 1, secondsToTicks(seconds), () => [], (c) => {
+      for (const q of guards) {
+        const post = s.homes.posts[w.post[q]!]!;
+        const d = Math.hypot(c.squads.x[q]! - post.x, c.squads.z[q]! - post.z);
+        far.set(q, Math.max(far.get(q)!, d));
+        if (c.warbands!.mode[q] !== GUARD || Math.abs(soldierHeight(s.field, c.squads.surface[q]!, c.squads.x[q]!, c.squads.z[q]!) - post.y) > 0.05) left = true;
+      }
+    });
+    return { far: [...far.values()], left };
+  }
+
+  it('strolls round its post, within the wander radius and on its own level, and keeps guarding', () => {
+    const seen: number[] = [];
+    for (const seed of [1, 2, 3]) {
+      const s = scene(seed);
+      const { far, left } = strays(s, 60);
+      expect(left).toBe(false);
+      for (const d of far) expect(d).toBeLessThanOrEqual(s.rules.wander.radius + s.rules.arrive + 1);
+      seen.push(...far);
+    }
+    // Nearly every guard leaves its post's arrive radius at least once in a minute (a Hall too small for any spot keeps its guard home).
+    const moved = seen.filter((d) => d > tuning.delver.arrive + 0.5).length;
+    expect(moved).toBeGreaterThan(seen.length * 0.8);
+  });
+
+  it('stands at its post with a wander radius of 0', () => {
+    const s = scene(1, 1, 1, { wander: { ...tuning.delver.wander, radius: 0 } });
+    const { far, left } = strays(s, 30);
+    expect(left).toBe(false);
+    for (const d of far) expect(d).toBeLessThan(0.5);
   });
 });

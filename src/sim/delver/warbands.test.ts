@@ -273,16 +273,16 @@ describe('warbandHomes', { timeout: TIMEOUT }, () => {
   /** A hand-built plan: Hall 0 with Passages to Hall 1 (east, depth 8), Hall 2 (north, depth 5), Hall 3 (south, depth 5), Hall 4 (west, depth 2); Hall 5 has none. */
   const hand = (passages: [axis: 'x' | 'z', a: number, b: number][], depths: number[]): FloorPlan =>
     ({
-      halls: depths.map((depth) => ({ depth, kind: 'Fight' })),
+      halls: depths.map((depth) => ({ depth, kind: 'Fight', rect: { x0: 0, z0: 0, x1: 10, z1: 10 }, solids: [] })),
       // A straight Passage leaves `a` by n ('z') or e ('x') and `b` by s or w.
       passages: passages.map(([axis, a, b]) => ({ axis, a, b, sideA: axis === 'z' ? 'n' : 'e', sideB: axis === 'z' ? 's' : 'w' })),
-      markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [] },
+      markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [], spawns: [] },
     }) as unknown as FloorPlan;
 
   it('faces a guard toward the side whose Passage leads to the Hall of least depth', () => {
     const depths = [6, 8, 5, 5, 2, 9];
     // East only: east.
-    expect(warbandHomes(hand([['x', 0, 1]], depths)).posts[0]).toEqual({ x: 3, z: 4, facing: Math.PI / 2 });
+    expect(warbandHomes(hand([['x', 0, 1]], depths)).posts[0]).toEqual({ x: 3, z: 4, facing: Math.PI / 2, dry: [{ x0: 0, z0: 0, x1: 10, z1: 10 }] });
     // North (5) and east (8): north. North is Passage 'z' with Hall 0 the `a`.
     expect(warbandHomes(hand([['x', 0, 1], ['z', 0, 2]], depths)).posts[0]!.facing).toBe(0);
     // South (5, Hall 3 is `a` of a 'z' Passage) alone: south.
@@ -326,7 +326,7 @@ describe('warbandHomes on turning Passages and great halls', { timeout: TIMEOUT 
     // Hall 0 (a great hall) has two Passages out of its east side: to Hall 1 (depth 9) and Hall 2 (depth 4); one out of its north to Hall 3 (depth 6).
     const pass = (a: number, b: number, sideA: string, sideB: string) => ({ a, b, sideA, sideB, axis: 'x' });
     const hand = (passages: object[], depths: number[]): FloorPlan =>
-      ({ halls: depths.map((depth) => ({ depth, kind: 'Fight' })), passages, markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [] } }) as unknown as FloorPlan;
+      ({ halls: depths.map((depth) => ({ depth, kind: 'Fight', rect: { x0: 0, z0: 0, x1: 10, z1: 10 }, solids: [] })), passages, markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [], spawns: [] } }) as unknown as FloorPlan;
     const depths = [5, 9, 4, 6];
     expect(warbandHomes(hand([pass(0, 1, 'e', 'w'), pass(0, 2, 'e', 'w'), pass(0, 3, 'n', 's')], depths)).posts[0]!.facing).toBe(FACE.e);
     // The north neighbour (6) is nearer than the east's higher one (9) alone.

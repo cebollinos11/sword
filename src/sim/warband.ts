@@ -6,7 +6,7 @@ import type { BattleTuning, DelverTuning } from '../tuning';
 import { groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
 import { walkDistance, walkField, type CrowdFighter, type CrowdState, type SquadBrain } from './crowd';
-import { inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
+import { clearanceAt, inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
 import type { WarbandHomes } from './delver/warbands';
 import { brainTicks, closeRanks, COLUMN, LINE, LOOSE, squadNarrows, walkAnchors, type SquadState, type SquadStep } from './squad';
 
@@ -32,7 +32,7 @@ export interface WarbandState {
   readonly post: readonly number[];
   /** Its loop (an index into `plan.markers.patrols`), or -1 for a guard. */
   readonly patrol: readonly number[];
-  /** A patrol's waypoint (an index into its loop's points) it walks to or returns to; 0 for a guard. */
+  /** A patrol's waypoint (an index into its loop's points) it walks to or returns to; a guard's wander leg: 0 its post, k its wander spot k - 1. */
   readonly leg: readonly number[];
   /** The party Fighter (Pool slot) it chases, or -1. */
   readonly chased: readonly number[];
@@ -47,6 +47,85 @@ export interface WarbandState {
 }
 
 // ------------------------------------------------------------------ the brain
+
+/** The most wander spots round a post: a guard's `leg` is 0 at its post, k on its way to or at spot k - 1. */
+export const WANDER_SPOTS = 16;
+/** A wander spot keeps this far (m) from a Wall or pillar (the fields' clearance), so a guard's column fits round it. */
+const WANDER_CLEAR = 1.5;
+/** The longest walk (m) from a post to a wander spot: the straight line times this, plus WANDER_SLACK. A spot behind a Wall is longer. */
+const WANDER_DETOUR = 1.3;
+const WANDER_SLACK = 2;
+/** How far (m) a wander spot is drawn in toward its post at each try, from the wander radius in. */
+const WANDER_STEP = 0.5;
+
+type Post = WarbandHomes['posts'][number];
+type Spot = { readonly x: number; readonly z: number } | null;
+
+/** Each post's wander spots, for one map and radius. Derived from the plan and the map, never state. */
+const wanderKept = new WeakMap<Post, { readonly map: BattleMap; readonly radius: number; readonly spots: readonly Spot[]; readonly fit: readonly number[] }>();
+
+/**
+ * The wander spots round `post` (WANDER_SPOTS of them, null where none fits) and the indices of those that fit, ascending. Spot k < 8 lies on
+ * the way k * 45 degrees from the post as far out as fits, up to `radius`; spot k + 8 halfway to it. A spot fits on its Hall's dry floor
+ * (`post.dry`), on the post's own level, `WANDER_CLEAR` from any Wall or pillar, a walk from the post hardly longer than the straight line (no
+ * spot behind a Wall), out of sight of every Entrance spawn, and farther than `arrive` from the post (else it would be no stroll). None at
+ * radius 0 or for the Boss post (no dry floor).
+ */
+function wanderSpots(battle: BattleTuning, map: BattleMap, homes: WarbandHomes, post: Post, rules: DelverTuning): { readonly spots: readonly Spot[]; readonly fit: readonly number[] } {
+  const radius = rules.wander.radius;
+  const got = wanderKept.get(post);
+  if (got && got.map === map && got.radius === radius) return got;
+  const spots: Spot[] = new Array<Spot>(WANDER_SPOTS).fill(null);
+  if (radius > rules.arrive && post.dry.length > 0) {
+    const fromPost = walkField(battle, map, post.x, post.z, post.y);
+    const fits = (x: number, z: number): boolean => {
+      if (!post.dry.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)) return false;
+      const s = groundOf(battle, map.field, x, z, post.y);
+      if (Math.abs(soldierHeight(map.field, s, x, z) - post.y) > 0.05) return false;
+      if (clearanceAt(map.fields, x, z, s) < WANDER_CLEAR) return false;
+      if (walkDistance(fromPost, x, z, s) > Math.hypot(x - post.x, z - post.z) * WANDER_DETOUR + WANDER_SLACK) return false;
+      return !homes.spawns.some((sp) => inSight(map.fields, sp.x, sp.z, x, z, 0, sp.y, post.y));
+    };
+    for (let k = 0; k < 8; k++) {
+      const dx = Math.sin((k * Math.PI) / 4);
+      const dz = Math.cos((k * Math.PI) / 4);
+      for (let d = radius; d > rules.arrive; d -= WANDER_STEP) {
+        if (!fits(post.x + d * dx, post.z + d * dz)) continue;
+        spots[k] = { x: post.x + d * dx, z: post.z + d * dz };
+        if (d / 2 > rules.arrive && fits(post.x + (d / 2) * dx, post.z + (d / 2) * dz)) spots[k + 8] = { x: post.x + (d / 2) * dx, z: post.z + (d / 2) * dz };
+        break;
+      }
+    }
+  }
+  const fit = spots.flatMap((p, k) => (p ? [k] : []));
+  const kept = { map, radius, spots, fit };
+  wanderKept.set(post, kept);
+  return kept;
+}
+
+/** A whole number from (a, b, c), well mixed, in [0, 2^32): the seeded-looking picks of the wander, from state alone. */
+function mix(a: number, b: number, c: number): number {
+  let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35) ^ Math.imul(c + 0x165667b1, 0x27d4eb2f);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  h = Math.imul(h, 0x297a2d39);
+  h ^= h >>> 15;
+  return h >>> 0;
+}
+
+/**
+ * Where guard Warband q (of post `post`) means to stand in the wander's period holding `tick`: 0 its post, k wander spot k - 1. Each guard's
+ * periods (`wander.seconds`) start at its own offset, so guards never pick together; in each, it keeps to its post `wander.stay` of the time,
+ * else goes to one of its fit spots. A function of the Tick, the Warband and the plan: no state but the leg it is walking.
+ */
+function wanderLeg(q: number, post: number, tick: number, fit: readonly number[], rules: DelverTuning): number {
+  if (fit.length === 0) return 0;
+  const period = Math.max(1, secondsToTicks(rules.wander.seconds));
+  const phase = Math.floor((tick + Math.floor(((q * 0.6180339887) % 1) * period)) / period);
+  if (mix(q, post, phase) / 2 ** 32 < rules.wander.stay) return 0;
+  return fit[mix(phase, q, post + 7919) % fit.length]! + 1;
+}
 
 /** Two path lengths (m) closer than this are a tie: equal paths summed in another order differ in their last bits. */
 const TIE = 1e-9;
@@ -67,7 +146,8 @@ export function warbandBrain(homes: WarbandHomes, rules: DelverTuning): SquadBra
  *    `squad.moraleThreshold` of the Soldiers it deployed with (`WarbandState.size`).
  *  - A Warband whose Soldiers lag (`squad.lag`) regroups first: its anchor is put where its nearest in-Crowd Soldier stands, on that Soldier's Walk Surface.
  *  - It sees a party Fighter when one of its living Soldiers has it within `sight` flat, feet no more than `levels.promote` above or below, and in sight past the Floor's Walls.
- *  - GUARD holds its post (walks back to it when away, facing its guard facing there); PATROL walks its loop, the leg advancing at each point.
+ *  - GUARD holds its post: each `wander.seconds` it picks its post or a wander spot round it (`wanderLeg`, `wanderSpots`) and strolls there at
+ *    `wander.pace`, facing its guard facing at the post and out from it at a spot. PATROL walks its loop, the leg advancing at each point.
  *    Either, not broken, that sees the party CHASES the nearest it sees (to its anchor). A broken PATROL becomes a GUARD at its point.
  *  - CHASE follows its Fighter by that Fighter's field, halting `closeIn` short of it in a LINE. A broken Warband RETURNS falling back (`fall`, LOOSE).
  *    It keeps its Fighter while it sees it, takes the nearest it sees if it loses it, and RETURNS after `forgetSeconds` unseen, once its walk from
@@ -114,6 +194,14 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
 
   /** Where Warband q calls home: its post, or its loop's point `leg`. */
   const homeOf = (q: number): { x: number; y: number; z: number } => (w.post[q]! >= 0 ? homes.posts[w.post[q]!]! : homes.patrols[w.patrol[q]!]![leg[q]!]!);
+  /** Where a guarding Warband q makes for: its post, or (`leg` k > 0) its wander spot k - 1; a broken patrol's remnant, its loop point. */
+  const guardGoal = (q: number): { x: number; y: number; z: number } => {
+    if (w.post[q]! < 0 || leg[q] === 0) return homeOf(q);
+    const post = homes.posts[w.post[q]!]!;
+    // A spot that does not fit (a resync's leg the plan has no spot for): its post.
+    const spot = wanderSpots(battle, map, homes, post, rules).spots[leg[q]! - 1];
+    return spot ? { x: spot.x, y: post.y, z: spot.z } : post;
+  };
   /** The kept field to a point on the floor (never a roof), and the point's Walk Surface. */
   /** The home field and Walk Surface at (px, pz) on the floor at height py (a home's own `y`). */
   const fieldAt = (px: number, pz: number, py: number) => ({ dest: walkField(battle, map, px, pz, py), on: groundOf(battle, field, px, pz, py) });
@@ -258,13 +346,19 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
       }
 
       if (mode[q] === GUARD) {
-        const home = homeOf(q);
-        const to = fieldAt(home.x, home.z, home.y);
+        const k = w.post[q]!;
+        // A guard wanders: it picks its post or one of its spots round it each period, and strolls there.
+        if (k >= 0) leg[q] = wanderLeg(q, k, tick, wanderSpots(battle, map, homes, homes.posts[k]!, rules).fit, rules);
+        const goal = guardGoal(q);
+        const to = fieldAt(goal.x, goal.z, goal.y);
         shape[q] = fall[q] ? LOOSE : COLUMN;
-        if (arrived(home.x, home.z, to.on)) {
-          // At home it stands, facing the post's guard facing (a broken patrol's remnant keeps the facing it has).
-          if (w.post[q]! >= 0) aim[q] = homes.posts[w.post[q]!]!.facing;
-        } else walkTo(to.dest, home.x, home.z, to.on, walk * p.speed);
+        if (arrived(goal.x, goal.z, to.on)) {
+          // At its post it stands, facing the post's guard facing; at a spot, facing out from the post (a broken patrol's remnant keeps the facing it has).
+          if (k >= 0) {
+            const post = homes.posts[k]!;
+            aim[q] = leg[q] === 0 ? post.facing : Math.atan2(goal.x - post.x, goal.z - post.z);
+          }
+        } else walkTo(to.dest, goal.x, goal.z, to.on, walk * p.speed * (k >= 0 ? rules.wander.pace : 1));
       } else if (mode[q] === PATROL) {
         const points = homes.patrols[w.patrol[q]!]!;
         let target = points[leg[q]!]!;
@@ -349,7 +443,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
       const f = partyOf(chased[q]!);
       if (f) return walkField(battle, map, f.x, f.z, f.y ?? 0);
     }
-    const home = homeOf(q);
+    const home = mode[q] === GUARD ? guardGoal(q) : homeOf(q);
     return fieldAt(home.x, home.z, home.y).dest;
   };
 

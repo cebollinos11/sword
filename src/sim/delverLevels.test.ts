@@ -290,7 +290,9 @@ describe('Warbands on levelled Floors', { timeout: 120_000 }, () => {
       },
       warbands: { ...w, mode: w.mode.map((u, k) => (k === q ? RETURN : u)) },
     };
-    const back = run(s, off, secondsToTicks(20), () => []);
+    // No wander, so the guard stays at its post once home.
+    const still = { ...s, brain: warbandBrain(s.homes, { ...s.t.delver, wander: { ...s.t.delver.wander, radius: 0 } }) };
+    const back = run(still, off, secondsToTicks(20), () => []);
     expect(back.warbands!.mode[q]).toBe(GUARD);
     expect(Math.hypot(back.squads.x[q]! - post.x, back.squads.z[q]! - post.z)).toBeLessThanOrEqual(s.t.delver.arrive + 0.5);
     expect(anchorY(s, back, q)).toBe(post.y);
