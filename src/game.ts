@@ -6,6 +6,7 @@ import { BODY_MODELS, preloadBody } from './render/bodyModel';
 import { LoadingBar, WARM_UP_DETAIL } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { FIRST_PERSON_KEY, firstPersonBlocked, FirstPersonView } from './render/firstPerson';
+import { cycleTextureFilter, TEXTURE_FILTER_KEY } from './render/triplanar';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
 import { createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
@@ -863,6 +864,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
     // Only in play, so typing a P into the menu (a name, a Room code) does not flip it.
     if (e.code === FIRST_PERSON_KEY && !e.repeat && driver && !menu.visible) firstPerson.toggle();
+    // Cycle the map textures' filtering, to compare the modes live (src/render/triplanar.ts).
+    if (e.code === TEXTURE_FILTER_KEY && !e.repeat && driver && !menu.visible) hud.announce(`Textures: ${cycleTextureFilter()}`);
     const mapAction = mapKeyAction(e.code, hud.map.open);
     if (mapAction && !e.repeat) {
       if (mapAction === 'toggle') toggleMap();

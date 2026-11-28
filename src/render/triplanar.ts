@@ -110,10 +110,39 @@ export type Surface = keyof typeof FINISHES;
 
 /** How sharply the planes separate: the blend weight of a plane is its normal component to this power. */
 const SHARPNESS = 4;
-/** Magnified texels stay crisp (the textures are only 64 px). */
-const MAG_FILTER = THREE.NearestFilter;
-/** Shrunk texels stay crisp too: the nearest texel of the nearest mip, so distant surfaces are not smoothed into a blur. */
-const MIN_FILTER = THREE.NearestMipmapNearestFilter;
+/**
+ * How the textures are filtered, cycled live with `TEXTURE_FILTER_KEY` to compare them on a device. Magnified texels stay crisp (the textures
+ * are only 64 px); the modes differ in how shrunk (distant) texels are drawn. `pixelAA` filters linearly but the shader snaps each sample to
+ * its texel, blending only across the pixel-wide edge between two texels: crisp at any distance, with no shimmer.
+ */
+export const TEXTURE_FILTERS = [
+  { name: 'Nearest mipmap nearest', min: THREE.NearestMipmapNearestFilter, mag: THREE.NearestFilter, pixelAA: false },
+  { name: 'Nearest mipmap linear', min: THREE.NearestMipmapLinearFilter, mag: THREE.NearestFilter, pixelAA: false },
+  { name: 'Nearest, no mipmaps', min: THREE.NearestFilter, mag: THREE.NearestFilter, pixelAA: false },
+  { name: 'Pixel-art AA (shader)', min: THREE.LinearMipmapLinearFilter, mag: THREE.LinearFilter, pixelAA: true },
+  { name: 'Trilinear (old, blurry)', min: THREE.LinearMipmapLinearFilter, mag: THREE.NearestFilter, pixelAA: false },
+] as const;
+/** The key that cycles `TEXTURE_FILTERS`. */
+export const TEXTURE_FILTER_KEY = 'KeyT';
+let filterIndex = 0;
+/** Whether the shader snaps samples to texels (`pixelAA`), shared by every triplanar material. */
+const pixelAA = { value: 0 };
+
+function applyFilter(texture: THREE.Texture): void {
+  const mode = TEXTURE_FILTERS[filterIndex]!;
+  texture.minFilter = mode.min;
+  texture.magFilter = mode.mag;
+  texture.needsUpdate = true;
+}
+
+/** Switch every triplanar texture to the next filter mode; returns its name. */
+export function cycleTextureFilter(): string {
+  filterIndex = (filterIndex + 1) % TEXTURE_FILTERS.length;
+  const mode = TEXTURE_FILTERS[filterIndex]!;
+  pixelAA.value = mode.pixelAA ? 1 : 0;
+  for (const s of loaded.values()) if (s.map.value) applyFilter(s.map.value);
+  return mode.name;
+}
 
 /** The URL of a texture's image. */
 export const textureUrl = (tex: TextureName): string => `${import.meta.env.BASE_URL}textures/battle/${tex}.png`;
@@ -206,8 +235,7 @@ function textureOf(tex: TextureName): Loaded {
   const uniforms = s;
   new THREE.TextureLoader().load(textureUrl(tex), (texture) => {
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.magFilter = MAG_FILTER;
-    texture.minFilter = MIN_FILTER;
+    applyFilter(texture);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 4;
     uniforms.mean.value.copy(averageOf(texture.image as CanvasImageSource & { width: number; height: number }));
@@ -250,6 +278,7 @@ export function applyTriplanar(material: THREE.Material, surface: Surface): void
       shader.uniforms[`tp${name}Scale`] = s.t.scale;
       shader.uniforms[`tp${name}Tint`] = s.tint;
     });
+    shader.uniforms.tpPixelAA = pixelAA;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vTpPos;\nvarying vec3 vTpNormal;')
       .replace(
@@ -265,7 +294,19 @@ export function applyTriplanar(material: THREE.Material, surface: Surface): void
         `#include <common>
         varying vec3 vTpPos;
         varying vec3 vTpNormal;
-        ${decl}`,
+        ${decl}
+        uniform float tpPixelAA;
+        // A texel-snapped sample: the nearest texel's colour, blended with its neighbour only across the pixel-wide edge between them.
+        // The mip is picked from the unsnapped coordinates, so the snapping makes no seams.
+        vec3 tpSample(sampler2D map, vec2 uv) {
+          if (tpPixelAA < 0.5) return texture2D(map, uv).rgb;
+          vec2 size = vec2(textureSize(map, 0));
+          vec2 px = uv * size;
+          vec2 box = clamp(fwidth(px), 1e-5, 1.0);
+          vec2 tx = px - 0.5 * box;
+          vec2 offset = smoothstep(1.0 - box, vec2(1.0), fract(tx));
+          return textureGrad(map, (floor(tx) + 0.5 + offset) / size, dFdx(uv), dFdy(uv)).rgb;
+        }`,
       )
       .replace(
         '#include <color_fragment>',
@@ -276,15 +317,16 @@ export function applyTriplanar(material: THREE.Material, surface: Surface): void
           vec3 w = pow(abs(n), vec3(${SHARPNESS.toFixed(1)}));
           w /= w.x + w.y + w.z;
           vec3 pw = vTpPos * tpWallScale;
-          vec3 side = (texture2D(tpWallMap, pw.zy).rgb * w.x + texture2D(tpWallMap, pw.xy).rgb * w.z) / tpWallMean * tpWallTint;
-          vec3 top = n.y >= 0.0
-            ? texture2D(tpFloorMap, vTpPos.xz * tpFloorScale).rgb / tpFloorMean * tpFloorTint
-            : texture2D(tpCeilMap, vTpPos.xz * tpCeilScale).rgb / tpCeilMean * tpCeilTint;
+          vec3 side = (tpSample(tpWallMap, pw.zy) * w.x + tpSample(tpWallMap, pw.xy) * w.z) / tpWallMean * tpWallTint;
+          // Both sampled, outside any branch, so their screen derivatives are defined.
+          vec3 floorC = tpSample(tpFloorMap, vTpPos.xz * tpFloorScale) / tpFloorMean * tpFloorTint;
+          vec3 ceilC = tpSample(tpCeilMap, vTpPos.xz * tpCeilScale) / tpCeilMean * tpCeilTint;
+          vec3 top = n.y >= 0.0 ? floorC : ceilC;
           diffuseColor.rgb *= side + top * w.y;
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'triplanar3';
+  material.customProgramCacheKey = () => 'triplanar4';
   material.needsUpdate = true;
 }
 
