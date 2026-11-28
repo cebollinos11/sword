@@ -6,6 +6,7 @@ import { advanceDaggers, launchDagger } from './dagger';
 import { arenaOf, deadlyGround, groundBelow } from './arena';
 import { flyBody, landing, settleGround, takeOff } from './air';
 import { resolveBodies } from './collision';
+import { propAgainstWall } from './knockdownWall';
 import { findContacts, findDaggerContacts, resolveChainKnockdowns, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, inDuel, updateDuel } from './duel';
@@ -314,7 +315,8 @@ function land(prev: FighterState, f: FighterState, index: number, fighting: bool
 }
 
 /**
- * Living Fighter capsules push each other apart and stay inside the Arena (the fallen lie where they fell), the Gait
+ * Living Fighter capsules push each other apart and stay inside the Arena (the fallen lie where they fell), a knocked-down body
+ * is propped up by any Wall behind it, the Gait
  * steps the feet after the bodies' final moves (ADR 0003), then each Skeleton
  * is solved at its final position. Motion is simulation: the Skeleton is
  * solved by IK inside the Tick (ADR 0001). `before` is last Tick's Fighters.
@@ -338,7 +340,9 @@ function settleBodies(
     if (!inDuel(f)) return f;
     const own = fighterTuning(tuning, f);
     const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, own);
-    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
+    const landed = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
+    // A body knocked down against a Wall sits up against it rather than lying through it.
+    const moved = propAgainstWall(before[i]!, landed, arena, own);
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, own, arena, emit) };
     return withPose(settled, tuning);
   });

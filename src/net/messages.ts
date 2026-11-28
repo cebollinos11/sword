@@ -399,6 +399,7 @@ function isFighter(v: unknown): boolean {
     isString(v.motion.name) &&
     isTick(v.motion.tick) &&
     (v.motion.blend === undefined || isMotionBlend(v.motion.blend)) &&
+    (v.motion.wall === undefined || (isNum(v.motion.wall) && v.motion.wall > 0 && v.motion.wall <= 1)) &&
     isObject(v.blade) &&
     isVec3(v.blade.hilt) &&
     isVec3(v.blade.tip) &&

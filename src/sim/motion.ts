@@ -241,10 +241,22 @@ export function playbackTargets(tuning: TuningData, weapon: string, playback: Mo
 const sampledPlaybacks = new WeakMap<MotionPlayback, { readonly tuning: TuningData; readonly weapon: string; readonly targets: PoseTargets }>();
 
 function samplePlayback(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
-  const targets = holdUpperBody(motionTargets(tuning, weapon, playback.name, playback.tick), playback.hold);
+  const targets = holdUpperBody(proppedTargets(tuning, weapon, playback), playback.hold);
   const blend = playback.blend;
   if (!blend) return targets;
   return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / (blend.ticks ?? motionBlendTicks(tuning))), tuning.skeleton.ankleHeight);
+}
+
+/** The suffix of a Motion's Wall variant: the pose it takes propped up by a Wall behind it (`MotionPlayback.wall`). */
+export const WALL_VARIANT = 'Wall';
+
+/** The Motion's targets at the playhead, blended toward its Wall variant by the playback's `wall`, if it has one. */
+function proppedTargets(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
+  const targets = motionTargets(tuning, weapon, playback.name, playback.tick);
+  const wall = playback.wall ?? 0;
+  const variant = playback.name + WALL_VARIANT;
+  if (wall <= 0 || !weaponMotion(tuning, weapon, variant)) return targets;
+  return lerpTargets(targets, motionTargets(tuning, weapon, variant, playback.tick), Math.min(1, wall), tuning.skeleton.ankleHeight);
 }
 
 /**

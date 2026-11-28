@@ -408,6 +408,12 @@ export interface MotionPlayback {
    * whatever the Motion says: a blocked attacker's recoil freezes its pose from the moment it was blocked. Absent otherwise.
    */
   readonly hold?: UpperBody;
+  /**
+   * Present (0 to 1, above 0) while a Wall behind a knocked-down Fighter props its body up: how far the Motion is blended toward
+   * its Wall variant (`<name>Wall`, sampled at the same playhead), from lying flat (absent) to sitting slumped against it (1).
+   * Set each Tick by `propAgainstWall`. Absent otherwise, and ignored for a Motion with no Wall variant.
+   */
+  readonly wall?: number;
 }
 
 /** A crossfade from a frozen pose into the current Motion. */
