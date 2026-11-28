@@ -2388,7 +2388,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   cycles.sort((a, b) => b.halls.length - a.halls.length || a.order - b.order);
   const patrolHalls: number[][] = cycles.slice(0, t.patrols).map((c) => c.halls);
   // 8'. Out-and-back routes fill the slots no loop did: the tree path between two Halls (`routeHalls` Halls long, the Entrance and the in-line
-  // Halls never on it, no Hall another patrol walks), the longest such paths first, one picked by seed; walked A … B and back.
+  // Halls never on it; it may share Halls with another patrol, never be another route), the longest such paths first, one picked by seed; walked A … B and back.
   const [routeMin, routeMax] = t.routeHalls ?? [0, 0];
   if (routeMax > 0 && patrolHalls.length < t.patrols) {
     const paths: number[][] = [];
@@ -2402,13 +2402,11 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         paths.push(path.reverse());
       }
     }
-    while (patrolHalls.length < t.patrols) {
-      const used = new Set(patrolHalls.flat());
-      const free = paths.filter((p) => !p.some((h) => used.has(h)));
-      if (free.length === 0) break;
-      const longest = Math.max(...free.map((p) => p.length));
-      const best = free.filter((p) => p.length === longest);
+    while (patrolHalls.length < t.patrols && paths.length > 0) {
+      const longest = Math.max(...paths.map((p) => p.length));
+      const best = paths.filter((p) => p.length === longest);
       const path = best[pick(patrolHalls.length, SALT.route, best.length)]!;
+      paths.splice(paths.indexOf(path), 1);
       patrolHalls.push([...path, ...path.slice(1, -1).reverse()]);
     }
   }

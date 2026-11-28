@@ -2390,7 +2390,7 @@ describe('out-and-back patrol routes', () => {
   const pairs = Array.from({ length: 60 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const isLoop = (halls: readonly number[]) => new Set(halls).size === halls.length;
 
-  it('fills only the slots no loop fills, with a tree path of routeHalls Halls walked there and back, apart from the other patrols', () => {
+  it('fills only the slots no loop fills, with a tree path of routeHalls Halls walked there and back, never the same route twice', () => {
     const [lo, hi] = bundled.delver.floor.routeHalls!;
     let routes = 0;
     for (const { seed, floor } of pairs) {
@@ -2415,8 +2415,8 @@ describe('out-and-back patrol routes', () => {
           expect(h).not.toBe(p.entrance);
           expect(p.inLine.includes(h)).toBe(false);
         }
-        const others = p.markers.patrols.filter((o) => o !== pt).flatMap((o) => o.halls);
-        expect(path.some((h) => others.includes(h))).toBe(false);
+        // Never the same route twice (it may share Halls with another patrol).
+        expect(p.markers.patrols.filter((o) => JSON.stringify(o.halls) === JSON.stringify(pt.halls))).toHaveLength(1);
         pt.halls.forEach((h, k) => expect([pt.points[k]!.x, pt.points[k]!.z]).toEqual([p.halls[h]!.cx, p.halls[h]!.cz]));
       }
     }
