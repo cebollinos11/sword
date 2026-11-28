@@ -107,7 +107,7 @@ describe('Lineup: a Delver Troop on an AI slot (docs/plans/enemy-behaviours.md, 
   it("a plain AI slot plays its Pilot's Quirks; checkLineup refuses an unknown one (naming the known ones), an empty list and a repeat", () => {
     const withQuirks = (quirks: string[]): Lineup => [vsAi()[0]!, { team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', quirks } }];
     expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Hopper']), 1)).not.toThrow();
-    expect(() => checkLineup(tuning, withQuirks(['Clumsy']), 1)).toThrow(/Unknown AI Quirk "Clumsy" \(have: Dumb, Hopper, Slow\)/);
+    expect(() => checkLineup(tuning, withQuirks(['Clumsy']), 1)).toThrow(/Unknown AI Quirk "Clumsy" \(have: Dumb, Hopper, Slow, NoDaggers\)/);
     expect(() => checkLineup(tuning, withQuirks([]), 1)).toThrow(/names none/);
     expect(() => checkLineup(tuning, withQuirks(['Dumb', 'Dumb']), 1)).toThrow(/each Quirk once/);
     const attacks = Array.from({ length: 20 }, (_, i) => [...wait(30), ...attack(DIRECTIONS[i % DIRECTIONS.length])]).flat();

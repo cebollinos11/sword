@@ -45,6 +45,14 @@ describe('a Quirk changes the Skill after the Style', () => {
     expect(quirkSkill(base, [quirk('Dumb')])).toEqual({ ...base, defendRate: 0 });
   });
 
+  it('NoDaggers sets throwRate and kite 0 and nothing else, even over a Skirmisher\'s minimums', () => {
+    for (const tier of TIERS) {
+      const base = skillOf(repo, aiDifficulty(repo, tier), repo.ai.styles.Skirmisher);
+      expect(base.throwRate, tier).toBeGreaterThan(0);
+      expect(quirkSkill(base, [quirk('NoDaggers')]), tier).toEqual({ ...base, throwRate: 0, kite: 0 });
+    }
+  });
+
   it('a Quirk wins over the Style: applied after it, a number sets the setting whatever the Style made it', () => {
     const style = { chamberRate: { mul: 3, min: 0.06 } };
     const set: AiQuirk = { ai: { chamberRate: 0 } };
@@ -175,5 +183,26 @@ describe('Dumb: it does not defend', () => {
     const dumb = run(['Dumb']);
     expect(dumb).toContainEqual({ kicker: 0, defend: false });
     expect(dumb.at(-1)).toBeUndefined();
+  });
+});
+
+describe('NoDaggers: it throws no Throwing Dagger', () => {
+  /** An Expert AI (Fighter 1) of `style` against a scripted enemy standing still 1.3 m off, or walking away from it. */
+  const thrown = (style: string, quirks: readonly string[], seed: number, away: boolean) => {
+    const walker: Controller = { intent: (s, i) => ({ ...IDLE_INTENT, face: s.fighters[i]!.facing, move: away && s.tick > 60 ? { x: 0, z: -1 } : { x: 0, z: 0 } }) };
+    const run = runControllers(endless, createInitialState(endless, seed, duelPlacements(1.3)), [walker, createAiController(endless, 'Expert', style, { quirks })], TICK_RATE * 20);
+    return run.events.filter((e) => e.type === 'DaggerThrown' && e.thrower === 1).length;
+  };
+
+  it('a Skirmisher and a Tricky Expert throw at a standing or a retreating target; with NoDaggers neither throws one', () => {
+    for (const style of ['Skirmisher', 'Tricky']) {
+      let plain = 0;
+      for (const seed of [1, 2, 3])
+        for (const away of [false, true]) {
+          plain += thrown(style, [], seed, away);
+          expect(thrown(style, ['NoDaggers'], seed, away), `${style} seed ${seed} away ${away}`).toBe(0);
+        }
+      expect(plain, style).toBeGreaterThan(0);
+    }
   });
 });

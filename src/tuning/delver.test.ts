@@ -136,8 +136,8 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       ['Squire', ['Defensive', 'Defensive + Hopper', 'Defensive + Hopper']],
       ['Revenant', ['Pack Hunter', 'Pack Hunter', 'Pack Hunter']],
       ['Uruk', ['Reckless + Slow', 'Reckless + Slow', 'Reckless + Slow']],
-      ['Goblin', ['Tricky + Dumb', 'Tricky', 'Tricky']],
-      ['Ork', ['Aggressive + Dumb', 'Aggressive', 'Aggressive']],
+      ['Goblin', ['Tricky + Dumb + NoDaggers', 'Tricky + NoDaggers', 'Tricky + NoDaggers']],
+      ['Ork', ['Aggressive + Dumb + NoDaggers', 'Aggressive + NoDaggers', 'Aggressive + NoDaggers']],
       ['Ranger', ['Skirmisher', 'Skirmisher', 'Skirmisher']],
       ['Tin Man', ['Defensive + Slow', 'Defensive + Slow', 'Defensive + Slow']],
     ]);
@@ -439,7 +439,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect([beginner!.quirks, skilled!.quirks, expert!.quirks]).toEqual([['Dumb'], ['Hopper', 'Dumb'], ['Dumb']]);
     expect(parse(withPrefab(1, { quirks: ['Dumb'] }, 0, { quirks: [] })).troops[1]!.variants[0]).not.toHaveProperty('quirks');
     // A Variant without Quirks has no key: in the bundled data only the roster pass's (Stage 6) have one, and the Warden's [] drops the Uruk's Slow.
-    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)', 'Goblin (Beginner)', 'Ork (Beginner)', 'Tin Man (Beginner)', 'Tin Man (Skilled)', 'Tin Man (Expert)']);
+    expect(parse(raw()).troops.flatMap((p) => p.variants).filter((v) => 'quirks' in v).map((v) => v.name)).toEqual(['Bruiser (Beginner)', 'Squire (Skilled)', 'Squire (Expert)', 'Uruk (Beginner)', 'Uruk (Skilled)', 'Uruk (Expert)', 'Goblin (Beginner)', 'Goblin (Skilled)', 'Goblin (Expert)', 'Ork (Beginner)', 'Ork (Skilled)', 'Ork (Expert)', 'Tin Man (Beginner)', 'Tin Man (Skilled)', 'Tin Man (Expert)']);
   });
 
   it('takes its own parsed form back in', () => {

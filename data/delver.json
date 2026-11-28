@@ -83,13 +83,13 @@
       { "difficulty": "Expert", "hp": 110 },
       { "name": "Warden", "boss": true, "mods": {}, "difficulty": "Skilled", "style": "Aggressive", "quirks": [], "hp": 250 }
     ] },
-    { "name": "Goblin", "body": "goblin", "weapon": "Arming Sword", "rarity": "common", "maxTier": 2, "style": "Tricky", "variants": [
-      { "difficulty": "Beginner", "hp": 25, "quirks": ["Dumb"] },
+    { "name": "Goblin", "body": "goblin", "weapon": "Arming Sword", "rarity": "common", "maxTier": 2, "style": "Tricky", "quirks": ["NoDaggers"], "variants": [
+      { "difficulty": "Beginner", "hp": 25, "quirks": ["Dumb", "NoDaggers"] },
       { "difficulty": "Skilled", "hp": 32 },
       { "difficulty": "Expert", "hp": 38 }
     ] },
-    { "name": "Ork", "body": "uruk", "weapon": "Arming Sword", "rarity": "common", "minTier": 2, "style": "Aggressive", "variants": [
-      { "difficulty": "Beginner", "hp": 55, "quirks": ["Dumb"] },
+    { "name": "Ork", "body": "uruk", "weapon": "Arming Sword", "rarity": "common", "minTier": 2, "style": "Aggressive", "quirks": ["NoDaggers"], "variants": [
+      { "difficulty": "Beginner", "hp": 55, "quirks": ["Dumb", "NoDaggers"] },
       { "difficulty": "Skilled", "hp": 70 },
       { "difficulty": "Expert", "hp": 85 }
     ] },
