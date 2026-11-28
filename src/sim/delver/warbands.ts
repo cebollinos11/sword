@@ -11,8 +11,9 @@ import { runPick } from '../dungeon';
 import { createObjectives } from '../objectives';
 import { createRng } from '../rng';
 import { COLUMN, DEFEND, placeOffset } from '../squad';
-import { BOSS, ELITE, GUARD, PATROL, PLAIN, RETURN } from '../warband';
-import type { FloorPlan } from './plan';
+import { BOSS, ELITE, GUARD, PATROL, PLAIN, RETURN, WANDER_SPOTS } from '../warband';
+import type { Rect } from '../../mapEditor/source';
+import { LAVA_KEEP, lavaDry, type FloorPlan } from './plan';
 import { floorPrefabs, floorTroops, sizeOfHp, soldierHp, tierOf } from './troops';
 
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
@@ -27,8 +28,14 @@ if (PICK_PLACES < MAX_SQUAD_PLACES) throw new Error(`PICK_PLACES (${PICK_PLACES}
 
 /** The homes the brain reads (derived from the plan, never state): each post with its guard facing, each patrol loop's points. */
 export interface WarbandHomes {
-  readonly posts: readonly { readonly x: number; readonly y: number; readonly z: number; readonly facing: number }[];
+  /**
+   * Each post: where it stands, its guard facing, and `dry`, the floor of its Hall a guard may wander over (its rect less its solids and
+   * `LAVA_KEEP` round its lava; the brain keeps its spots off Walls, pillars and other levels by the fields). [] for the Boss post: the Boss holds it.
+   */
+  readonly posts: readonly { readonly x: number; readonly y: number; readonly z: number; readonly facing: number; readonly dry: readonly Rect[] }[];
   readonly patrols: readonly (readonly { readonly x: number; readonly y: number; readonly z: number }[])[];
+  /** The Entrance spawns: no guard wanders into sight of one. */
+  readonly spawns: readonly { readonly x: number; readonly y: number; readonly z: number }[];
 }
 
 /** The facings (radians; 0 faces +z) into a Passage on a Hall's sides, in the order n, e, s, w: the Passage's side of the Hall. */
@@ -92,12 +99,13 @@ const homes = new WeakMap<FloorPlan, WarbandHomes>();
 export function warbandHomes(plan: FloorPlan): WarbandHomes {
   let kept = homes.get(plan);
   if (!kept) {
-    const posts = plan.markers.posts.map((p) => ({ x: p.x, y: p.y, z: p.z, facing: deckFacing(plan, p.hall, p.y) ?? guardFacing(plan, p.hall) }));
+    const posts = plan.markers.posts.map((p) => ({ x: p.x, y: p.y, z: p.z, facing: deckFacing(plan, p.hall, p.y) ?? guardFacing(plan, p.hall), dry: lavaDry(plan.halls[p.hall]!, LAVA_KEEP) }));
     const boss = plan.markers.boss;
-    if (boss) posts.push({ x: boss.x, y: boss.y, z: boss.z, facing: bossFacing(plan, plan.stairs, boss.y) });
+    if (boss) posts.push({ x: boss.x, y: boss.y, z: boss.z, facing: bossFacing(plan, plan.stairs, boss.y), dry: [] });
     kept = {
       posts,
       patrols: plan.markers.patrols.map((loop) => loop.points.map((p) => ({ x: p.x, y: p.y, z: p.z }))),
+      spawns: plan.markers.spawns.map((p) => ({ x: p.x, y: p.y, z: p.z })),
     };
     homes.set(plan, kept);
   }
@@ -106,7 +114,7 @@ export function warbandHomes(plan: FloorPlan): WarbandHomes {
 
 /**
  * Whether a Floor's Warbands, as a peer's resync sends them, fit the Floor's plan (a guard of a post of it, a patrol of one of its loops at one of
- * their points; a guard never in PATROL; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots and
+ * their points; a guard never in PATROL, its leg its post (0) or one of its wander spots; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots and
  * `troops` how many Troops the Floor has. `pools` says how many templates each rank draws its `encounter` from: the tier's guard and patrol pools
  * (rank PLAIN, by guard or patrol), its elite pool (ELITE) and its Boss's guard pool (BOSS). Exactly one Warband is the Boss's (rank BOSS) on a Boss Floor, a guard
  * at the Boss post (the last); on any other Floor none is. Pure; a state that fails is refused, since the brain would read past its homes.
@@ -127,7 +135,7 @@ export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, t
     const pool = rank === BOSS ? pools.boss : rank === ELITE ? pools.elite : guard ? pools.guard : pools.patrol;
     if (!index(w.encounter[q], pool, 0) || (rank !== PLAIN && !guard)) return false;
     if (guard) {
-      if (!index(w.post[q], home.posts.length, 0) || w.patrol[q] !== -1 || w.leg[q] !== 0 || w.mode[q] === PATROL) return false;
+      if (!index(w.post[q], home.posts.length, 0) || w.patrol[q] !== -1 || !index(w.leg[q], WANDER_SPOTS + 1, 0) || w.mode[q] === PATROL) return false;
     } else if (w.post[q] !== -1 || !index(w.patrol[q], home.patrols.length, 0) || !index(w.leg[q], home.patrols[w.patrol[q]!]!.length, 0)) return false;
   }
   // A Boss Floor has exactly one Boss Warband, any other Floor none.

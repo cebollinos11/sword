@@ -156,6 +156,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       chaseSpeed: 1,
       closeIn: 4,
       arrive: 3,
+      wander: { radius: 8, seconds: 9, pace: 0.5, stay: 0.3 },
       elitePosts: 1,
       postFill: 75,
       patrolFill: 100,

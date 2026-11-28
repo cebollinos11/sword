@@ -328,7 +328,38 @@ export interface DelverTuning {
   readonly skillTints: Readonly<Record<string, number>>;
   /** The traitors' rules (docs/plans/delver.md, Stage 8a): Players on Team 1 who take over Warband Soldiers. */
   readonly traitor: TraitorTuning;
+  /** How a guard strolls round its post while it sees no one (`delver.wander`). */
+  readonly wander: WanderTuning;
   readonly floor: DelverFloorTuning;
+}
+
+/** How a guard Warband wanders round its post while it guards (`delver.wander`; docs/plans/delver.md, Stage 3). */
+export interface WanderTuning {
+  /** How far (m) from its post a guard may stroll (>= 0; 0: it stands at its post). */
+  readonly radius: number;
+  /** The seconds between a guard's picks of where to stand next (positive). */
+  readonly seconds: number;
+  /** Its stroll's pace as a multiple of the Squad's pace (positive). */
+  readonly pace: number;
+  /** The share (0 to 1) of its picks that send it back to its post itself. */
+  readonly stay: number;
+}
+
+/** `delver.wander` when Tuning Data names none. */
+const DEFAULT_WANDER: WanderTuning = { radius: 8, seconds: 9, pace: 0.5, stay: 0.3 };
+
+/** `delver.wander`, checked (absent: DEFAULT_WANDER). */
+function parseWander(v: unknown): WanderTuning {
+  if (v === undefined) return DEFAULT_WANDER;
+  const w = 'delver.wander';
+  const t = record(v, w);
+  const radius = finiteNumber(t, 'radius', w);
+  if (radius < 0) fail(`${w}.radius`, 'a number >= 0', radius);
+  const seconds = positive(t, 'seconds', w);
+  const pace = positive(t, 'pace', w);
+  const stay = finiteNumber(t, 'stay', w);
+  if (stay < 0 || stay > 1) fail(`${w}.stay`, 'a number from 0 to 1', stay);
+  return { radius, seconds, pace, stay };
 }
 
 /** How a traitor takes over Warband Soldiers (docs/plans/delver.md, Stage 8a; `delver.traitor`). */
@@ -880,6 +911,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     sizeHp,
     skillTints,
     traitor: parseTraitor(root.traitor),
+    wander: parseWander(root.wander),
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
   };
 }
