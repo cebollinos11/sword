@@ -428,7 +428,10 @@ export interface MarkerPoint {
   readonly z: number;
 }
 
-/** A patrol loop: a cycle of Halls (consecutive ones joined, the last to the first) and their centres. */
+/**
+ * A patrol loop: a cycle of Halls (consecutive ones joined, the last to the first) and their centres. An out-and-back route (`routeHalls`) is one
+ * too, written out and back: the tree path A … B then its inner Halls reversed (A, X, Y, B, Y, X), so a Hall may appear twice.
+ */
 export interface DelverPatrol {
   readonly halls: readonly number[];
   readonly points: readonly LevelPoint[];
@@ -471,7 +474,7 @@ export const SALT = {
   galleryStair: 60, galleryWrap: 61, galleryU: 62,
   feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70, dais: 71, daisSide: 72,
   lava: 73, lavaKind: 74, lavaSide: 75, lavaWide: 76, lavaTwo: 77,
-  setPiece: 78, setPieceKind: 79, uphillAxis: 80, uphillEnd: 81, spiralBase: 82, spiralTurn: 83, roomPick: 84, roomFrame: 85,
+  setPiece: 78, setPieceKind: 79, uphillAxis: 80, uphillEnd: 81, spiralBase: 82, spiralTurn: 83, roomPick: 84, roomFrame: 85, route: 86,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -2383,9 +2386,35 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     cycles.push({ halls: path, order });
   });
   cycles.sort((a, b) => b.halls.length - a.halls.length || a.order - b.order);
-  const patrols: DelverPatrol[] = cycles.slice(0, t.patrols).map((c) => ({
-    halls: c.halls,
-    points: c.halls.map((h) => ({ x: halls[h]!.cx, y: hy(h), z: halls[h]!.cz })),
+  const patrolHalls: number[][] = cycles.slice(0, t.patrols).map((c) => c.halls);
+  // 8'. Out-and-back routes fill the slots no loop did: the tree path between two Halls (`routeHalls` Halls long, the Entrance and the in-line
+  // Halls never on it, no Hall another patrol walks), the longest such paths first, one picked by seed; walked A … B and back.
+  const [routeMin, routeMax] = t.routeHalls ?? [0, 0];
+  if (routeMax > 0 && patrolHalls.length < t.patrols) {
+    const paths: number[][] = [];
+    for (let a = 0; a < n; a++) {
+      const { pred: up } = dijkstra(treeEdges, [a]);
+      for (let b = a + 1; b < n; b++) {
+        const path: number[] = [];
+        for (let h = b; h !== -1 && path.length <= routeMax; h = up[h]!) path.push(h);
+        if (path[path.length - 1] !== a || path.length < routeMin || path.length > routeMax) continue;
+        if (path.some((h) => h === entrance || isInLine[h])) continue;
+        paths.push(path.reverse());
+      }
+    }
+    while (patrolHalls.length < t.patrols) {
+      const used = new Set(patrolHalls.flat());
+      const free = paths.filter((p) => !p.some((h) => used.has(h)));
+      if (free.length === 0) break;
+      const longest = Math.max(...free.map((p) => p.length));
+      const best = free.filter((p) => p.length === longest);
+      const path = best[pick(patrolHalls.length, SALT.route, best.length)]!;
+      patrolHalls.push([...path, ...path.slice(1, -1).reverse()]);
+    }
+  }
+  const patrols: DelverPatrol[] = patrolHalls.map((c) => ({
+    halls: c,
+    points: c.map((h) => ({ x: halls[h]!.cx, y: hy(h), z: halls[h]!.cz })),
   }));
 
   // Stage 7f: an Uphill or a Spiral the Entrance, a Rest or the Treasure took for want of any other Hall (`plainOf`).

@@ -347,7 +347,9 @@ describe('the Floor generator soak', () => {
     const failedTotal = dealt.reduce((n, d) => n + d.attempts - 1, 0);
     lines.push(`  failed attempts (attempts - 1 summed): ${failedTotal}, allowed ${PAIRS / 20}`);
     const patrolFloors = [0, 1, 2].map((n) => floors.filter((p) => p.markers.patrols.length === n).length);
-    lines.push(`  patrols per Floor: 0: ${patrolFloors[0]}, 1: ${patrolFloors[1]}, 2: ${patrolFloors[2]}; Floors with a patrol loop: ${floors.length - patrolFloors[0]!}`);
+    const routes = floors.reduce((n, p) => n + p.markers.patrols.filter((pt) => new Set(pt.halls).size < pt.halls.length).length, 0);
+    const floorsWithRoute = floors.filter((p) => p.markers.patrols.some((pt) => new Set(pt.halls).size < pt.halls.length)).length;
+    lines.push(`  patrols per Floor: 0: ${patrolFloors[0]}, 1: ${patrolFloors[1]}, 2: ${patrolFloors[2]}; Floors with a patrol loop: ${floors.length - patrolFloors[0]!}; out-and-back routes: ${routes} on ${floorsWithRoute} Floors`);
     lines.push(`  Halls in line with the Entrance, total: ${floors.reduce((s, p) => s + p.inLine.length, 0)}`);
     // Levels, galleries, sloped Passages and Deck posts on the passing Floors.
     const levelCount = floors.map((p) => new Set(p.halls.map((h) => h.level)).size);
