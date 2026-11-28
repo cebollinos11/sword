@@ -2389,13 +2389,15 @@ describe('out-and-back patrol routes', () => {
     planFloor(floorTuningOf(on.delver, floor), seed, floor, 0, isBossFloor(on.delver, floor), tierOf(on.delver, floor));
   const pairs = Array.from({ length: 60 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const isLoop = (halls: readonly number[]) => new Set(halls).size === halls.length;
+  const { routeHalls: _, ...loopFloor } = bundled.delver.floor;
+  const withoutRoutes = { ...bundled, delver: { ...bundled.delver, floor: loopFloor } };
 
   it('fills only the slots no loop fills, with a tree path of routeHalls Halls walked there and back, never the same route twice', () => {
     const [lo, hi] = bundled.delver.floor.routeHalls!;
     let routes = 0;
     for (const { seed, floor } of pairs) {
       const p = planOf(bundled, seed, floor);
-      const loopsOnly = planOf(noRoutes(bundled), seed, floor);
+      const loopsOnly = planOf(withoutRoutes, seed, floor);
       const loops = p.markers.patrols.filter((pt) => isLoop(pt.halls));
       // The loops are the plan's without routes, first; every other patrol is a route.
       expect(loops).toEqual(loopsOnly.markers.patrols);
@@ -2409,12 +2411,9 @@ describe('out-and-back patrol routes', () => {
         expect(half).toBeLessThanOrEqual(hi);
         expect(isLoop(path)).toBe(true);
         expect(pt.halls).toEqual([...path, ...path.slice(1, -1).reverse()]);
-        // Along tree Passages only, never through the Entrance or an in-line Hall.
+        // Along tree Passages only, never through the Entrance (an in-line Hall may be on it: patrolsInLine).
         for (let k = 0; k + 1 < path.length; k++) expect(p.passages.some((q) => !q.loop && ((q.a === path[k] && q.b === path[k + 1]) || (q.b === path[k] && q.a === path[k + 1])))).toBe(true);
-        for (const h of path) {
-          expect(h).not.toBe(p.entrance);
-          expect(p.inLine.includes(h)).toBe(false);
-        }
+        for (const h of path) expect(h).not.toBe(p.entrance);
         // Never the same route twice (it may share Halls with another patrol).
         expect(p.markers.patrols.filter((o) => JSON.stringify(o.halls) === JSON.stringify(pt.halls))).toHaveLength(1);
         pt.halls.forEach((h, k) => expect([pt.points[k]!.x, pt.points[k]!.z]).toEqual([p.halls[h]!.cx, p.halls[h]!.cz]));
@@ -2423,9 +2422,24 @@ describe('out-and-back patrol routes', () => {
     expect(routes).toBeGreaterThan(0);
   });
 
+  it('lets a patrol through the in-line Halls with patrolsInLine, never through the Entrance, and keeps it out of them without', () => {
+    expect(bundled.delver.floor.patrolsInLine).toBe(true);
+    let through = 0;
+    for (const { seed, floor } of pairs) {
+      const p = planOf(bundled, seed, floor);
+      for (const pt of p.markers.patrols) {
+        expect(pt.halls.includes(p.entrance)).toBe(false);
+        if (pt.halls.some((h) => p.inLine.includes(h))) through++;
+      }
+      const off = planOf(noRoutes(bundled), seed, floor);
+      for (const pt of off.markers.patrols) expect(pt.halls.some((h) => h === off.entrance || off.inLine.includes(h))).toBe(false);
+    }
+    expect(through).toBeGreaterThan(0);
+  });
+
   it('leaves the plan as it was with no routeHalls', () => {
     for (const { seed, floor } of pairs.slice(0, 20)) {
-      const off = noRoutes(bundled);
+      const off = withoutRoutes;
       const p = planOf(off, seed, floor);
       expect(p.markers.patrols.every((pt) => isLoop(pt.halls))).toBe(true);
     }

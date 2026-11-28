@@ -22,7 +22,8 @@
  *     centre, and the point 1 m inside the last piece (each on the Walk Surface at its own height); between each two the field is at most `follow` times the leg's length,
  *     and so is the reverse (a sloped leg is climbed and walked down). A straight Passage is one leg.
  *  5. `markers`: each marker stands in its Hall, on a Walk Surface at its own height (a Hall's floor or a Deck), off any hazard and no roof, and is reached from the Entrance.
- *  6. `sight`: no Warband post, patrol point or Boss post is in sight of an Entrance spawn (each at its own height).
+ *  6. `sight`: no Warband post, patrol point or Boss post is in sight of an Entrance spawn (each at its own height). With `patrolsInLine` a patrol
+ *     point is not judged (a patrol may walk through the Halls in line with the Entrance, so it may be seen from a spawn); posts and the Boss post still are.
  *  7. `galleries` (Stage 6): each gallery's Deck centre is a Walk Surface at the Deck's height that is no roof, reached from the Entrance, and its Hall's centre is reached from it.
  *
  *  8. `tiers` (Stage 7c, after `galleries`): for each Hall with a feature, each floor part's centre (each tier; a pit's floor and its first rim; a dais's top) is a Walk Surface at its
@@ -823,7 +824,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
 
   const spawns = plan.markers.spawns;
   for (const mk of markers) {
-    if (mk.kind !== 'post' && mk.kind !== 'patrol' && mk.kind !== 'boss') continue;
+    if (mk.kind !== 'post' && (mk.kind !== 'patrol' || t.patrolsInLine) && mk.kind !== 'boss') continue;
     const seen = spawns.findIndex((sp) => inSight(fields, sp.x, sp.z, mk.x, mk.z, 0, sp.y, mk.y));
     if (seen >= 0) out.push(`sight: ${mk.name} (${halls[mk.hall]!.id}) is in sight of spawn${seen}`);
   }
