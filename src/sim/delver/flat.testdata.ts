@@ -17,9 +17,9 @@ export function fullFloors(tuning: TuningData): TuningData {
   return { ...tuning, delver };
 }
 
-/** `tuning` without `delver.floor.routeHalls`: patrols only on loops, as before the out-and-back routes, so a Floor is the one before them byte for byte. */
+/** `tuning` without `delver.floor.routeHalls` and `patrolsInLine`: patrols only on loops clear of the in-line Halls, as before the out-and-back routes, so a Floor is the one before them byte for byte. */
 export function noRoutes(tuning: TuningData): TuningData {
-  const { routeHalls: _, ...floor } = tuning.delver.floor;
+  const { routeHalls: _, patrolsInLine: __, ...floor } = tuning.delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor } };
 }
 

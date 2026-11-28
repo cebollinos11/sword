@@ -246,6 +246,17 @@ describe('the judge on a Boss Floor', () => {
     expect(judgeBuilt(t, withPlan(b, plan)).some((r) => r.startsWith('markers: boss '))).toBe(true);
   });
 
+  it('sight: judges a patrol point in the first Hall in line with the Entrance only without patrolsInLine', () => {
+    const b = inLine;
+    const k = b.plan.inLine[0]!;
+    const h = b.plan.halls[k]!;
+    const patrols = [{ halls: [k], points: [{ x: h.cx, y: h.y, z: h.cz }] }, ...b.plan.markers.patrols];
+    const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, patrols } });
+    expect(t.patrolsInLine).toBeUndefined();
+    expect(judgeBuilt(t, moved).filter((r) => r.startsWith('sight: patrol0.0 ') && r.includes(h.id))).toHaveLength(1);
+    expect(judgeBuilt({ ...t, patrolsInLine: true }, moved).filter((r) => r.startsWith('sight:'))).toEqual([]);
+  });
+
   it('sight: refuses the boss marker in the first Hall in line with the Entrance, naming it', () => {
     const b = bossInLine;
     const k = b.plan.inLine[0]!;

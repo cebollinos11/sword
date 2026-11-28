@@ -43,6 +43,8 @@ export interface DelverFloorTuning {
    * Absent (or max 0): no routes, only loops. min >= 2.
    */
   readonly routeHalls?: readonly [number, number];
+  /** true: a patrol (loop or route) may pass through the Halls in line with the Entrance, never the Entrance itself. Absent or false: it never does. */
+  readonly patrolsInLine?: boolean;
   /** The judge's Passage slack: a field distance along a Passage may be up to this times its length (>= 1). */
   readonly follow: number;
   /** The most layouts tried for one (seed, Floor) (whole, >= 1). */
@@ -816,6 +818,8 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const emptyPercent = percent(f, 'emptyPercent', w);
   const patrols = whole(f, 'patrols', w, 0);
   const routeHalls = f.routeHalls === undefined ? undefined : range(f, 'routeHalls', w, 2);
+  if (f.patrolsInLine !== undefined && typeof f.patrolsInLine !== 'boolean') fail(`${w}.patrolsInLine`, 'true or false', f.patrolsInLine);
+  const patrolsInLine = f.patrolsInLine === true;
   const follow = finiteNumber(f, 'follow', w);
   if (follow < 1) fail(`${w}.follow`, 'a number >= 1', follow);
   const maxAttempts = whole(f, 'maxAttempts', w, 1);
@@ -918,6 +922,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     skillTints,
     traitor: parseTraitor(root.traitor),
     wander: parseWander(root.wander),
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, ...(routeHalls ? { routeHalls } : {}), follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, ...(routeHalls ? { routeHalls } : {}), ...(patrolsInLine ? { patrolsInLine } : {}), follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars, lava, setPieces, drawnRooms },
   };
 }

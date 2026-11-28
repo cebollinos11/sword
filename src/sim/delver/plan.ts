@@ -460,7 +460,7 @@ export interface FloorPlan {
   readonly stairs: number;
   /** Hall indices from the Entrance to the Stairs by the shortest walk. */
   readonly mainPath: readonly number[];
-  /** The Halls in line with the Entrance (never posts or patrol Halls), in the order followed. */
+  /** The Halls in line with the Entrance (never posts, nor patrol Halls unless `patrolsInLine`), in the order followed. */
   readonly inLine: readonly number[];
   readonly markers: DelverMarkers;
   /** The Set Piece Gallery's Floor (dev only, `galleryFloorTuning`); absent on every Run's Floor. */
@@ -2369,6 +2369,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   });
 
   // 8. Patrol loops: each loop Passage closes the tree path between its Halls into a cycle.
+  /** A Hall no patrol walks: the Entrance, and (unless `patrolsInLine`) the Halls in line with it. */
+  const offPatrol = (h: number): boolean => h === entrance || (!t.patrolsInLine && isInLine[h]!);
   const treeEdges: Edge[][] = halls.map(() => []);
   plannedPassages.forEach((p) => {
     if (p.loop) return;
@@ -2382,13 +2384,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const path: number[] = [];
     for (let h = p.b; h !== -1; h = up[h]!) path.push(h);
     path.reverse();
-    if (path.some((h) => h === entrance || isInLine[h])) return;
+    if (path.some(offPatrol)) return;
     cycles.push({ halls: path, order });
   });
   cycles.sort((a, b) => b.halls.length - a.halls.length || a.order - b.order);
   const patrolHalls: number[][] = cycles.slice(0, t.patrols).map((c) => c.halls);
   // 8'. Out-and-back routes fill the slots no loop did: the tree path between two Halls (`routeHalls` Halls long, the Entrance and the in-line
-  // Halls never on it, no Hall another patrol walks), the longest such paths first, one picked by seed; walked A … B and back.
+  // Halls never on it unless `patrolsInLine`; it may share Halls with another patrol, never be another route), the longest such paths first, one picked by seed; walked A … B and back.
   const [routeMin, routeMax] = t.routeHalls ?? [0, 0];
   if (routeMax > 0 && patrolHalls.length < t.patrols) {
     const paths: number[][] = [];
@@ -2398,17 +2400,15 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const path: number[] = [];
         for (let h = b; h !== -1 && path.length <= routeMax; h = up[h]!) path.push(h);
         if (path[path.length - 1] !== a || path.length < routeMin || path.length > routeMax) continue;
-        if (path.some((h) => h === entrance || isInLine[h])) continue;
+        if (path.some(offPatrol)) continue;
         paths.push(path.reverse());
       }
     }
-    while (patrolHalls.length < t.patrols) {
-      const used = new Set(patrolHalls.flat());
-      const free = paths.filter((p) => !p.some((h) => used.has(h)));
-      if (free.length === 0) break;
-      const longest = Math.max(...free.map((p) => p.length));
-      const best = free.filter((p) => p.length === longest);
+    while (patrolHalls.length < t.patrols && paths.length > 0) {
+      const longest = Math.max(...paths.map((p) => p.length));
+      const best = paths.filter((p) => p.length === longest);
       const path = best[pick(patrolHalls.length, SALT.route, best.length)]!;
+      paths.splice(paths.indexOf(path), 1);
       patrolHalls.push([...path, ...path.slice(1, -1).reverse()]);
     }
   }
