@@ -306,8 +306,8 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
     expect(resolveTroop(tuning, { prefab: 'Uruk', variant: 'Uruk (Beginner)' }).quirks).toEqual(['Slow']);
     expect(resolveTroop(tuning, { prefab: 'Uruk', variant: 'Warden' }).quirks).toEqual([]);
     expect(resolveTroop(tuning, { prefab: 'Revenant', variant: 'Revenant (Expert)' }).quirks).toEqual([]);
-    // Only the roster pass's Variants carry Quirks, their elites too; no Boss does.
-    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow', 'Goblin (Beginner): Dumb', 'Ork (Beginner): Dumb', 'Tin Man (Beginner): Slow', 'Tin Man (Skilled): Slow', 'Tin Man (Expert): Slow']);
+    // Only the roster pass's Variants (and the common Goblin's and Ork's NoDaggers) carry Quirks, their elites too; no Boss does.
+    expect([...new Set(floorTroops(delver).troops.filter((t) => 'quirks' in t).map((t) => `${t.name.replace(/ \(elite\)$/, '')}: ${t.quirks!.join(' + ')}`))]).toEqual(['Bruiser (Beginner): Dumb', 'Squire (Skilled): Hopper', 'Squire (Expert): Hopper', 'Uruk (Beginner): Slow', 'Uruk (Skilled): Slow', 'Uruk (Expert): Slow', 'Goblin (Beginner): Dumb + NoDaggers', 'Goblin (Skilled): NoDaggers', 'Goblin (Expert): NoDaggers', 'Ork (Beginner): Dumb + NoDaggers', 'Ork (Skilled): NoDaggers', 'Ork (Expert): NoDaggers', 'Tin Man (Beginner): Slow', 'Tin Man (Skilled): Slow', 'Tin Man (Expert): Slow']);
     // Every Variant of the Revenant Dumb and Heavy (a body part: more damage, more max HP), elites and the Boss too.
     const heavy = { damage: 1.5, maxHp: 0.25 };
     const quirky: TuningData = {
@@ -327,7 +327,7 @@ describe('resolveTroop: a Delver Troop fought in a Duel (docs/plans/enemy-behavi
       expect(troopMods(quirky, t)).toEqual(foldMods([{ effects: t.mods }, ...(t.relics ?? []).map((r) => relicOf(tuning, r)), { effects: heavy }]));
     }
     // A Quirk Tuning Data lacks is refused, naming the known ones.
-    expect(() => troopMods(tuning, { ...revenants[0]!, quirks: ['Heavy'] })).toThrow(/Unknown Quirk "Heavy" \(have: Dumb, Hopper, Slow\)/);
+    expect(() => troopMods(tuning, { ...revenants[0]!, quirks: ['Heavy'] })).toThrow(/Unknown Quirk "Heavy" \(have: Dumb, Hopper, Slow, NoDaggers\)/);
   });
 
   it('refuses a Prefab, a Variant or a tier Tuning Data does not have, naming the known ones', () => {

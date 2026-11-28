@@ -286,9 +286,10 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, styles: undefined } })).toThrow(/ai\.styles/);
   });
 
-  it('loads the Quirks from data/ai.json: Dumb (defendRate 0), Hopper (its jump chances, and jumpNav at least 10) and Slow (walk 0.7, Wind-up 1.35)', () => {
+  it('loads the Quirks from data/ai.json: Dumb (defendRate 0), Hopper (its jump chances, and jumpNav at least 10), Slow (walk 0.7, Wind-up 1.35) and NoDaggers (throwRate and kite 0)', () => {
     const { quirks } = loadTuningData().ai;
-    expect(Object.keys(quirks)).toEqual(['Dumb', 'Hopper', 'Slow']);
+    expect(Object.keys(quirks)).toEqual(['Dumb', 'Hopper', 'Slow', 'NoDaggers']);
+    expect(quirks.NoDaggers).toEqual({ ai: { throwRate: 0, kite: 0 } });
     expect(quirks.Slow).toEqual({ body: { walkSpeed: 0.7, windUp: 1.35 } });
     expect(quirks.Dumb).toEqual({ ai: { defendRate: 0 } });
     expect(quirks.Hopper).toEqual({ ai: { jumpAttackRate: { mul: 4, min: 0.002 }, jumpStep: { mul: 3, min: 0.3 }, jumpEscapeRate: { mul: 2, min: 0.1 }, landingPunish: { mul: 1.5, min: 0.2 }, jumpNav: { min: 10 } } });

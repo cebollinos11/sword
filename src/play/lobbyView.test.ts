@@ -232,10 +232,18 @@ describe('the Lobby view: a plain AI Seat\'s Quirks, in dev mode (docs/plans/ene
       ['Dumb', 'Dumb', ['Dumb']],
       ['Hopper', 'Hopper', ['Hopper']],
       ['Slow', 'Slow', ['Slow']],
+      ['NoDaggers', 'NoDaggers', ['NoDaggers']],
       ['Dumb+Hopper', 'Dumb + Hopper', ['Dumb', 'Hopper']],
       ['Dumb+Slow', 'Dumb + Slow', ['Dumb', 'Slow']],
       ['Hopper+Slow', 'Hopper + Slow', ['Hopper', 'Slow']],
+      ['Dumb+NoDaggers', 'Dumb + NoDaggers', ['Dumb', 'NoDaggers']],
+      ['Hopper+NoDaggers', 'Hopper + NoDaggers', ['Hopper', 'NoDaggers']],
+      ['Slow+NoDaggers', 'Slow + NoDaggers', ['Slow', 'NoDaggers']],
       ['Dumb+Hopper+Slow', 'Dumb + Hopper + Slow', ['Dumb', 'Hopper', 'Slow']],
+      ['Dumb+Hopper+NoDaggers', 'Dumb + Hopper + NoDaggers', ['Dumb', 'Hopper', 'NoDaggers']],
+      ['Dumb+Slow+NoDaggers', 'Dumb + Slow + NoDaggers', ['Dumb', 'Slow', 'NoDaggers']],
+      ['Hopper+Slow+NoDaggers', 'Hopper + Slow + NoDaggers', ['Hopper', 'Slow', 'NoDaggers']],
+      ['Dumb+Hopper+Slow+NoDaggers', 'Dumb + Hopper + Slow + NoDaggers', ['Dumb', 'Hopper', 'Slow', 'NoDaggers']],
     ]);
   });
 });

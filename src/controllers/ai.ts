@@ -2332,7 +2332,8 @@ class RuleAi implements AiController {
       const { windUpEnd, releaseEnd } = this.ownTimings(self, 'Thrust');
       if (windUpEnd + Math.ceil((releaseEnd - windUpEnd) / 2) + this.reactionTicks < reachIn) return this.startAttack(state.tick, self, o, dist, base, { direction: 'Thrust', timed: true });
     }
-    if (self.daggers > 0 && dist > R + 1 && dist <= this.tuning.ai.throwRange && this.clearLine(state, self, o) && throwTimings(this.tuning, self.weapon).windUpEnd + this.reactionTicks < reachIn) {
+    // A dagger only from an AI that throws at all (`throwRate` above 0: the NoDaggers Quirk sets it to 0).
+    if (this.skill.throwRate > 0 && self.daggers > 0 && dist > R + 1 && dist <= this.tuning.ai.throwRange && this.clearLine(state, self, o) && throwTimings(this.tuning, self.weapon).windUpEnd + this.reactionTicks < reachIn) {
       this.aimError = 0;
       return { ...base, ...this.throwAim(self, o, dist), throw: true };
     }

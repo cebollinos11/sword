@@ -355,6 +355,15 @@ describe('AI Whirlwind: answering it', () => {
     expect(run.states.slice(staggered).every((s) => !(s.fighters[1]!.action.kind === 'Whirlwind' && s.fighters[1]!.action.phase === 'Spin'))).toBe(true);
   });
 
+  it('a Spin driving past it, too slow to reach it before a throw lands, gets a dagger; with throwRate 0 (the NoDaggers Quirk) none', () => {
+    const start = atSpin({ x: 0, z: 3 }, 'Left', [], -Math.PI / 2);
+    const throws = playOn(start, reads({ throwRate: 0.04 }), 120);
+    expect(events(throws.run, 'DaggerThrown').filter((e) => e.thrower === 0)).toHaveLength(1);
+    const none = playOn(start, reads({ throwRate: 0 }), 120);
+    expect([...none.intents.values()].some((i) => i.throw)).toBe(false);
+    expect(events(none.run, 'DaggerThrown')).toHaveLength(0);
+  });
+
   it('with whirlwindRead 0 it answers nothing: its Intents are those with the key absent', () => {
     const { whirlwindRead: _d, ...without } = reads();
     const track: Track = [...heldG('Left'), ...wait(200)];
