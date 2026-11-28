@@ -200,6 +200,7 @@ import {
   whirlwindTimings,
   type Action,
   type Direction,
+  type Airborne,
   type FighterState,
   type Intent,
   type JumpLink,
@@ -2375,13 +2376,14 @@ class RuleAi implements AiController {
    * `intent` with the last guard against Lava, on a Delver Floor that has some, for every path that returns a raw walk (a step in on
    * its target, a route's corner, the waiting ring) and against what moves a body that gives no move at all (the other Fighters'
    * capsules push it apart): on the ground, within EDGE_KEEP of Lava its move loses the part that goes toward it, and
-   * within EDGE_NEAR it steps inboard. Not in the air or in the run-up of a jump Link. Elsewhere (a Battle, a Duel, a Floor with no Lava) the
-   * intent is returned as it is: a Duel's edges are the fight.
+   * within EDGE_NEAR it steps inboard. In the air (`airKeep`) it steers its flight off a deadly landing. Not in a jump Link's run-up or flight.
+   * Elsewhere (a Battle, a Duel, a Floor with no Lava) the intent is returned as it is: a Duel's edges are the fight.
    */
   private edgeKeep(state: SimState, self: FighterState, intent: Intent): Intent {
-    if (self.air || this.jumpRun || !parseFloorArena(state.arena)) return intent;
+    if (this.jumpRun || !parseFloorArena(state.arena)) return intent;
     const { tuning: tn, arena } = this.world(state);
     if (!hasLava(arena)) return intent;
+    if (self.air) return this.airKeep(arena, tn, self, self.air, intent);
     const { stepUp } = tn.fall;
     const deadlyAt = (x: number, z: number): boolean => {
       const g = groundBelow(arena, x, z, self.y + stepUp);
@@ -2414,6 +2416,22 @@ class RuleAi implements AiController {
     }
     if (x === intent.move.x && z === intent.move.z) return intent;
     return { ...intent, move: { x, z } };
+  }
+
+  /**
+   * In the air (a hop, a leap, a walk or a shove off a ledge): when its flight, steered along `intent.move`, comes down deadly (on
+   * Lava, or never landing), the move steered along the first of these that lands safely instead: its flight's own heading, then each
+   * of EDGE_DIRS nearest `intent.move` first. A Fighter that stopped steering mid-hop to Block came down short in a lava river. Its
+   * other inputs (a Block, an Attack) it keeps. With no safe way, `intent` as it is.
+   */
+  private airKeep(arena: ArenaGeometry, tn: TuningData, self: FighterState, air: Airborne, intent: Intent): Intent {
+    const lands = (move: Vec2) => !jumpArcFrom(arena, tn, { at: self.position, y: self.y, air, move }).deadly;
+    if (lands(intent.move)) return intent;
+    const m = intent.move;
+    const flight = Math.hypot(air.vx, air.vz) > 1e-6 ? [unit({ x: air.vx, z: air.vz })] : [];
+    const dirs = EDGE_DIRS.map(([x, z]) => ({ x, z })).sort((a, b) => b.x * m.x + b.z * m.z - (a.x * m.x + a.z * m.z));
+    for (const d of [...flight, ...dirs]) if (lands(d)) return { ...intent, move: d };
+    return intent;
   }
 
   /** `m` if it walks onto safe ground, else the nearest safe heading turned up to 135° aside (keeping its speed), else standing still. */

@@ -41,8 +41,8 @@
  * Stage 3) every distance to a Bubble's centre is the walk (`walkDistance`: through a Wall is a long way round, Infinity where unreached), a promoted
  * Soldier's Fighter takes its `crowd.maxHp`, and no Player takes over a Soldier. Pure.
  */
-import { bubbleSlots, type BattleTuning, type Size, type TuningData } from '../tuning';
-import { arenaOf } from './arena';
+import { bubbleSlots, sizedTuning, type BattleTuning, type Size, type TuningData } from '../tuning';
+import { arenaOf, groundBelow } from './arena';
 import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
 import { soldierSize, troopOf, walkDistance, walkField, type BattlePlayer, type CrowdState } from './crowd';
@@ -517,9 +517,39 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       e.crowd.slot[s] = k;
     };
     /**
+     * Whether Soldier `s`'s Fighter, in its own Size, would keep its footing: a body promoted into another (on its level) is pushed apart
+     * from it at once, and where that push (taken whole) would carry it off its floor (at a lava pit's edge it carried it in) it waits
+     * until there is room. On open ground it promotes as it stands.
+     */
+    let arenaGeometry: ReturnType<typeof arenaOf> | null = null;
+    const geometry = () => (arenaGeometry ??= arenaOf(tuning, duel.arena));
+    const roomFor = (s: number): boolean => {
+      // The open field's heightfield has no ledges.
+      if (!field.heights.walk) return true;
+      const c = soldiers();
+      const x = c.x[s]!;
+      const z = c.z[s]!;
+      const y = soldierHeight(field, c.surface[s]!, x, z);
+      const own = sizedTuning(tuning, soldierSize(c, s)).fighter;
+      const { stepUp, snapDown } = tuning.fall;
+      return pool().every((o) => {
+        if (!inDuel(o)) return true;
+        const other = sizedTuning(tuning, o.size).fighter;
+        if (Math.abs(o.y - y) >= (o.y > y ? own.height : other.height)) return true;
+        const dx = x - o.position.x;
+        const dz = z - o.position.z;
+        const d = Math.hypot(dx, dz);
+        const overlap = own.radius + other.radius - d;
+        if (overlap <= 0) return true;
+        const [ux, uz] = d > 1e-9 ? [dx / d, dz / d] : [1, 0];
+        const g = groundBelow(geometry(), x + ux * overlap, z + uz * overlap, y + stepUp);
+        return g !== null && g.y >= y - snapDown;
+      });
+    };
+    /**
      * Whether Soldier `s` may promote into Bubble `b`, as an ally of its Player or an enemy: in the Crowd, living, its Team not
      * routed, within `promote` of the Player's Fighter and no nearer another Bubble of that kind; on a hand-built map, no more than
-     * `levels.promote` above or below it (never through a floor).
+     * `levels.promote` above or below it (never through a floor); and where its Fighter has room (`roomFor`).
      */
     const promotable = (s: number, b: number, ally: boolean) => {
       const c = soldiers();
@@ -527,6 +557,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       if (!c.alive[s] || c.slot[s]! >= 0 || c.rout?.team === c.team[s] || (c.team[s] === centre.team) !== ally) return false;
       if (away(b, c.x[s]!, c.z[s]!, c.surface[s]!) > bubble.promote) return false;
       if (field.heights.walk && Math.abs(soldierHeight(field, c.surface[s]!, c.x[s]!, c.z[s]!) - centre.y) > tuning.battle.levels.promote) return false;
+      if (!roomFor(s)) return false;
       return nearestCentre(centres, c.team[s]!, ally, (i) => away(i, c.x[s]!, c.z[s]!, c.surface[s]!)) === b;
     };
 
