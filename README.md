@@ -17,7 +17,7 @@ Sword dueling game
 | F | Kick |
 | E (hold) | Throw a dagger: hold to draw it back, let go to throw |
 | R | Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again |
-| Q | Feint, during a Wind-up, into the Direction you last moved |
+| Left Shift | Feint, during a Wind-up, into the Direction you last moved |
 | Esc | Menu (frees the mouse) |
 
 Attack or Block while Sheathed Draws the Weapon first.

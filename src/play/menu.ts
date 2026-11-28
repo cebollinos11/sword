@@ -131,7 +131,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['G (hold)', 'Whirlwind: hold 1 s to coil it to the side you last moved (left or right), let go to spin five turns that hit everyone in reach; the mouse steers, crouch lowers the blade, Space jumps'],
   ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
   ['R', 'Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again'],
-  ['Q', 'Feint, during a Wind-up, into the Direction you last moved'],
+  ['Left Shift', 'Feint, during a Wind-up, into the Direction you last moved'],
   ['P', 'First-person view on or off (it steps back to third person during a Whirlwind or a Knockdown)'],
   ['Esc', 'Menu (frees the mouse)'],
 ];

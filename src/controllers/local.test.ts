@@ -204,12 +204,12 @@ describe('Local Controller', () => {
       expect(face).toBeLessThanOrEqual(Math.PI);
     });
 
-    it('the Q key is the Attack Feint gesture', () => {
+    it('the Left Shift key is the Attack Feint gesture', () => {
       const local = new LocalController();
       local.buttonDown('attack');
       next(local);
       local.mouseMove(0, 40);
-      local.keyDown('KeyQ');
+      local.keyDown('ShiftLeft');
       expect(next(local).direction).toBe('Thrust');
     });
 

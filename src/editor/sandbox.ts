@@ -588,7 +588,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     ui.playing = true;
   });
   const help = {
-    text: 'You are yellow. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Q Feint · E throw a dagger · Space pause/play (try the Runner (test) opponent).',
+    text: 'You are yellow. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Left Shift Feint · E throw a dagger · Space pause/play (try the Runner (test) opponent).',
   };
   vs.addBinding(help, 'text', { readonly: true, label: 'controls', multiline: true, rows: 3 });
 

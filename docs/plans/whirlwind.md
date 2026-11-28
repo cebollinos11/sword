@@ -14,7 +14,7 @@ Players want a move that hits many enemies at once. The goal is **spectacle**: f
 - **G key, own Action** (`Whirlwind`, built like the Kick), not an Attack Direction.
 - **Weapons in v1:** every Weapon **except the Flail**, sharing one default Motion (per-Weapon Motion overrides as needed). The Flail comes in a later stage.
 - **Wind-up (charge):** hold the key. The spin is armed once **1.0 s** has passed (Tuning Data). **Letting go after that spins; letting go earlier cancels** with no spin. Holding longer keeps it armed.
-- **During the hold:** the Fighter can **walk slowly** and turn. It **can begin the hold in a Jump or crouched**. **Letting go early is the only cancel**: Q (Feint) and Block don't cancel it.
+- **During the hold:** the Fighter can **walk slowly** and turn. It **can begin the hold in a Jump or crouched**. **Letting go early is the only cancel**: Left Shift (Feint) and Block don't cancel it.
 - **Direction:** **Left or Right only**, taken from the most recent horizontal mouse movement, the same way an Attack Direction is read. The opponent reads it from the pose.
 
 ### The spin
@@ -78,7 +78,7 @@ Players want a move that hits many enemies at once. The goal is **spectacle**: f
 ### Stage 1: Vocabulary, Intent and the hold
 - `Intent.whirlwind?: boolean` (G held). Add it to `isIntent`, the Local Controller (`WHIRLWIND_KEY = 'KeyG'`), and any Intent prediction/serialisation.
 - `WhirlwindAction` in `state.ts`: `phase: 'Wind-up' | 'Spin' | 'Recovery'`, `direction: 'Left' | 'Right'`, `armed`, `turn`, and per-turn hit bookkeeping (stage 3). Starter in `STARTERS` (after Kick): from Idle, on the ground, in a Jump (`startAction`'s rule) or crouched; not Sheathed. Direction from `intent.direction` when it is Left or Right; for Overhead or Thrust, the Fighter's last horizontal one (decide and test it).
-- The hold: armed after `armSeconds`; letting go armed → Spin; letting go earlier → Idle (no Feint, no Block cancel: Q and block do nothing). Walk at `holdWalkFactor`; turning as normal.
+- The hold: armed after `armSeconds`; letting go armed → Spin; letting go earlier → Idle (no Feint, no Block cancel: Left Shift and block do nothing). Walk at `holdWalkFactor`; turning as normal.
 - Default Motions `WhirlwindHold` (coiled to the chosen side, mirrored for Left/Right) with every non-Flail Weapon using it. A Weapon with no Motion (the Flail) cannot start a Whirlwind until Stage 6.
 - Events: `WhirlwindPhase { fighter, phase }` and `WhirlwindArmed { fighter }`.
 - `CONTEXT.md`: add Whirlwind to the **Action** list, and update **Whirlwind**'s entry from "planned".
@@ -113,7 +113,7 @@ Later Stages add optional fields (Stage 2 the drive heading, Stage 3 the per-tur
 **Starter** `startWhirlwind` (`src/sim/actions/whirlwind.ts`), in `STARTERS` after `startKick`: `[startSheathe, startKick, startWhirlwind, startThrow, startAttack, startBlock]`. Starts when `intent.whirlwind === true`, the Fighter is not `sheathed` (G does nothing while Sheathed: it does not Draw), and `canWhirlwind(tuning, f.weapon)`. Crouched is fine; in the air only in a Jump (`startAction`'s rule already). Emits `WhirlwindPhase {phase: 'Wind-up'}`. Returns `{kind:'Whirlwind', phase:'Wind-up', direction, ticks:0, armed:false, turn:0}` playing the hold Motion at tick 0.
 - **Direction (settled):** `whirlwindDirection(d: Direction): WhirlwindDirection`: Left → Left, Right → Right, Overhead or Thrust → **Right**. The Simulation keeps no memory of past Directions; the *Local Controller* remembers the last horizontal gesture and latches it into `intent.direction` when G is pressed, so a human always sends Left or Right. The fallback Right only applies to Controllers that send something else (the AI, touch).
 
-**Update** `updateWhirlwind` (`HANDLERS.Whirlwind`; ignores `attack`, `block`, `kick`, `throw`, `sheathe` and Q's Feint entirely, so none of them cancels it):
+**Update** `updateWhirlwind` (`HANDLERS.Whirlwind`; ignores `attack`, `block`, `kick`, `throw`, `sheathe` and Left Shift's Feint entirely, so none of them cancels it):
 - *Wind-up:* G held → `ticks + 1`; when it reaches `armTicks`, `armed = true` and emit `WhirlwindArmed {fighter}` (once, on that Tick). G not held → armed: enter Spin (`ticks 0`, `turn 0`, emit `WhirlwindPhase Spin`); not armed: Idle (`IDLE_ACTION`, `IDLE_MOTION`) and emit `WhirlwindPhase {phase:'Cancelled'}`. So holding from the starting Tick S, the Fighter is armed by the held Intent of Tick S + armTicks (the arming Tick must itself be held), and letting go on any later Tick spins; letting go on Tick S + armTicks or earlier cancels. G is held for armTicks + 1 Intents (1.017 s at the defaults) before a release spins.
 - A human whose G overlaps a held attack (or a Wheel Attack) may start a Whirlwind with an Overhead or Thrust Direction; it coils Right. Accepted: the overlap is rare and the result is still a readable Whirlwind.
 - *Spin:* `ticks + 1`, `turn = floor((ticks+1) / turnTicks)`; when `ticks + 1 >= spinTicks` enter Recovery (`ticks 0`, turn kept at turns-1, emit `WhirlwindPhase Recovery`). In Stage 1 nothing else happens (no turning, drive or contact: Stage 2 and 3).

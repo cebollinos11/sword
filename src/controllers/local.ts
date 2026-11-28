@@ -42,7 +42,7 @@ export const MAX_LOOK_PITCH = 1.1;
 export const FACE_STEPS = 4096;
 
 /** The key that re-aims a held Attack at the latest mouse gesture (an Attack Feint). */
-export const FEINT_KEY = 'KeyQ';
+export const FEINT_KEY = 'ShiftLeft';
 
 /**
  * How long (seconds) a Wheel Attack waits for its Fighter to be able to start it (out of a Stagger, a Kick, a Block...)
@@ -95,7 +95,7 @@ function quantiseYaw(yaw: number): number {
  *   (left/right/up/down = Left/Right/Overhead/Thrust); with no gesture since
  *   the last Action the last Direction is kept; Overhead before any gesture.
  * - The Direction is locked while attack is held: turning the camera during a
- *   held Wind-up is NOT a Feint. Feints are deliberate: Q re-aims a held Attack
+ *   held Wind-up is NOT a Feint. Feints are deliberate: Left Shift re-aims a held Attack
  *   at the latest gesture (Attack Feint); right mouse during a Wind-up blocks
  *   in the latest gesture's Direction (Block Feint).
  * - Left mouse held = Wind-up, let go = Release; right mouse = Block; WASD
