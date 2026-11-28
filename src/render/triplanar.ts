@@ -110,8 +110,10 @@ export type Surface = keyof typeof FINISHES;
 
 /** How sharply the planes separate: the blend weight of a plane is its normal component to this power. */
 const SHARPNESS = 4;
-/** Magnified texels stay crisp (the textures are only 64 px), shrunk ones are filtered. */
+/** Magnified texels stay crisp (the textures are only 64 px). */
 const MAG_FILTER = THREE.NearestFilter;
+/** Shrunk texels stay crisp too: the nearest texel of the nearest mip, so distant surfaces are not smoothed into a blur. */
+const MIN_FILTER = THREE.NearestMipmapNearestFilter;
 
 /** The URL of a texture's image. */
 export const textureUrl = (tex: TextureName): string => `${import.meta.env.BASE_URL}textures/battle/${tex}.png`;
@@ -205,6 +207,7 @@ function textureOf(tex: TextureName): Loaded {
   new THREE.TextureLoader().load(textureUrl(tex), (texture) => {
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     texture.magFilter = MAG_FILTER;
+    texture.minFilter = MIN_FILTER;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 4;
     uniforms.mean.value.copy(averageOf(texture.image as CanvasImageSource & { width: number; height: number }));
